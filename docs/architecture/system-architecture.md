@@ -198,11 +198,21 @@ Examples:
 - web_fetch
 - shell_execute
 
+
 Each tool contains metadata describing:
 
 - Risk level
 - Required permissions
 - Approval requirements
+
+Tool categories:
+
+- Read Operations
+- Write Operations
+- External Network Operations
+- Administrative Operations
+
+Higher-risk categories may require additional authorization checks or approval workflows.
 
 ---
 
@@ -340,7 +350,7 @@ Future implementation will use:
 
 ## Sprint 1
 
-- Agent Registry
+- Agent Inventory
 - JWT Authentication
 - Tool Registry
 - Audit Logging
