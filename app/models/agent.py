@@ -22,5 +22,5 @@ class Agent(BaseModel):
     name: str
     owner: str
     risk_tier: RiskTier
-    approved_tools: list[str] = []
+    approved_tools: list[str] = Field(default_factory=list)
     status: AgentStatus = AgentStatus.REGISTERED
