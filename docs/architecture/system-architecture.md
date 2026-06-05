@@ -78,58 +78,77 @@ Security-critical decisions should not depend solely on LLM output.
 # High-Level Architecture
 
 ```text
-User
-  │
-  ▼
-Business Agent
-  │
-  ▼
-Agent Gateway
-  │
-  ▼
-Policy Decision Point
-  │
-  ├── Authorization Engine
-  ├── Risk Engine
-  └── Approval Engine
-  │
-  ▼
-Tool Registry
-  │
-  ▼
-Enterprise Tools
-
-All Events
-  │
-  ▼
-Audit Pipeline
-  │
-  ▼
-Detection Engine
-  │
-  ▼
-Security Agent
-  │
-  ▼
-Dashboard
+Security Analysts / Administrators
+                    ↓
+         Web Management Console
+                    ↓
+                FastAPI API
+                    ↓
+                Agent Gateway
+                    ↓
+           Authorization Engine
+                    ↓
+               Policy Engine
+                    ↓
+               Tool Registry
+                    ↓
+             Enterprise Tools
+                    ↓
+              Audit Pipeline
+                    ↓
+             Detection Engine
+                    ↓
+                Risk Engine
+                    ↓
+              Security Agent
 ```
+
+---
+
+# Trust Boundaries
+
+The platform defines explicit trust boundaries between users, agents, tools, and enterprise systems.
+
+## Boundary 1: User → Agent
+
+User input is considered untrusted and may contain malicious instructions or prompt injection attempts.
+
+## Boundary 2: Agent → Agent Gateway
+
+Agent requests are validated before entering the platform.
+
+## Boundary 3: Gateway → Tool Execution
+
+All tool executions require authorization and policy evaluation.
+
+## Boundary 4: Tool → Enterprise Resource
+
+Enterprise systems are protected through least-privilege access controls and approval workflows.
+
+## Boundary 5: Platform → Management Console
+
+Administrative actions require authentication, authorization, and full audit logging.
 
 ---
 
 # Core Components
 
-## Agent Registry
+## Agent Inventory
 
-Maintains inventory of enterprise agents.
+The platform maintains a centralized inventory of all registered AI agents.
 
-Stores:
+Each agent contains:
 
-- Agent identity
+- Agent ID
 - Owner
+- Purpose
+- Risk Tier
+- Approved Tools
+- Data Classification
 - Environment
-- Risk tier
-- Approved tools
 - Status
+
+The inventory serves as the authoritative source of truth for agent governance, authorization, and risk evaluation decisions.
 
 ---
 
@@ -146,7 +165,9 @@ Responsibilities:
 
 ---
 
-## Policy Decision Point
+## Authorization Engine
+
+Acts as the Policy Decision Point (PDP)
 
 Central authorization component.
 
@@ -200,27 +221,118 @@ Events include:
 
 ## Detection Engine
 
-Processes audit events and generates findings.
+Processes audit events and authorization decisions to identify suspicious or unauthorized agent behavior and generate security findings.
 
-Examples:
+Responsibilities:
 
-- Excessive tool usage
-- Repeated denials
-- Suspicious activity patterns
+- Analyze audit events
+- Evaluate authorization outcomes
+- Detect anomalous behavior patterns
+- Generate security findings
+- Forward findings to the Risk Engine
+
+Example detections:
+
+- Excessive denied tool executions
+- Repeated policy violations
+- Unauthorized tool access attempts
+- Excessive file access
+- Potential prompt injection indicators
+- High-risk action frequency spikes
 - Potential data exfiltration
+
+Detection findings are forwarded to the Risk Engine for scoring and prioritization.
+
+---
+
+## Risk Engine
+
+The Risk Engine aggregates security telemetry and findings to calculate agent risk scores.
+
+Inputs:
+
+- Agent Risk Tier
+- Policy Violations
+- Detection Findings
+- Tool Usage Patterns
+- Approval History
+
+Outputs:
+
+- Risk Score
+- Severity Classification
+- Recommended Actions
+
+Example:
+
+Risk Score: 92
+
+Recommended Actions:
+
+- Disable Agent
+- Require Human Approval
+- Notify Security Team
 
 ---
 
 ## Security Agent
 
-SOC-style defensive agent.
+The platform includes a defensive security-focused agent.
 
-Responsibilities:
+Unlike business agents, the Security Agent does not execute enterprise actions.
 
-- Analyze findings
-- Explain risk
-- Recommend actions
-- Generate summaries
+Instead, it:
+
+- Reviews findings
+- Explains risk
+- Recommends mitigations
+- Assists incident triage
+
+Example:
+
+Finding:
+15 denied GitHub write attempts in 10 minutes.
+
+Recommendation:
+
+- Disable Agent
+- Require Approval Workflow
+- Investigate Credentials
+
+---
+
+## Management Console
+
+The platform includes a web-based management console for security analysts and administrators.
+
+The console provides visibility into:
+
+- Agent Inventory
+- Agent Risk Scores
+- Security Findings
+- Approval Workflows
+- Policy Violations
+- Audit Events
+- Platform Health
+
+The management console serves as the primary user interface for governance and operational security workflows.
+
+Future implementation will use:
+
+- Next.js
+- TypeScript
+- Tailwind CSS
+- shadcn/ui
+
+---
+
+### Planned Console Views
+
+- Agent Inventory Dashboard
+- Security Findings Dashboard
+- Approval Queue
+- Risk Monitoring
+- Audit Timeline
 
 ---
 
@@ -235,12 +347,36 @@ Responsibilities:
 
 ## Sprint 2
 
+- Authorization Engine
 - Policy Engine
-- Risk Scoring
 - Approval Workflow
 
 ## Sprint 3
 
+- Detection Engine
+- Findings Engine
+
+## Sprint 4
+
+- Risk Engine
+- Risk Scoring
+
+## Sprint 5
+
+- Management Console
+- Agent Inventory UI
+- Findings Dashboard
+
+## Sprint 6
+
 - Telemetry
-- Detection Rules
-- Security Dashboard
+- Prometheus
+- Grafana
+- OpenTelemetry
+- Jaeger
+
+## Sprint 7
+
+- Security Agent
+- Risk Recommendations
+- Investigation Workflows
