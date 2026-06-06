@@ -15,3 +15,4 @@ class Tool(BaseModel):
     risk_level: ToolRiskLevel
     required_permission: str
     approval_required: bool = False
+    description: str = ""

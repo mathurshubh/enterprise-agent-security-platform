@@ -1,3 +1,4 @@
+import pytest
 from app.models.agent import (
     Agent,
     AgentStatus,
@@ -38,21 +39,15 @@ def test_duplicate_agent_rejected():
 
     service.register_agent(agent)
 
-    try:
+    with pytest.raises(AgentAlreadyExistsError):
         service.register_agent(agent)
-        assert False
-    except AgentAlreadyExistsError:
-        pass
 
 
 def test_get_unknown_agent():
     service = AgentService()
 
-    try:
+    with pytest.raises(AgentNotFoundError):
         service.get_agent("missing-agent")
-        assert False
-    except AgentNotFoundError:
-        pass
 
 
 def test_list_agents():
