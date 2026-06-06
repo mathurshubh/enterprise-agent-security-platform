@@ -346,6 +346,21 @@ Future implementation will use:
 
 ---
 
+# Future Enhancements
+
+The platform is designed to support additional AI security capabilities.
+
+Planned future enhancements include:
+
+- OWASP LLM Top 10 risk mapping
+- MITRE ATLAS technique mapping
+- Agent attack simulation scenarios
+- Security posture scoring
+- Agent security maturity assessments
+- Multi-agent governance controls
+
+---
+
 # Initial Scope
 
 ## Sprint 1
