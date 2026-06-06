@@ -1,7 +1,7 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class Decision(str, Enum):
@@ -13,6 +13,8 @@ class Decision(str, Enum):
 class AuditEvent(BaseModel):
     event_id: str
     agent_id: str
-    tool: str
+    tool_id: str
     decision: Decision
-    timestamp: datetime
+    timestamp: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
