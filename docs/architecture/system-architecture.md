@@ -64,6 +64,7 @@ Questions that should always be answerable:
 - Which tool was used?
 - Why was it allowed?
 - What was the risk score?
+- Which session did it belong to?
 
 ---
 
@@ -102,7 +103,7 @@ Security Analysts / Administrators
                     ↓
                 Risk Engine
                     ↓
-      Risk-Based Authorization
+      Adaptive Security Controls
                     ↺
            Authorization Engine
 ```
@@ -146,6 +147,7 @@ Each agent contains:
 - Agent ID
 - Owner
 - Purpose
+- Business Function
 - Risk Tier
 - Approved Tools
 - Data Classification
@@ -414,7 +416,6 @@ Planned future enhancements include:
 
 - OWASP LLM Top 10 risk mapping
 - MITRE ATLAS technique mapping
-- Agent attack simulation scenarios
 - Security posture scoring
 - Agent security maturity assessments
 - Session-based behavioral analysis
