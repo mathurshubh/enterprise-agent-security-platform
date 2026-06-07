@@ -90,6 +90,8 @@ Security Analysts / Administrators
                     ↓
                Policy Engine
                     ↓
+             Session Context
+                    ↓
                Tool Registry
                     ↓
              Enterprise Tools
@@ -100,7 +102,9 @@ Security Analysts / Administrators
                     ↓
                 Risk Engine
                     ↓
-              Security Agent
+      Risk-Based Authorization
+                    ↺
+           Authorization Engine
 ```
 
 ---
@@ -175,14 +179,37 @@ Evaluates:
 
 - Agent identity
 - Tool permissions
-- Policies
+- Policy rules
+- Tool arguments
 - Risk level
+- Agent status
 
 Possible outcomes:
 
 - ALLOW
 - DENY
 - APPROVAL_REQUIRED
+
+---
+
+## Session Context
+
+Maintains context across a sequence of agent actions rather than evaluating requests in isolation.
+
+Future capabilities:
+
+- Session tracking
+- Conversation tracking
+- Multi-step activity correlation
+- Behavioral analysis
+- Detection context generation
+
+Examples:
+
+- Read then exfiltration sequences
+- Tool chain escalation
+- Repeated denied actions
+- Approval workflow abuse
 
 ---
 
@@ -227,6 +254,20 @@ Events include:
 - Policy violations
 - Approval actions
 
+Future audit attributes may include:
+
+- Session identifiers
+- Trigger source attribution
+- Policy evaluation results
+- Risk score snapshots
+
+Example trigger sources:
+
+- USER_PROMPT
+- AGENT_REASONING
+- TOOL_OUTPUT
+- RETRIEVED_CONTENT
+
 ---
 
 ## Detection Engine
@@ -250,6 +291,11 @@ Example detections:
 - Potential prompt injection indicators
 - High-risk action frequency spikes
 - Potential data exfiltration
+- Read-then-exfiltration sequences
+- Approval workflow abuse
+- Tool chain escalation
+- Indirect prompt injection indicators
+- Excessive approval requests
 
 Detection findings are forwarded to the Risk Engine for scoring and prioritization.
 
@@ -272,6 +318,7 @@ Outputs:
 - Risk Score
 - Severity Classification
 - Recommended Actions
+- Risk-Based Authorization Signals
 
 Example:
 
@@ -283,6 +330,17 @@ Recommended Actions:
 - Require Human Approval
 - Notify Security Team
 
+Future enhancement:
+
+Risk scores may influence authorization decisions through adaptive security controls.
+
+Examples:
+
+- Force approval workflow
+- Restrict tool access
+- Temporarily suspend agents
+- Deny high-risk actions
+
 ---
 
 ## Security Agent
@@ -290,6 +348,8 @@ Recommended Actions:
 The platform includes a defensive security-focused agent.
 
 Unlike business agents, the Security Agent does not execute enterprise actions.
+
+Security Agent recommendations are advisory and do not directly influence authorization decisions.
 
 Instead, it:
 
@@ -357,6 +417,11 @@ Planned future enhancements include:
 - Agent attack simulation scenarios
 - Security posture scoring
 - Agent security maturity assessments
+- Session-based behavioral analysis
+- Indirect prompt injection detection
+- Tool argument-level authorization
+- Risk-adaptive authorization
+- Attack simulation framework
 - Multi-agent governance controls
 
 ---
@@ -374,25 +439,29 @@ Planned future enhancements include:
 
 - Authorization Engine
 - Policy Engine
-- Approval Workflow
 
 ## Sprint 3
+
+- Session Context
+- Approval Workflow
+
+## Sprint 4
 
 - Detection Engine
 - Findings Engine
 
-## Sprint 4
+## Sprint 5
 
 - Risk Engine
 - Risk Scoring
 
-## Sprint 5
+## Sprint 6
 
 - Management Console
 - Agent Inventory UI
 - Findings Dashboard
 
-## Sprint 6
+## Sprint 7
 
 - Telemetry
 - Prometheus
@@ -400,7 +469,13 @@ Planned future enhancements include:
 - OpenTelemetry
 - Jaeger
 
-## Sprint 7
+## Sprint 8
+
+- MITRE ATLAS Mapping
+- OWASP LLM Mapping
+- Attack Simulation Framework
+
+## Sprint 9
 
 - Security Agent
 - Risk Recommendations

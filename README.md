@@ -65,7 +65,9 @@ Audit Pipeline
   ↓
 Detection Engine
   ↓
-Security Dashboard
+Risk Engine
+  ↺
+Authorization Engine
 ```
 
 ## Current Status
@@ -82,18 +84,15 @@ Security Dashboard
 - Audit Logging Service
 - Unit Test Suite
 - Authorization Engine
-
-
-### Next Milestones
-
 - JWT Authentication
 
 ### Planned
 
 - Policy Engine
-- Risk Engine
+- Session Context Tracking
 - Approval Workflow
 - Detection Engine
+- Risk Engine
 - Management Console
 - Security Dashboard
 
@@ -135,6 +134,8 @@ Security Dashboard
 - Agent Inventory Service
 - Tool Registry Service
 - Audit Logging Service
+- JWT Authentication Service
+- Authorization Service
 
 #### Testing
 
@@ -142,23 +143,38 @@ Security Dashboard
 - Agent Service tests
 - Tool Service tests
 - Audit Service tests
+- JWT Service tests
+- Authorization Service tests
 
 Current test status:
 
 ```bash
 python -m pytest
 
-11 passed
+19 passed
 ```
 
-### Next Milestones
+### Immediate Next Milestone
 
-- JWT Authentication
-- Authorization Engine
 - Policy Engine
-- Risk Engine
+
+### Upcoming Roadmap
+
+- Session Context Tracking
+- Approval Workflow
 - Detection Engine
+- Risk Engine
 - Management Console
+- Security Dashboard
+
+## Planned AI Security Enhancements
+
+- Indirect Prompt Injection Detection
+- Session-Based Behavioral Analysis
+- Tool Argument-Level Authorization
+- Risk-Based Authorization
+- MITRE ATLAS Technique Mapping
+- OWASP LLM Top 10 Coverage Mapping
 
 ## Future Enhancements
 
