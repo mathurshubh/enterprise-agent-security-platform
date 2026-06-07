@@ -81,11 +81,12 @@ Security Dashboard
 - Tool Registry Service
 - Audit Logging Service
 - Unit Test Suite
+- Authorization Engine
+
 
 ### Next Milestones
 
 - JWT Authentication
-- Authorization Engine
 
 ### Planned
 

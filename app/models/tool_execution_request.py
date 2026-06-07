@@ -1,6 +1,6 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ToolExecutionRequest(BaseModel):
-    tool: str
-    arguments: dict = {}
+    tool_id: str
+    arguments: dict = Field(default_factory=dict)
