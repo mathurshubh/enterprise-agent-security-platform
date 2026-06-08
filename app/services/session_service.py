@@ -1,6 +1,7 @@
 from threading import RLock
 
 from app.models.session import Session
+from app.models.session_event import SessionEvent
 
 
 class SessionAlreadyExistsError(Exception):
@@ -14,6 +15,7 @@ class SessionNotFoundError(Exception):
 class SessionService:
     def __init__(self) -> None:
         self._sessions: dict[str, Session] = {}
+        self._events: list[SessionEvent] = []
         self._lock = RLock()
 
     def create_session(
@@ -44,3 +46,23 @@ class SessionService:
     ) -> list[Session]:
         with self._lock:
             return list(self._sessions.values())
+
+    def record_event(
+        self,
+        event: SessionEvent,
+    ) -> SessionEvent:
+        with self._lock:
+            self._events.append(event)
+
+            return event
+
+    def list_events(
+        self,
+        session_id: str,
+    ) -> list[SessionEvent]:
+        with self._lock:
+            return [
+                event
+                for event in self._events
+                if event.session_id == session_id
+            ]
