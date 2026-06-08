@@ -1,4 +1,4 @@
-# Enterprise Agent Security Platform
+# Enterprise AI Security and Governance Platform
 
 Enterprise-focused security platform for governing, authorizing, monitoring, and auditing AI agents.
 The platform assumes AI agents are not trusted security boundaries. All agent actions are evaluated through centralized authorization, auditing, and risk management controls before interacting with enterprise resources.
@@ -16,13 +16,28 @@ This project explores how organizations can safely enable AI agents while mainta
 - Auditability
 - Detection Engineering
 
+## Enterprise AI Security Focus
+
+This project is designed around enterprise AI security requirements including:
+
+- Agent identity and traceability
+- AI asset inventory
+- Model governance
+- Policy-based authorization
+- Auditable controls
+- Continuous monitoring
+- Risk classification
+- Adaptive security controls
+
 ## Core Capabilities
 
-### Agent Governance
+### AI Governance
 
-- Agent Registry
-- Risk Classification
 - Agent Inventory
+- AI Asset Inventory
+- Model Governance
+- Risk Classification
+- Identity & Traceability
 
 ### Security Controls
 
@@ -30,21 +45,23 @@ This project explores how organizations can safely enable AI agents while mainta
 - RBAC
 - Tool Authorization
 - Policy Enforcement
-- Human Approval Workflows
+- Session Context
+- Adaptive Security Controls
 
 ### Security Monitoring
 
 - Audit Logging
-- Detection Rules
-- Risk Scoring
+- Detection Engineering
+- Risk Management
 - Security Telemetry
+- Control Effectiveness Monitoring
 
-### Observability
+### Future Enterprise Capabilities
 
-- OpenTelemetry
-- Prometheus
-- Grafana
-- Jaeger
+- Human Approval Workflows
+- Shadow AI Discovery
+- Model Provenance Tracking
+- Supply Chain Visibility
 
 ## Architecture
 
@@ -57,15 +74,21 @@ Agent Gateway
   ↓
 Authorization Engine
   ↓
+Policy Engine
+  ↓
 Tool Registry
   ↓
 Enterprise Tools
   ↓
 Audit Pipeline
   ↓
+Session Context
+  ↓
 Detection Engine
   ↓
 Risk Engine
+  ↺
+Adaptive Security Controls
   ↺
 Authorization Engine
 ```
@@ -82,17 +105,20 @@ Authorization Engine
 - Agent Inventory Service
 - Tool Registry Service
 - Audit Logging Service
-- Unit Test Suite
 - Authorization Engine
 - JWT Authentication
+- Policy Engine
+- Session Context Service
+- Session Context Tracking
+- 30+ Unit Tests
 
 ### Planned
 
-- Policy Engine
-- Session Context Tracking
-- Approval Workflow
+- Session Event Tracking
+- Model Registry
 - Detection Engine
 - Risk Engine
+- Approval Workflow
 - Management Console
 - Security Dashboard
 
@@ -102,6 +128,9 @@ Authorization Engine
 - Pydantic
 - PyJWT
 - Pytest
+
+### Planned Technologies
+
 - Redis
 - OpenTelemetry
 - Prometheus
@@ -128,6 +157,7 @@ Authorization Engine
 - Audit Event
 - JWT Claims
 - Tool Execution Request
+- Session
 
 #### Services
 
@@ -136,6 +166,8 @@ Authorization Engine
 - Audit Logging Service
 - JWT Authentication Service
 - Authorization Service
+- Policy Engine
+- Session Service
 
 #### Testing
 
@@ -151,19 +183,19 @@ Current test status:
 ```bash
 python -m pytest
 
-19 passed
+30 passed
 ```
 
 ### Immediate Next Milestone
 
-- Policy Engine
+- Session Event Tracking
 
 ### Upcoming Roadmap
 
-- Session Context Tracking
-- Approval Workflow
+- Model Registry
 - Detection Engine
 - Risk Engine
+- Approval Workflow
 - Management Console
 - Security Dashboard
 
@@ -175,12 +207,17 @@ python -m pytest
 - Risk-Based Authorization
 - MITRE ATLAS Technique Mapping
 - OWASP LLM Top 10 Coverage Mapping
+- AI Asset Inventory
+- Model Governance and Provenance
+- Control Effectiveness Metrics
+- Agent Traceability and Investigation Workflows
 
 ## Future Enhancements
 
-- OWASP LLM Top 10 Mapping
-- MITRE ATLAS Technique Mapping
 - Agent Attack Simulations
 - Multi-Agent Governance
 - Security Posture Scoring
 - Agent Risk Analytics
+- Shadow AI Discovery
+- Unauthorized Model Detection
+- Unregistered Agent Detection
