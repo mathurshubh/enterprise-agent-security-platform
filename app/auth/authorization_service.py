@@ -7,6 +7,7 @@ from app.services.tool_service import (
     ToolNotFoundError,
     ToolService,
 )
+from app.policy.policy_engine import PolicyEngine
 
 
 class AuthorizationService:
@@ -14,9 +15,11 @@ class AuthorizationService:
         self,
         agent_service: AgentService,
         tool_service: ToolService,
+        policy_engine: PolicyEngine,
     ) -> None:
         self._agent_service = agent_service
         self._tool_service = tool_service
+        self._policy_engine = policy_engine
 
     def authorize(
         self,
@@ -33,7 +36,7 @@ class AuthorizationService:
         if tool_id not in agent.approved_tools:
             return Decision.DENY
 
-        if tool.approval_required:
-            return Decision.APPROVAL_REQUIRED
-
-        return Decision.ALLOW
+        return self._policy_engine.evaluate(
+            agent,
+            tool,
+        )

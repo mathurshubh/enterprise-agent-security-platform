@@ -1,6 +1,7 @@
 import pytest
 
 from app.auth.authorization_service import AuthorizationService
+from app.policy.policy_engine import PolicyEngine
 from app.models.agent import Agent, AgentStatus, RiskTier
 from app.models.audit_event import Decision
 from app.models.tool import Tool, ToolRiskLevel
@@ -48,6 +49,7 @@ def test_allow_authorized_tool():
     service = AuthorizationService(
         agent_service,
         tool_service,
+        PolicyEngine(),
     )
 
     decision = service.authorize(
@@ -73,6 +75,7 @@ def test_deny_unapproved_tool():
     service = AuthorizationService(
         agent_service,
         tool_service,
+        PolicyEngine(),
     )
 
     decision = service.authorize(
@@ -92,8 +95,10 @@ def test_approval_required():
     )
 
     tool_service.register_tool(
-        create_tool(
-            "shell_execute",
+        Tool(
+            tool_id="shell_execute",
+            risk_level=ToolRiskLevel.CRITICAL,
+            required_permission="shell:execute",
             approval_required=True,
         )
     )
@@ -101,6 +106,7 @@ def test_approval_required():
     service = AuthorizationService(
         agent_service,
         tool_service,
+        PolicyEngine(),
     )
 
     decision = service.authorize(
@@ -122,6 +128,7 @@ def test_deny_unknown_agent():
     service = AuthorizationService(
         agent_service,
         tool_service,
+        PolicyEngine(),
     )
 
     decision = service.authorize(
@@ -143,11 +150,64 @@ def test_deny_unknown_tool():
     service = AuthorizationService(
         agent_service,
         tool_service,
+        PolicyEngine(),
     )
 
     decision = service.authorize(
         "soc-agent",
         "missing-tool",
+    )
+
+    assert decision == Decision.DENY
+def test_deny_suspended_agent():
+    agent_service = AgentService()
+    tool_service = ToolService()
+
+    agent = create_agent(["file_read"])
+    agent.status = AgentStatus.SUSPENDED
+
+    agent_service.register_agent(agent)
+
+    tool_service.register_tool(
+        create_tool("file_read")
+    )
+
+    service = AuthorizationService(
+        agent_service,
+        tool_service,
+        PolicyEngine(),
+    )
+
+    decision = service.authorize(
+        "soc-agent",
+        "file_read",
+    )
+
+    assert decision == Decision.DENY
+
+
+def test_deny_disabled_agent():
+    agent_service = AgentService()
+    tool_service = ToolService()
+
+    agent = create_agent(["file_read"])
+    agent.status = AgentStatus.DISABLED
+
+    agent_service.register_agent(agent)
+
+    tool_service.register_tool(
+        create_tool("file_read")
+    )
+
+    service = AuthorizationService(
+        agent_service,
+        tool_service,
+        PolicyEngine(),
+    )
+
+    decision = service.authorize(
+        "soc-agent",
+        "file_read",
     )
 
     assert decision == Decision.DENY
