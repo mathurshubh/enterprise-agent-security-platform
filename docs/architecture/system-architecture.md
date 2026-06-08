@@ -145,9 +145,12 @@ The platform maintains a centralized inventory of all registered AI agents.
 Each agent contains:
 
 - Agent ID
-- Owner
+- Business Owner
+- Technical Owner
 - Purpose
 - Business Function
+- Associated Model
+- Authorized Data Sources
 - Risk Tier
 - Approved Tools
 - Data Classification
@@ -169,6 +172,11 @@ Responsibilities:
 - Event generation
 - Request routing
 
+Security posture:
+
+- Requests that cannot be validated are rejected.
+- Security control failures default to fail-closed behavior.
+
 ---
 
 ## Authorization Engine
@@ -185,12 +193,17 @@ Evaluates:
 - Tool arguments
 - Risk level
 - Agent status
+- Data classification requirements
 
 Possible outcomes:
 
 - ALLOW
 - DENY
 - APPROVAL_REQUIRED
+
+Fail-closed behavior:
+
+If required security controls, policy evaluation, or authorization dependencies are unavailable, authorization defaults to DENY.
 
 ---
 
@@ -242,6 +255,31 @@ Tool categories:
 - Administrative Operations
 
 Higher-risk categories may require additional authorization checks or approval workflows.
+
+---
+
+## Model Registry
+
+Maintains the inventory of approved AI models used by enterprise agents.
+
+Tracked attributes:
+
+- Model Name
+- Provider
+- Version
+- Risk Classification
+- Approval Status
+- Deployment Environment
+
+Responsibilities:
+
+- Approved model inventory
+- Model governance
+- Model lifecycle visibility
+- Model provenance tracking
+- Supply-chain awareness
+
+The Model Registry serves as the authoritative source of truth for approved AI models within the enterprise.
 
 ---
 
@@ -353,6 +391,8 @@ Unlike business agents, the Security Agent does not execute enterprise actions.
 
 Security Agent recommendations are advisory and do not directly influence authorization decisions.
 
+The Security Agent is subject to the same auditing, authorization, governance, and monitoring controls as business agents.
+
 Instead, it:
 
 - Reviews findings
@@ -398,6 +438,102 @@ Future implementation will use:
 
 ---
 
+## AI Asset Inventory
+
+The platform maintains an inventory of enterprise AI assets.
+
+Tracked asset categories:
+
+- Agents
+- Models
+- Tools
+- Knowledge Sources
+- Vector Stores
+- External AI Services
+
+Inventory metadata may include:
+
+- Owner
+- Business Function
+- Risk Classification
+- Approval Status
+- Environment
+- Registration Date
+- Lifecycle Status
+
+The inventory provides governance, visibility, risk management, and auditability across the enterprise AI ecosystem.
+
+---
+
+## Identity & Traceability
+
+Every action should be traceable end-to-end.
+
+Traceability chain:
+
+User
+ ↓
+Agent
+ ↓
+Session
+ ↓
+Tool
+ ↓
+Decision
+ ↓
+Audit Event
+
+The platform should enable investigators to determine:
+
+- Who initiated the activity
+- Which agent performed the action
+- Which session contained the activity
+- Which tool was executed
+- Which policy influenced the decision
+- Which audit events were generated
+
+---
+
+## Model Governance
+
+The platform maintains governance information for approved AI models.
+
+Tracked attributes:
+
+- Model Name
+- Provider
+- Version
+- Approval Status
+- Risk Classification
+- Deployment Environment
+- Registration Date
+
+Future capabilities:
+
+- Model provenance tracking
+- Supply-chain visibility
+- Approved model inventory
+- Model lifecycle management
+
+---
+
+## Control Effectiveness
+
+The platform measures whether security controls are functioning as intended.
+
+Example metrics:
+
+- Policy Hit Rate
+- Denied Requests
+- Approval Requests
+- Detection Findings
+- Authorization Outcomes
+- Control Coverage
+
+The goal is to evaluate control effectiveness, not simply control existence.
+
+---
+
 ### Planned Console Views
 
 - Agent Inventory Dashboard
@@ -424,6 +560,9 @@ Planned future enhancements include:
 - Risk-adaptive authorization
 - Attack simulation framework
 - Multi-agent governance controls
+- Shadow AI discovery
+- Unauthorized model detection
+- Unregistered agent detection
 
 ---
 
@@ -464,20 +603,20 @@ Planned future enhancements include:
 
 ## Sprint 7
 
+- MITRE ATLAS Mapping
+- OWASP LLM Mapping
+- Attack Simulation Framework
+
+## Sprint 8
+
+- Security Agent
+- Risk Recommendations
+- Investigation Workflows
+
+## Sprint 9
+
 - Telemetry
 - Prometheus
 - Grafana
 - OpenTelemetry
 - Jaeger
-
-## Sprint 8
-
-- MITRE ATLAS Mapping
-- OWASP LLM Mapping
-- Attack Simulation Framework
-
-## Sprint 9
-
-- Security Agent
-- Risk Recommendations
-- Investigation Workflows
