@@ -110,11 +110,13 @@ Authorization Engine
 - Policy Engine
 - Session Context Service
 - Session Context Tracking
-- 30+ Unit Tests
+- Session Event Model
+- Session Event Tracking
+- Session Event Tests
+- 32 Unit Tests
 
 ### Planned
 
-- Session Event Tracking
 - Model Registry
 - Detection Engine
 - Risk Engine
@@ -158,6 +160,7 @@ Authorization Engine
 - JWT Claims
 - Tool Execution Request
 - Session
+- Session Event
 
 #### Services
 
@@ -177,22 +180,22 @@ Authorization Engine
 - Audit Service tests
 - JWT Service tests
 - Authorization Service tests
+- Session Service tests
 
 Current test status:
 
 ```bash
 python -m pytest
 
-30 passed
+32 passed
 ```
 
 ### Immediate Next Milestone
 
-- Session Event Tracking
+- Model Registry
 
 ### Upcoming Roadmap
 
-- Model Registry
 - Detection Engine
 - Risk Engine
 - Approval Workflow
