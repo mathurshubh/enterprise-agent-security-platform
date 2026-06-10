@@ -126,11 +126,15 @@ Adaptive Security Controls
 - Risk Assessment Model
 - Response Engine
 - Response Action Model
-- 54 Unit Tests
+- FastAPI Runtime APIs
+- Runtime Security Integration
+- 58 Unit Tests
 
 ### Planned
 
-- FastAPI Runtime APIs
+- Runtime Detection Integration
+- Runtime Risk Integration
+- Runtime Response Integration
 - Human Approval Workflow
 - Security Dashboard
 - Agent Attack Simulation Framework
@@ -189,6 +193,7 @@ Adaptive Security Controls
 - Detection Service
 - Risk Service
 - Response Service
+- Runtime Service
 
 #### Testing
 
@@ -205,19 +210,49 @@ Current test status:
 ```bash
 python -m pytest
 
-54 passed
+58 passed
 ```
 
 ### Immediate Next Milestone
 
-- FastAPI Runtime APIs
+- Runtime Detection Integration
 
 ### Upcoming Roadmap
 
+- Runtime Detection Integration
+- Runtime Risk Integration
+- Runtime Response Integration
 - Human Approval Workflow
-- FastAPI Runtime APIs
 - Security Dashboard
 - Agent Attack Simulation Framework
+
+## Future Vision: Agentic Security Analytics
+
+The long-term vision for this platform extends beyond runtime protection into evidence-driven AI Security Operations.
+
+The objective is to help security teams investigate, understand, and govern autonomous agents using natural language while preserving auditability, explainability, and human oversight.
+
+Potential capabilities include:
+
+- Prompt injection trend analysis
+- Agent risk investigations
+- Executive AI security posture reporting
+- Root cause analysis assistance
+- Evidence-backed recommendation generation
+- Security analyst investigation workflows
+
+Any future analytics capability will adhere to the following principles:
+
+- Evidence Grounding: Every conclusion must reference supporting telemetry.
+- Authorization Awareness: Access to analytics will remain role-based and policy-aware.
+- Prompt Injection Resistance: Retrieved evidence will be treated as untrusted input.
+- Auditability: Investigations, evidence retrieval, reports, and approvals will be logged.
+- Human Oversight: Recommendations will support analysts rather than automatically triggering security actions.
+
+This capability is not part of the current MVP and will only be considered after the runtime security platform, telemetry collection, and validation framework have matured.
+
+The goal is not to build another chatbot, but rather an AI Security Analytics capability that helps humans understand, investigate, and govern autonomous agents.
+
 
 ## Planned AI Security Enhancements
 
