@@ -91,6 +91,10 @@ Findings
 Risk Engine
   ↓
 Risk Assessments
+  ↓
+Response Engine
+  ↓
+Response Actions
   ↺
 Adaptive Security Controls
 ```
@@ -120,13 +124,14 @@ Adaptive Security Controls
 - Detection Findings Model
 - Risk Engine
 - Risk Assessment Model
-- 49 Unit Tests
+- Response Engine
+- Response Action Model
+- 54 Unit Tests
 
 ### Planned
 
-- Response Engine
-- Human Approval Workflow
 - FastAPI Runtime APIs
+- Human Approval Workflow
 - Security Dashboard
 - Agent Attack Simulation Framework
 
@@ -169,6 +174,7 @@ Adaptive Security Controls
 - Session Event
 - Finding
 - Risk Assessment
+- Response Action
 
 #### Services
 
@@ -182,6 +188,7 @@ Adaptive Security Controls
 - Model Registry Service
 - Detection Service
 - Risk Service
+- Response Service
 
 #### Testing
 
@@ -198,16 +205,15 @@ Current test status:
 ```bash
 python -m pytest
 
-49 passed
+54 passed
 ```
 
 ### Immediate Next Milestone
 
-- Response Engine
+- FastAPI Runtime APIs
 
 ### Upcoming Roadmap
 
-- Response Engine
 - Human Approval Workflow
 - FastAPI Runtime APIs
 - Security Dashboard
