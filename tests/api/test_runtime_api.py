@@ -24,6 +24,8 @@ def test_execute_request_received():
 
     assert response.status_code == 200
     assert response.json() == {
-        "status": "received",
+        "session_id": "session-1",
         "agent_id": "agent-1",
+        "tool_id": "file_read",
+        "decision": "DENY",
     }
