@@ -80,17 +80,19 @@ Tool Registry
   ↓
 Enterprise Tools
   ↓
-Audit Pipeline
-  ↓
 Session Context
+  ↓
+Session Events
   ↓
 Detection Engine
   ↓
+Findings
+  ↓
 Risk Engine
+  ↓
+Risk Assessments
   ↺
 Adaptive Security Controls
-  ↺
-Authorization Engine
 ```
 
 ## Current Status
@@ -113,16 +115,20 @@ Authorization Engine
 - Session Event Model
 - Session Event Tracking
 - Session Event Tests
-- 32 Unit Tests
+- Model Registry Service
+- Detection Engine
+- Detection Findings Model
+- Risk Engine
+- Risk Assessment Model
+- 49 Unit Tests
 
 ### Planned
 
-- Model Registry
-- Detection Engine
-- Risk Engine
-- Approval Workflow
-- Management Console
+- Response Engine
+- Human Approval Workflow
+- FastAPI Runtime APIs
 - Security Dashboard
+- Agent Attack Simulation Framework
 
 ## Tech Stack
 
@@ -161,6 +167,8 @@ Authorization Engine
 - Tool Execution Request
 - Session
 - Session Event
+- Finding
+- Risk Assessment
 
 #### Services
 
@@ -171,6 +179,9 @@ Authorization Engine
 - Authorization Service
 - Policy Engine
 - Session Service
+- Model Registry Service
+- Detection Service
+- Risk Service
 
 #### Testing
 
@@ -187,20 +198,20 @@ Current test status:
 ```bash
 python -m pytest
 
-32 passed
+49 passed
 ```
 
 ### Immediate Next Milestone
 
-- Model Registry
+- Response Engine
 
 ### Upcoming Roadmap
 
-- Detection Engine
-- Risk Engine
-- Approval Workflow
-- Management Console
+- Response Engine
+- Human Approval Workflow
+- FastAPI Runtime APIs
 - Security Dashboard
+- Agent Attack Simulation Framework
 
 ## Planned AI Security Enhancements
 
