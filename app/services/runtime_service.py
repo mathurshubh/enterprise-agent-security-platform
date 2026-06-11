@@ -1,7 +1,12 @@
 from app.auth.authorization_service import AuthorizationService
 from app.models.runtime_result import RuntimeResult
+from app.models.risk_assessment import (
+    RiskAssessment,
+    RiskLevel,
+)
 from app.models.session_event import SessionEvent
 from app.services.detection_service import DetectionService
+from app.services.risk_service import RiskService
 from app.services.session_service import SessionService
 
 
@@ -11,10 +16,12 @@ class RuntimeService:
         authorization_service: AuthorizationService,
         session_service: SessionService,
         detection_service: DetectionService,
+        risk_service: RiskService,
     ) -> None:
         self._authorization_service = authorization_service
         self._session_service = session_service
         self._detection_service = detection_service
+        self._risk_service = risk_service
 
     def execute(
         self,
@@ -39,8 +46,19 @@ class RuntimeService:
         findings = self._detection_service.detect_excessive_denials(
             session_events
         )
+        if findings:
+            risk_assessment = self._risk_service.assess(findings)
+        else:
+            risk_assessment = RiskAssessment(
+                session_id=session_id,
+                agent_id=agent_id,
+                risk_score=0,
+                risk_level=RiskLevel.LOW,
+                finding_count=0,
+            )
 
         return RuntimeResult(
             event=recorded_event,
             findings=findings,
+            risk_assessment=risk_assessment,
         )
