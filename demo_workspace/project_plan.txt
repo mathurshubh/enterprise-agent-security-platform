@@ -1,0 +1,5 @@
+Upcoming milestones:
+1. Local Agent Runtime
+2. Ollama Integration
+3. Prompt Injection Detection
+4. Observability
