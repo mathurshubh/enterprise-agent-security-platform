@@ -5,6 +5,7 @@ from app.auth.authorization_service import AuthorizationService
 from app.policy.policy_engine import PolicyEngine
 from app.services.agent_service import AgentService
 from app.services.detection_service import DetectionService
+from app.services.risk_service import RiskService
 from app.services.runtime_service import RuntimeService
 from app.services.session_service import SessionService
 from app.services.tool_service import ToolService
@@ -20,6 +21,7 @@ runtime_service = RuntimeService(
     ),
     SessionService(),
     DetectionService(),
+    RiskService(),
 )
 
 
@@ -45,4 +47,6 @@ def execute(
         "tool_id": result.event.tool_id,
         "decision": result.event.decision.value,
         "findings": result.findings,
+        "risk_score": result.risk_assessment.risk_score,
+        "risk_level": result.risk_assessment.risk_level.value,
     }

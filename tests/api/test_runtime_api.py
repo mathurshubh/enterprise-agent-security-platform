@@ -29,6 +29,8 @@ def test_execute_request_received():
         "tool_id": "file_read",
         "decision": "DENY",
         "findings": [],
+        "risk_score": 0,
+        "risk_level": "LOW",
     }
 
 
@@ -45,6 +47,8 @@ def test_execute_response_includes_findings():
         )
 
         assert response.json()["findings"] == []
+        assert response.json()["risk_score"] == 0
+        assert response.json()["risk_level"] == "LOW"
 
     response = client.post(
         "/agents/agent-1/execute",
@@ -60,3 +64,5 @@ def test_execute_response_includes_findings():
         response.json()["findings"][0]["rule_name"]
         == "EXCESSIVE_DENIALS"
     )
+    assert response.json()["risk_score"] == 25
+    assert response.json()["risk_level"] == "MEDIUM"
