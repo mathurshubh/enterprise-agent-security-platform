@@ -127,17 +127,18 @@ Adaptive Security Controls
 - Response Engine
 - Response Action Model
 - FastAPI Runtime APIs
+- Runtime Detection Integration
+- Runtime Risk Integration
+- Adversarial Scenario Framework
+- Runtime Security Validation Tests
 - Runtime Security Integration
-- 58 Unit Tests
+- 67 Automated Tests
 
 ### Planned
 
-- Runtime Detection Integration
-- Runtime Risk Integration
 - Runtime Response Integration
 - Human Approval Workflow
 - Security Dashboard
-- Agent Attack Simulation Framework
 
 ## Tech Stack
 
@@ -210,21 +211,21 @@ Current test status:
 ```bash
 python -m pytest
 
-58 passed
+67 passed
 ```
 
 ### Immediate Next Milestone
 
-- Runtime Detection Integration
+- Runtime Response Integration
 
 ### Upcoming Roadmap
 
-- Runtime Detection Integration
-- Runtime Risk Integration
 - Runtime Response Integration
+- Scenario Runner Framework
 - Human Approval Workflow
 - Security Dashboard
-- Agent Attack Simulation Framework
+- Prompt Injection Detection
+- LLM Integration
 
 ## Future Vision: Agentic Security Analytics
 
@@ -270,6 +271,9 @@ The goal is not to build another chatbot, but rather an AI Security Analytics ca
 ## Future Enhancements
 
 - Agent Attack Simulations
+- Adversarial Evaluation Harness
+- Prompt Injection Validation Scenarios
+- Tool Abuse Simulation Framework
 - Multi-Agent Governance
 - Security Posture Scoring
 - Agent Risk Analytics
