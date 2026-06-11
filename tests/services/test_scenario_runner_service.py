@@ -1,3 +1,4 @@
+import pytest
 from app.models.attack_scenario import AttackScenario
 from app.models.risk_assessment import RiskLevel
 from app.services.scenario_runner_service import (
@@ -66,3 +67,28 @@ def test_run_excessive_denial_scenario():
         result.observed_risk_level
         == RiskLevel.MEDIUM
     )
+
+
+def test_run_empty_scenario_raises_error():
+    runtime_service, _ = create_runtime_service(
+        ["file_read"]
+    )
+    runner = ScenarioRunnerService(runtime_service)
+
+    scenario = AttackScenario(
+        scenario_id="scenario-3",
+        name="Empty Scenario",
+        session_id="session-3",
+        agent_id="agent-1",
+        tool_sequence=[],
+        expected_findings=[],
+        expected_risk_level=RiskLevel.LOW,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "Scenario must contain at least one tool invocation"
+        ),
+    ):
+        runner.run(scenario)
