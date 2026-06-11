@@ -70,7 +70,9 @@ User
   ↓
 Business Agent
   ↓
-Agent Gateway
+FastAPI Runtime API
+  ↓
+Runtime Service
   ↓
 Authorization Engine
   ↓
@@ -78,9 +80,7 @@ Policy Engine
   ↓
 Tool Registry
   ↓
-Enterprise Tools
-  ↓
-Session Context
+Session Service
   ↓
 Session Events
   ↓
@@ -97,6 +97,22 @@ Response Engine
 Response Actions
   ↺
 Adaptive Security Controls
+```
+
+### Security Validation Flow
+
+```text
+Adversarial Scenarios
+  ↓
+Runtime Security Validation Tests
+  ↓
+Runtime Service
+  ↓
+Detection Engine
+  ↓
+Risk Engine
+  ↓
+Security Control Validation
 ```
 
 ## Current Status
@@ -127,11 +143,11 @@ Adaptive Security Controls
 - Response Engine
 - Response Action Model
 - FastAPI Runtime APIs
+- Runtime Security Integration
 - Runtime Detection Integration
 - Runtime Risk Integration
 - Adversarial Scenario Framework
 - Runtime Security Validation Tests
-- Runtime Security Integration
 - 67 Automated Tests
 
 ### Planned
