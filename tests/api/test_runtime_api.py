@@ -31,6 +31,10 @@ def test_execute_request_received():
         "findings": [],
         "risk_score": 0,
         "risk_level": "LOW",
+        "response_type": "MONITOR",
+        "response_reason": (
+            "LOW risk requires monitor"
+        ),
     }
 
 
@@ -49,6 +53,14 @@ def test_execute_response_includes_findings():
         assert response.json()["findings"] == []
         assert response.json()["risk_score"] == 0
         assert response.json()["risk_level"] == "LOW"
+        assert (
+            response.json()["response_type"]
+            == "MONITOR"
+        )
+        assert (
+            response.json()["response_reason"]
+            == "LOW risk requires monitor"
+        )
 
     response = client.post(
         "/agents/agent-1/execute",
@@ -66,3 +78,11 @@ def test_execute_response_includes_findings():
     )
     assert response.json()["risk_score"] == 25
     assert response.json()["risk_level"] == "MEDIUM"
+    assert (
+        response.json()["response_type"]
+        == "ALERT"
+    )
+    assert (
+        response.json()["response_reason"]
+        == "MEDIUM risk requires alert"
+    )

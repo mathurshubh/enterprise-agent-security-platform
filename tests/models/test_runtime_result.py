@@ -1,5 +1,9 @@
 from app.models.audit_event import Decision
 from app.models.finding import Finding, Severity
+from app.models.response_action import (
+    ResponseAction,
+    ResponseType,
+)
 from app.models.risk_assessment import (
     RiskAssessment,
     RiskLevel,
@@ -32,12 +36,22 @@ def test_runtime_result_creation():
         finding_count=1,
     )
 
+    response_action = ResponseAction(
+        session_id="session-1",
+        agent_id="agent-1",
+        risk_level=RiskLevel.MEDIUM,
+        response_type=ResponseType.ALERT,
+        reason="MEDIUM risk requires alert",
+    )
+
     result = RuntimeResult(
         event=event,
         findings=[finding],
         risk_assessment=risk_assessment,
+        response_action=response_action,
     )
 
     assert result.event == event
     assert result.findings == [finding]
     assert result.risk_assessment == risk_assessment
+    assert result.response_action == response_action
