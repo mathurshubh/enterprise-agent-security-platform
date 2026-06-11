@@ -95,8 +95,6 @@ Risk Assessments
 Response Engine
   ↓
 Response Actions
-  ↺
-Adaptive Security Controls
 ```
 
 ### Security Validation Flow
@@ -290,6 +288,7 @@ The goal is not to build another chatbot, but rather an AI Security Analytics ca
 - Adversarial Evaluation Harness
 - Prompt Injection Validation Scenarios
 - Tool Abuse Simulation Framework
+- Adaptive Security Controls
 - Multi-Agent Governance
 - Security Posture Scoring
 - Agent Risk Analytics
