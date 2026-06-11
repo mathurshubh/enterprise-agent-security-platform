@@ -100,17 +100,21 @@ Response Actions
 ### Security Validation Flow
 
 ```text
-Adversarial Scenarios
+Attack Scenarios
   ↓
-Runtime Security Validation Tests
+Scenario Runner
   ↓
 Runtime Service
+  ↓
+Authorization Engine
   ↓
 Detection Engine
   ↓
 Risk Engine
   ↓
-Security Control Validation
+Scenario Results
+  ↓
+Automated Security Validation
 ```
 
 ## Current Status
@@ -145,8 +149,10 @@ Security Control Validation
 - Runtime Detection Integration
 - Runtime Risk Integration
 - Adversarial Scenario Framework
+- Scenario Runner Service
+- Automated Security Validation
 - Runtime Security Validation Tests
-- 67 Automated Tests
+- 70 Automated Tests
 
 ### Planned
 
@@ -209,6 +215,7 @@ Security Control Validation
 - Risk Service
 - Response Service
 - Runtime Service
+- Scenario Runner Service
 
 #### Testing
 
@@ -225,7 +232,7 @@ Current test status:
 ```bash
 python -m pytest
 
-67 passed
+70 passed
 ```
 
 ### Immediate Next Milestone
@@ -235,7 +242,6 @@ python -m pytest
 ### Upcoming Roadmap
 
 - Runtime Response Integration
-- Scenario Runner Framework
 - Human Approval Workflow
 - Security Dashboard
 - Prompt Injection Detection
