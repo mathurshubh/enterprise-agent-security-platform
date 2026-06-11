@@ -6,6 +6,7 @@ from app.models.risk_assessment import (
 )
 from app.models.session_event import SessionEvent
 from app.services.detection_service import DetectionService
+from app.services.response_service import ResponseService
 from app.services.risk_service import RiskService
 from app.services.session_service import SessionService
 
@@ -17,11 +18,13 @@ class RuntimeService:
         session_service: SessionService,
         detection_service: DetectionService,
         risk_service: RiskService,
+        response_service: ResponseService,
     ) -> None:
         self._authorization_service = authorization_service
         self._session_service = session_service
         self._detection_service = detection_service
         self._risk_service = risk_service
+        self._response_service = response_service
 
     def execute(
         self,
@@ -57,8 +60,15 @@ class RuntimeService:
                 finding_count=0,
             )
 
+        response_action = (
+            self._response_service.recommend(
+                risk_assessment
+            )
+        )
+
         return RuntimeResult(
             event=recorded_event,
             findings=findings,
             risk_assessment=risk_assessment,
+            response_action=response_action,
         )

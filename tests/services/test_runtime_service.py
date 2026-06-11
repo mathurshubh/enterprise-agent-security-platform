@@ -6,6 +6,8 @@ from app.models.tool import Tool, ToolRiskLevel
 from app.policy.policy_engine import PolicyEngine
 from app.services.agent_service import AgentService
 from app.services.detection_service import DetectionService
+from app.services.response_service import ResponseService
+from app.models.response_action import ResponseType
 from app.services.risk_service import RiskService
 from app.services.runtime_service import RuntimeService
 from app.services.session_service import SessionService
@@ -49,6 +51,7 @@ def create_runtime_service(
             session_service,
             DetectionService(),
             RiskService(),
+            ResponseService(),
         ),
         session_service,
     )
@@ -72,6 +75,10 @@ def test_execute_authorized_request():
     assert result.findings == []
     assert result.risk_assessment.risk_level == RiskLevel.LOW
     assert result.risk_assessment.finding_count == 0
+    assert (
+        result.response_action.response_type
+        == ResponseType.MONITOR
+    )
     assert session_service.list_events("session-1") == [
         result.event
     ]
@@ -90,6 +97,10 @@ def test_execute_denied_request():
     assert result.findings == []
     assert result.risk_assessment.risk_level == RiskLevel.LOW
     assert result.risk_assessment.finding_count == 0
+    assert (
+        result.response_action.response_type
+        == ResponseType.MONITOR
+    )
     assert session_service.list_events("session-1") == [
         result.event
     ]
@@ -119,4 +130,8 @@ def test_execute_detects_excessive_denials():
     assert result.findings[0].rule_name == "EXCESSIVE_DENIALS"
     assert result.risk_assessment.finding_count == 1
     assert result.risk_assessment.risk_level != RiskLevel.LOW
+    assert (
+        result.response_action.response_type
+        == ResponseType.ALERT
+    )
     assert len(session_service.list_events("session-1")) == 3
