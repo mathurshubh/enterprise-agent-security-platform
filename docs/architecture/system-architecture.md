@@ -76,8 +76,9 @@ Security-critical decisions should not depend solely on LLM output.
 
 ---
 
-# High-Level Architecture
+# Target Reference Architecture
 
+# (diagram remains unchanged)
 ```text
 Security Analysts / Administrators
                     ↓
@@ -106,6 +107,60 @@ Security Analysts / Administrators
       Adaptive Security Controls
                     ↺
            Authorization Engine
+```
+
+---
+
+# Current Implementation Architecture
+
+```text
+User Query
+    ↓
+SimpleAgent
+    ↓
+Tool Invocation
+    ↓
+Agent Runtime Service
+    ↓
+Runtime Service
+    ↓
+Authorization Engine
+    ↓
+Policy Engine
+    ↓
+Session Service
+    ↓
+Detection Engine
+    ↓
+Risk Engine
+    ↓
+Response Engine
+    ↓
+Secure Tool Execution
+    ↓
+File Read Tool / Directory List Tool
+```
+
+---
+
+# Runtime Security Flow
+
+```text
+User Query
+    ↓
+Agent decides tool
+    ↓
+Runtime authorization
+    ↓
+Detection evaluation
+    ↓
+Risk scoring
+    ↓
+Response recommendation
+    ↓
+Tool execution
+    ↓
+Audit generation
 ```
 
 ---
@@ -255,6 +310,33 @@ Tool categories:
 - Administrative Operations
 
 Higher-risk categories may require additional authorization checks or approval workflows.
+
+---
+
+## Secure Tool Execution
+
+Responsible for executing approved tools after they pass runtime security controls.
+
+Responsibilities:
+
+- Execute approved tools
+- Enforce workspace isolation
+- Validate file paths
+- Prevent path traversal
+- Generate execution audit events
+- Integrate with response controls
+
+Current implementations:
+
+- File Read Tool
+- Directory List Tool
+
+Future capabilities:
+
+- Shell execution controls
+- External API controls
+- Data loss prevention checks
+- Runtime enforcement actions
 
 ---
 
@@ -566,54 +648,89 @@ Planned future enhancements include:
 
 ---
 
-# Initial Scope
+# Implementation Roadmap
+## Current Status
 
-## Sprint 1
+### Completed
+
+- Agent Inventory
+- JWT Authentication
+- Tool Registry
+- Audit Logging
+- Authorization Engine
+- Policy Engine
+- Session Service
+- Detection Engine
+- Risk Engine
+- Response Engine
+- Runtime Service
+- Scenario Runner Framework
+- Local Agent Runtime Foundations
+- Simple Agent
+- Agent Runtime Service
+- Secure File Read Tool
+- Secure Directory List Tool
+
+### In Progress
+
+- Secure Tool Execution Integration
+
+### Planned
+
+- Human Approval Workflow
+- Prompt Injection Detection
+- Ollama Integration
+- Security Dashboard
+- Agent Observability
+- Agent Skill Supply Chain Security
+
+
+# Sprint 1
 
 - Agent Inventory
 - JWT Authentication
 - Tool Registry
 - Audit Logging
 
-## Sprint 2
+# Sprint 2
 
 - Authorization Engine
 - Policy Engine
 
-## Sprint 3
+# Sprint 3
 
 - Session Context
 - Approval Workflow
 
-## Sprint 4
+# Sprint 4
 
 - Detection Engine
 - Findings Engine
 
-## Sprint 5
+# Sprint 5
 
 - Risk Engine
 - Risk Scoring
 
-## Sprint 6
+# Sprint 6
 
 - Management Console
 - Agent Inventory UI
 - Findings Dashboard
 
-## Sprint 7
+# Sprint 7
 
 - MITRE ATLAS Mapping
 - OWASP LLM Mapping
 - Attack Simulation Framework
 
-## Sprint 8
+# Sprint 8
 
 - Security Agent
 - Risk Recommendations
 - Investigation Workflows
 
-## Sprint 9
+# Sprint 9
 
 - Telemetry
 - Prometheus
