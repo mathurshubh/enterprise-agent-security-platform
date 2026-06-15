@@ -31,6 +31,13 @@ This project is designed around enterprise AI security requirements including:
 
 ## Core Capabilities
 
+### Agent Runtime
+
+- SimpleAgent Query Routing
+- Tool Invocation Modeling
+- Agent Runtime Orchestration
+- Secure Local Tool Execution Foundations
+
 ### AI Governance
 
 - Agent Inventory
@@ -66,9 +73,13 @@ This project is designed around enterprise AI security requirements including:
 ## Architecture
 
 ```text
-User
+User Query
   ↓
-Business Agent
+SimpleAgent
+  ↓
+Tool Invocation
+  ↓
+Agent Runtime Service
   ↓
 FastAPI Runtime API
   ↓
@@ -77,8 +88,6 @@ Runtime Service
 Authorization Engine
   ↓
 Policy Engine
-  ↓
-Tool Registry
   ↓
 Session Service
   ↓
@@ -95,6 +104,10 @@ Risk Assessments
 Response Engine
   ↓
 Response Actions
+  ↓
+Secure Tool Execution (Planned)
+  ↓
+File Read Tool / Directory List Tool
 ```
 
 ### Security Validation Flow
@@ -151,14 +164,25 @@ Automated Security Validation
 - Adversarial Scenario Framework
 - Scenario Runner Service
 - Automated Security Validation
-- Runtime Security Validation Tests
-- 70 Automated Tests
+- Local Agent Runtime Foundations
+- Tool Invocation Model
+- Simple Agent Implementation
+- Agent Runtime Result Model
+- Agent Runtime Service
+- Secure File Read Tool
+- Secure Directory Listing Tool
+- Workspace Isolation Controls
+- Path Traversal Protection
+- 87 Automated Tests
 
 ### Planned
 
-- Runtime Response Integration
+- Secure Tool Execution Integration
+- Runtime Response Enforcement
 - Human Approval Workflow
 - Security Dashboard
+- Prompt Injection Detection
+- LLM Integration (Ollama / Hosted Models)
 
 ## Tech Stack
 
@@ -200,6 +224,9 @@ Automated Security Validation
 - Finding
 - Risk Assessment
 - Response Action
+- Tool Invocation
+- Runtime Result
+- Agent Runtime Result
 
 #### Services
 
@@ -216,6 +243,10 @@ Automated Security Validation
 - Response Service
 - Runtime Service
 - Scenario Runner Service
+- Simple Agent
+- Agent Runtime Service
+- Secure File Read Tool
+- Secure Directory List Tool
 
 #### Testing
 
@@ -232,20 +263,23 @@ Current test status:
 ```bash
 python -m pytest
 
-70 passed
+87 passed
 ```
 
 ### Immediate Next Milestone
 
-- Runtime Response Integration
+- Secure Tool Execution Integration
 
 ### Upcoming Roadmap
 
-- Runtime Response Integration
+- Secure Tool Execution Integration
+- Runtime Response Enforcement
 - Human Approval Workflow
-- Security Dashboard
 - Prompt Injection Detection
-- LLM Integration
+- Ollama Integration
+- Agent Observability
+- Security Dashboard
+- Agent Skill Supply Chain Security
 
 ## Future Vision: Agentic Security Analytics
 

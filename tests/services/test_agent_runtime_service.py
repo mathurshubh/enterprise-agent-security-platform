@@ -30,7 +30,10 @@ def test_execute_read_query() -> None:
         == ResponseType.MONITOR
     )
 
-    assert result.output is not None
+    assert isinstance(
+        result.output,
+        str,
+    )
 
 
 
@@ -56,6 +59,11 @@ def test_execute_list_query() -> None:
     assert isinstance(
         result.output,
         list,
+    )
+
+    assert all(
+        isinstance(item, str)
+        for item in result.output
     )
 
 
