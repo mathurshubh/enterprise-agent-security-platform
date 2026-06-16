@@ -81,8 +81,6 @@ Tool Invocation
   ↓
 Agent Runtime Service
   ↓
-FastAPI Runtime API
-  ↓
 Runtime Service
   ↓
 Authorization Engine
@@ -105,9 +103,11 @@ Response Engine
   ↓
 Response Actions
   ↓
-Secure Tool Execution (Planned)
+Secure Tool Execution
   ↓
 File Read Tool / Directory List Tool
+  ↓
+Agent Runtime Result
 ```
 
 ### Security Validation Flow
@@ -169,16 +169,16 @@ Automated Security Validation
 - Simple Agent Implementation
 - Agent Runtime Result Model
 - Agent Runtime Service
+- Security-Mediated Agent Execution
+- Runtime Response Enforcement
 - Secure File Read Tool
 - Secure Directory Listing Tool
 - Workspace Isolation Controls
 - Path Traversal Protection
-- 87 Automated Tests
+- 87 Automated Tests Passing
 
 ### Planned
 
-- Secure Tool Execution Integration
-- Runtime Response Enforcement
 - Human Approval Workflow
 - Security Dashboard
 - Prompt Injection Detection
@@ -245,6 +245,7 @@ Automated Security Validation
 - Scenario Runner Service
 - Simple Agent
 - Agent Runtime Service
+- Security-Mediated Execution Pipeline
 - Secure File Read Tool
 - Secure Directory List Tool
 
@@ -264,16 +265,16 @@ Current test status:
 python -m pytest
 
 87 passed
+Manual validation completed for governed agent execution
 ```
 
 ### Immediate Next Milestone
 
-- Secure Tool Execution Integration
+- Resource-Aware Authorization
 
 ### Upcoming Roadmap
 
-- Secure Tool Execution Integration
-- Runtime Response Enforcement
+- Resource-Aware Authorization
 - Human Approval Workflow
 - Prompt Injection Detection
 - Ollama Integration
