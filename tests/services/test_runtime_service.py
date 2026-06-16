@@ -31,11 +31,20 @@ def create_runtime_service(
             status=AgentStatus.ACTIVE,
         )
     )
+    
     tool_service.register_tool(
         Tool(
             tool_id="file_read",
             risk_level=ToolRiskLevel.LOW,
             required_permission="files:read",
+        )
+    )
+
+    tool_service.register_tool(
+        Tool(
+            tool_id="directory_list",
+            risk_level=ToolRiskLevel.LOW,
+            required_permission="files:list",
         )
     )
 
