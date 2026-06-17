@@ -110,11 +110,18 @@ class AgentRuntimeService:
     ) -> AgentRuntimeResult:
         invocation = self._agent.decide_tool(query)
 
+        resource = (
+            invocation.parameters.get(
+                "path"
+            )
+        )
+
         runtime_result = (
             self._runtime_service.execute(
                 session_id="session-1",
                 agent_id="agent-1",
                 tool_id=invocation.tool_id,
+                resource=resource,
             )
         )
 
