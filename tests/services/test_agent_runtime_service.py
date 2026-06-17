@@ -36,6 +36,22 @@ def test_execute_read_query() -> None:
     )
 
 
+def test_execute_protected_resource_query() -> None:
+    service = AgentRuntimeService()
+
+    result = service.execute(
+        "read secrets.txt"
+    )
+
+    assert isinstance(
+        result,
+        AgentRuntimeResult,
+    )
+
+    assert result.decision == "DENY"
+
+    assert result.output is None
+
 
 def test_execute_list_query() -> None:
     service = AgentRuntimeService()

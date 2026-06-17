@@ -4,10 +4,15 @@ from app.models.tool import Tool, ToolRiskLevel
 
 
 class PolicyEngine:
+    PROTECTED_RESOURCES = {
+        "secrets.txt",
+    }
+
     def evaluate(
         self,
         agent: Agent,
         tool: Tool,
+        resource: str | None = None,
     ) -> Decision:
         if agent.status in {
             AgentStatus.SUSPENDED,
@@ -21,6 +26,12 @@ class PolicyEngine:
                 ToolRiskLevel.HIGH,
                 ToolRiskLevel.CRITICAL,
             }
+        ):
+            return Decision.DENY
+
+        if (
+            tool.tool_id == "file_read"
+            and resource in self.PROTECTED_RESOURCES
         ):
             return Decision.DENY
 

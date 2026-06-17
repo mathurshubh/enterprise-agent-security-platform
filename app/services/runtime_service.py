@@ -31,10 +31,12 @@ class RuntimeService:
         session_id: str,
         agent_id: str,
         tool_id: str,
+        resource: str | None = None,
     ) -> RuntimeResult:
         decision = self._authorization_service.authorize(
             agent_id,
             tool_id,
+            resource,
         )
 
         event = SessionEvent(

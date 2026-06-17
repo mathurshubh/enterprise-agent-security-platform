@@ -82,3 +82,28 @@ def test_approval_required_for_critical_tool():
     )
 
     assert decision == Decision.APPROVAL_REQUIRED
+
+
+def test_allow_access_to_non_protected_resource():
+    engine = PolicyEngine()
+
+    decision = engine.evaluate(
+        create_agent(),
+        create_tool(),
+        resource="notes.txt",
+    )
+
+    assert decision == Decision.ALLOW
+
+
+
+def test_deny_access_to_protected_resource():
+    engine = PolicyEngine()
+
+    decision = engine.evaluate(
+        create_agent(),
+        create_tool(),
+        resource="secrets.txt",
+    )
+
+    assert decision == Decision.DENY

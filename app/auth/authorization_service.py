@@ -25,6 +25,7 @@ class AuthorizationService:
         self,
         agent_id: str,
         tool_id: str,
+        resource: str | None = None,
     ) -> Decision:
         try:
             agent = self._agent_service.get_agent(agent_id)
@@ -39,4 +40,5 @@ class AuthorizationService:
         return self._policy_engine.evaluate(
             agent,
             tool,
+            resource,
         )
