@@ -1,4 +1,4 @@
-# Enterprise AI Security and Governance Platform
+# Enterprise Agent Security Platform
 
 Enterprise-focused security platform for governing, authorizing, monitoring, and auditing AI agents.
 The platform assumes AI agents are not trusted security boundaries. All agent actions are evaluated through centralized authorization, auditing, and risk management controls before interacting with enterprise resources.
@@ -52,6 +52,7 @@ This project is designed around enterprise AI security requirements including:
 - RBAC
 - Tool Authorization
 - Policy Enforcement
+- Resource-Aware Authorization
 - Session Context
 - Adaptive Security Controls
 
@@ -86,6 +87,8 @@ Runtime Service
 Authorization Engine
   ↓
 Policy Engine
+  ↓
+Resource Authorization
   ↓
 Session Service
   ↓
@@ -171,14 +174,17 @@ Automated Security Validation
 - Agent Runtime Service
 - Security-Mediated Agent Execution
 - Runtime Response Enforcement
+- Resource-Aware Authorization
+- Protected Resource Policies
 - Secure File Read Tool
 - Secure Directory Listing Tool
 - Workspace Isolation Controls
 - Path Traversal Protection
-- 87 Automated Tests Passing
+- 90 Automated Tests Passing
 
 ### Planned
 
+- Session Isolation
 - Human Approval Workflow
 - Security Dashboard
 - Prompt Injection Detection
@@ -236,6 +242,7 @@ Automated Security Validation
 - JWT Authentication Service
 - Authorization Service
 - Policy Engine
+- Resource-Aware Authorization Policies
 - Session Service
 - Model Registry Service
 - Detection Service
@@ -264,17 +271,17 @@ Current test status:
 ```bash
 python -m pytest
 
-87 passed
+90 passed
 Manual validation completed for governed agent execution
+Manual validation completed for resource-aware authorization
 ```
 
 ### Immediate Next Milestone
 
-- Resource-Aware Authorization
+- Session Isolation
 
 ### Upcoming Roadmap
 
-- Resource-Aware Authorization
 - Human Approval Workflow
 - Prompt Injection Detection
 - Ollama Integration
@@ -314,7 +321,7 @@ The goal is not to build another chatbot, but rather an AI Security Analytics ca
 
 - Indirect Prompt Injection Detection
 - Session-Based Behavioral Analysis
-- Tool Argument-Level Authorization
+- Advanced Resource-Aware Authorization Policies
 - Risk-Based Authorization
 - MITRE ATLAS Technique Mapping
 - OWASP LLM Top 10 Coverage Mapping

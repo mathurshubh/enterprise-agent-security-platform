@@ -128,6 +128,8 @@ Authorization Engine
     ↓
 Policy Engine
     ↓
+Resource Authorization
+    ↓
 Session Service
     ↓
 Detection Engine
@@ -246,6 +248,7 @@ Evaluates:
 - Tool permissions
 - Policy rules
 - Tool arguments
+- Resource access requests
 - Risk level
 - Agent status
 - Data classification requirements
@@ -259,6 +262,14 @@ Possible outcomes:
 Fail-closed behavior:
 
 If required security controls, policy evaluation, or authorization dependencies are unavailable, authorization defaults to DENY.
+
+Current implementation supports resource-aware authorization policies.
+
+Examples:
+
+- ALLOW file_read(notes.txt)
+- ALLOW file_read(public_data.csv)
+- DENY file_read(secrets.txt)
 
 ---
 
@@ -638,7 +649,7 @@ Planned future enhancements include:
 - Agent security maturity assessments
 - Session-based behavioral analysis
 - Indirect prompt injection detection
-- Tool argument-level authorization
+- Advanced resource-aware authorization policies
 - Risk-adaptive authorization
 - Attack simulation framework
 - Multi-agent governance controls
@@ -668,15 +679,21 @@ Planned future enhancements include:
 - Local Agent Runtime Foundations
 - Simple Agent
 - Agent Runtime Service
+- Security-Mediated Agent Execution
+- Resource-Aware Authorization
+- Protected Resource Policies
 - Secure File Read Tool
 - Secure Directory List Tool
+- Runtime Response Enforcement
+- Secure Tool Execution Integration
 
 ### In Progress
 
-- Secure Tool Execution Integration
+- Session Isolation
 
 ### Planned
 
+- Trigger Source Attribution
 - Human Approval Workflow
 - Prompt Injection Detection
 - Ollama Integration
