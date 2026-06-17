@@ -1,3 +1,4 @@
+import uuid
 from app.models.agent_runtime_result import (
     AgentRuntimeResult,
 )
@@ -116,9 +117,13 @@ class AgentRuntimeService:
             )
         )
 
+        session_id = str(
+            uuid.uuid4()
+        )
+
         runtime_result = (
             self._runtime_service.execute(
-                session_id="session-1",
+                session_id=session_id,
                 agent_id="agent-1",
                 tool_id=invocation.tool_id,
                 resource=resource,
