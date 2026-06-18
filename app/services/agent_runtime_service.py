@@ -38,12 +38,17 @@ from app.tools.directory_list_tool import (
 from app.tools.file_read_tool import (
     FileReadTool,
 )
+from app.services.ollama_agent import OllamaAgent
+from app.models.tool_invocation import ToolInvocation
 from app.services.simple_agent import SimpleAgent
 
 
 class AgentRuntimeService:
-    def __init__(self) -> None:
-        self._agent = SimpleAgent()
+    def __init__(
+        self,
+        agent: SimpleAgent | OllamaAgent | None = None,
+    ) -> None:
+        self._agent = agent or OllamaAgent()
 
         self._file_read_tool = FileReadTool(
             "demo_workspace"

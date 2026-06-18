@@ -1,5 +1,3 @@
-import pytest
-
 from app.models.agent_runtime_result import (
     AgentRuntimeResult,
 )
@@ -87,10 +85,20 @@ def test_execute_list_query() -> None:
 def test_execute_unsupported_query() -> None:
     service = AgentRuntimeService()
 
-    with pytest.raises(
-        ValueError,
-        match="Unsupported query",
-    ):
-        service.execute(
-            "send email"
-        )
+    result = service.execute(
+        "send email"
+    )
+
+    assert isinstance(
+        result,
+        AgentRuntimeResult,
+    )
+
+    assert result.decision == "DENY"
+
+    assert (
+        result.response_type
+        == ResponseType.MONITOR
+    )
+
+    assert result.output is None
