@@ -1,7 +1,19 @@
 # Enterprise Agent Security Platform
 
-Enterprise-focused security platform for governing, authorizing, monitoring, and auditing AI agents.
-The platform assumes AI agents are not trusted security boundaries. All agent actions are evaluated through centralized authorization, auditing, and risk management controls before interacting with enterprise resources.
+![Python](https://img.shields.io/badge/Python-3.13-blue)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.116+-009688)
+![Tests](https://img.shields.io/badge/Tests-90_Passing-success)
+![Release](https://img.shields.io/badge/Release-v0.7.0-purple)
+![LLM](https://img.shields.io/badge/LLM-Ollama-orange)
+![Security](https://img.shields.io/badge/Security-Zero_Trust-red)
+
+Enterprise Agent Security Platform is a production-style reference implementation demonstrating how AI agents can be governed using Zero Trust security principles.
+
+The platform intentionally separates intent understanding (LLM) from security enforcement (authorization, policy, detection, and risk assessment), ensuring that no security decision is delegated to the language model.
+
+Unlike traditional AI agent projects that rely on the LLM for orchestration and security decisions, this platform treats the LLM as an untrusted intent parser while enforcing authorization, policy, detection, and risk management through deterministic services.
+
+Enterprise-focused security platform for governing, authorizing, monitoring, and auditing AI agent interactions with enterprise resources. AI agents are treated as untrusted execution environments, with all actions evaluated through centralized authorization, auditing, policy enforcement, and risk management before interacting with enterprise resources.
 
 ## Problem Statement
 
@@ -33,7 +45,9 @@ This project is designed around enterprise AI security requirements including:
 
 ### Agent Runtime
 
-- SimpleAgent Query Routing
+- LLM-Based Tool Selection (Ollama)
+- Natural Language Query Routing
+- Structured Tool Invocation Generation
 - Tool Invocation Modeling
 - Agent Runtime Orchestration
 - Secure Local Tool Execution Foundations
@@ -76,7 +90,7 @@ This project is designed around enterprise AI security requirements including:
 ```text
 User Query
   ↓
-SimpleAgent
+OllamaAgent
   ↓
 Tool Invocation
   ↓
@@ -84,25 +98,25 @@ Agent Runtime Service
   ↓
 Runtime Service
   ↓
-Authorization Engine
+Authorization Service
   ↓
 Policy Engine
   ↓
-Resource Authorization
+Policy Decision
   ↓
 Session Service
   ↓
 Session Events
   ↓
-Detection Engine
+Detection Service
   ↓
 Findings
   ↓
-Risk Engine
+Risk Service
   ↓
 Risk Assessments
   ↓
-Response Engine
+Response Service
   ↓
 Response Actions
   ↓
@@ -113,6 +127,30 @@ File Read Tool / Directory List Tool
 Agent Runtime Result
 ```
 
+## Documentation
+
+The project documentation is organized as follows:
+
+```text
+docs/
+├── api/
+│   └── openapi-design.md              # REST API design
+├── architecture/
+│   ├── system-architecture.md         # Overall system architecture
+│   └── data-model.md                  # Domain model and relationships
+├── evaluations/
+│   └── tool-selection-evaluation-v1.md # LLM tool selection evaluation
+└── security/
+    └── threat-model.md                # Threat model and security assumptions
+```
+
+### Key Documents
+
+- **System Architecture:** `docs/architecture/system-architecture.md`
+- **Threat Model:** `docs/security/threat-model.md`
+- **OpenAPI Design:** `docs/api/openapi-design.md`
+- **LLM Evaluation:** `docs/evaluations/tool-selection-evaluation-v1.md`
+ 
 ### Security Validation Flow
 
 ```text
@@ -122,11 +160,11 @@ Scenario Runner
   ↓
 Runtime Service
   ↓
-Authorization Engine
+Authorization Service
   ↓
-Detection Engine
+Detection Service
   ↓
-Risk Engine
+Risk Service
   ↓
 Scenario Results
   ↓
@@ -137,65 +175,200 @@ Automated Security Validation
 
 ### Completed
 
+Architecture
+
 - System Architecture
 - Threat Model
-- Data Model
 - OpenAPI Design
-- Pydantic Domain Models
-- Agent Inventory Service
-- Tool Registry Service
-- Audit Logging Service
-- Authorization Engine
+- Data Model
+
+Security
+
 - JWT Authentication
+- Authorization
 - Policy Engine
-- Session Context Service
-- Session Context Tracking
-- Session Event Model
-- Session Event Tracking
-- Session Event Tests
-- Model Registry Service
-- Detection Engine
-- Detection Findings Model
-- Risk Engine
-- Risk Assessment Model
-- Response Engine
-- Response Action Model
-- FastAPI Runtime APIs
-- Runtime Security Integration
-- Runtime Detection Integration
-- Runtime Risk Integration
-- Adversarial Scenario Framework
-- Scenario Runner Service
-- Automated Security Validation
-- Local Agent Runtime Foundations
-- Tool Invocation Model
-- Simple Agent Implementation
-- Agent Runtime Result Model
-- Agent Runtime Service
-- Security-Mediated Agent Execution
-- Runtime Response Enforcement
-- Resource-Aware Authorization
-- Protected Resource Policies
-- Secure File Read Tool
-- Secure Directory Listing Tool
-- Workspace Isolation Controls
-- Path Traversal Protection
-- 90 Automated Tests Passing
+- Resource Authorization
+
+Runtime
+
+- Runtime Service
+- Agent Runtime
+- Ollama Integration
+- LLM Tool Selection
+
+Validation
+
+- Scenario Framework
+- Evaluation Framework
+- 90 Automated Unit & Integration Tests
 
 ### Planned
 
-- Session Isolation
 - Human Approval Workflow
-- Security Dashboard
-- Prompt Injection Detection
-- LLM Integration (Ollama / Hosted Models)
+- Indirect Prompt Injection Detection
+- Agent Abstraction
+- Multi-Provider LLM Support (Gemini / OpenAI / Claude)
+- Browser-Based Security Dashboard
+
+## AI-Powered Tool Selection
+
+The platform uses a locally hosted Ollama model to translate natural language requests into structured `ToolInvocation` objects.
+
+Security decisions are never delegated to the LLM.
+
+Every tool invocation is evaluated through deterministic authorization, resource-aware policies, behavioral detection, risk assessment, and response enforcement before interacting with enterprise resources.
+
+The initial implementation was evaluated using a representative prompt suite covering supported requests, unsupported requests, and prompt injection scenarios. Results are documented in `docs/evaluations/tool-selection-evaluation-v1.md`.
 
 ## Tech Stack
 
+Backend
+
 - FastAPI
 - Pydantic
-- PyJWT
+
+AI
+
+- Ollama
+- Llama 3.2 3B (Local Inference)
+
+Testing
+
 - Pytest
+
+Security
+
+- PyJWT
+
+## Quick Start
+
+### Ollama Setup
+
+```bash
+ollama pull llama3.2:3b
+ollama serve
+```
+
+### Project Setup
+
+```bash
+git clone https://github.com/mathurshubh/enterprise-agent-security-platform.git
+
+cd enterprise-agent-security-platform
+
+python3 -m venv .venv
+
+source .venv/bin/activate
+
+pip install -r requirements.txt
+
+python -m pytest
+```
+
+## Running the Demo
+
+Start the Python REPL:
+
+```bash
+python
+```
+
+Then run:
+
+```python
+from app.services.agent_runtime_service import AgentRuntimeService
+
+service = AgentRuntimeService()
+
+print(service.execute("read notes.txt"))
+print(service.execute("read secrets.txt"))
+```
+
+## Example
+
+Query
+
+```text
+please read notes.txt
+```
+
+↓
+
+Tool Selected
+
+```text
+file_read
+```
+
+↓
+
+Authorization
+
+```text
+ALLOW
+```
+
+↓
+
+Output
+
+```text
+notes.txt contents
+```
+
+---
+
+Query
+
+```text
+please read secrets.txt
+```
+
+↓
+
+Tool Selected
+
+```text
+file_read
+```
+
+↓
+
+Authorization
+
+```text
+DENY
+```
+
+↓
+
+Output
+
+```text
+None
+```
+
+## Project Structure
+
+```text
+enterprise-agent-security-platform/
+├── app/
+│   ├── api/             # FastAPI endpoints
+│   ├── auth/            # Authentication & authorization
+│   ├── models/          # Domain models
+│   ├── policy/          # Policy evaluation engine
+│   ├── services/        # Runtime orchestration & business logic
+│   └── tools/           # Secure tool implementations
+├── demo_workspace/      # Sample workspace for tool execution
+├── docs/
+│   ├── api/
+│   ├── architecture/
+│   ├── evaluations/
+│   └── security/
+├── tests/               # Unit and integration tests
+├── requirements.txt
+└── README.md
+```
 
 ### Planned Technologies
 
@@ -207,7 +380,7 @@ Automated Security Validation
 
 ## Project Goals
 
-- Demonstrate Enterprise AI Security Architecture
+- Demonstrate production-style Enterprise AI Security architecture and governance patterns.
 - Showcase Agent Governance Controls
 - Implement Security-Focused Design Patterns
 - Build a Production-Style Portfolio Project
@@ -250,11 +423,14 @@ Automated Security Validation
 - Response Service
 - Runtime Service
 - Scenario Runner Service
-- Simple Agent
+- Simple Agent (baseline implementation)
+- Ollama Service
+- Ollama Agent
 - Agent Runtime Service
 - Security-Mediated Execution Pipeline
 - Secure File Read Tool
 - Secure Directory List Tool
+- Runtime Authorization Pipeline
 
 #### Testing
 
@@ -270,23 +446,36 @@ Current test status:
 
 ```bash
 python -m pytest
-
-90 passed
-Manual validation completed for governed agent execution
-Manual validation completed for resource-aware authorization
 ```
+
+Current validation:
+
+- 90 automated tests passing
+- Resource-aware authorization validated
+- Governed agent execution validated
+- LLM tool selection evaluated (14/15)
+- Manual validation completed for governed agent execution
+- Manual validation completed for resource-aware authorization
+
+Manual tool selection evaluation:
+
+- Model: llama3.2:3b
+- 14/15 evaluation scenarios passed (93.3%)
+- See docs/evaluations/tool-selection-evaluation-v1.md
 
 ### Immediate Next Milestone
 
-- Session Isolation
+- Agent Abstraction
 
 ### Upcoming Roadmap
 
-- Human Approval Workflow
+- Agent Abstraction
+- Multi-Provider LLM Support
+- Automated LLM Evaluation Suite
 - Prompt Injection Detection
-- Ollama Integration
+- Human Approval Workflow
+- Browser-Based Security Dashboard
 - Agent Observability
-- Security Dashboard
 - Agent Skill Supply Chain Security
 
 ## Future Vision: Agentic Security Analytics

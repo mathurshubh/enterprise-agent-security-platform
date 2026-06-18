@@ -74,6 +74,8 @@ Authorization and risk decisions should be deterministic and explainable.
 
 Security-critical decisions should not depend solely on LLM output.
 
+The LLM is treated as an untrusted intent parser. All authorization, policy evaluation, risk assessment, and response decisions are performed by deterministic platform services.
+
 ---
 
 # Target Reference Architecture
@@ -88,7 +90,7 @@ Security Analysts / Administrators
                     ↓
                 Agent Gateway
                     ↓
-           Authorization Engine
+           Authorization Service
                     ↓
                Policy Engine
                     ↓
@@ -100,48 +102,56 @@ Security Analysts / Administrators
                     ↓
               Audit Pipeline
                     ↓
-             Detection Engine
+             Detection Service
                     ↓
-                Risk Engine
+                Risk Service
                     ↓
       Adaptive Security Controls
                     ↺
-           Authorization Engine
+           Authorization Service
 ```
 
 ---
 
 # Current Implementation Architecture
 
+Current implementation supports single-step, local LLM-governed tool execution. Multi-agent orchestration, external model providers, and advanced governance capabilities remain part of the target architecture.
+
 ```text
 User Query
     ↓
-SimpleAgent
+OllamaAgent
     ↓
-Tool Invocation
+ToolInvocation
     ↓
 Agent Runtime Service
     ↓
 Runtime Service
     ↓
-Authorization Engine
+Authorization Service
     ↓
 Policy Engine
     ↓
-Resource Authorization
+Policy Decision
     ↓
 Session Service
     ↓
-Detection Engine
+Detection Service
     ↓
-Risk Engine
+Risk Service
     ↓
-Response Engine
+Response Service
     ↓
 Secure Tool Execution
     ↓
 File Read Tool / Directory List Tool
 ```
+
+### Security Boundary
+
+The LLM is responsible only for converting natural language into a structured `ToolInvocation`.
+
+Every subsequent security decision—including authorization, policy evaluation, session management, detection, risk assessment, and response enforcement—is performed by deterministic platform services.
 
 ---
 
@@ -150,19 +160,29 @@ File Read Tool / Directory List Tool
 ```text
 User Query
     ↓
-Agent decides tool
+OllamaAgent
     ↓
-Runtime authorization
+ToolInvocation
     ↓
-Detection evaluation
+Authorization Service
     ↓
-Risk scoring
+Policy Engine
     ↓
-Response recommendation
+Policy Decision
     ↓
-Tool execution
+Session Service
     ↓
-Audit generation
+Detection Service
+    ↓
+Risk Service
+    ↓
+Response Service
+    ├──────────────┐
+    │              │
+    ▼              ▼
+Secure Tool   Audit Event
+Execution      Generation
+(if permitted)
 ```
 
 ---
@@ -175,11 +195,11 @@ The platform defines explicit trust boundaries between users, agents, tools, and
 
 User input is considered untrusted and may contain malicious instructions or prompt injection attempts.
 
-## Boundary 2: Agent → Agent Gateway
+## Boundary 2: LLM → Runtime
 
 Agent requests are validated before entering the platform.
 
-## Boundary 3: Gateway → Tool Execution
+## Boundary 3: Runtime → Tool Execution
 
 All tool executions require authorization and policy evaluation.
 
@@ -234,13 +254,15 @@ Security posture:
 - Requests that cannot be validated are rejected.
 - Security control failures default to fail-closed behavior.
 
+This component is part of the target architecture and is not yet implemented in the current platform.
+
 ---
 
-## Authorization Engine
-
-Acts as the Policy Decision Point (PDP)
+## Authorization Service
 
 Central authorization component.
+
+Acts as the Policy Decision Point (PDP).
 
 Evaluates:
 
@@ -265,6 +287,8 @@ If required security controls, policy evaluation, or authorization dependencies 
 
 Current implementation supports resource-aware authorization policies.
 
+Authorization decisions are deterministic and independent of LLM output.
+
 Examples:
 
 - ALLOW file_read(notes.txt)
@@ -277,10 +301,13 @@ Examples:
 
 Maintains context across a sequence of agent actions rather than evaluating requests in isolation.
 
-Future capabilities:
+Current capabilities:
 
 - Session tracking
-- Conversation tracking
+- Session isolation
+
+Future capabilities:
+
 - Multi-step activity correlation
 - Behavioral analysis
 - Detection context generation
@@ -297,6 +324,8 @@ Examples:
 ## Tool Registry
 
 Inventory of approved tools.
+
+Only tools registered in the Tool Registry are eligible for execution.
 
 Examples:
 
@@ -335,7 +364,7 @@ Responsibilities:
 - Validate file paths
 - Prevent path traversal
 - Generate execution audit events
-- Integrate with response controls
+- Execute only after successful authorization and response enforcement
 
 Current implementations:
 
@@ -386,6 +415,7 @@ Events include:
 - Authorization decisions
 - Policy violations
 - Approval actions
+- Runtime response actions
 
 Future audit attributes may include:
 
@@ -403,7 +433,7 @@ Example trigger sources:
 
 ---
 
-## Detection Engine
+## Detection Service
 
 Processes audit events and authorization decisions to identify suspicious or unauthorized agent behavior and generate security findings.
 
@@ -413,7 +443,7 @@ Responsibilities:
 - Evaluate authorization outcomes
 - Detect anomalous behavior patterns
 - Generate security findings
-- Forward findings to the Risk Engine
+- Forward findings to the Risk Service
 
 Example detections:
 
@@ -421,7 +451,6 @@ Example detections:
 - Repeated policy violations
 - Unauthorized tool access attempts
 - Excessive file access
-- Potential prompt injection indicators
 - High-risk action frequency spikes
 - Potential data exfiltration
 - Read-then-exfiltration sequences
@@ -430,13 +459,13 @@ Example detections:
 - Indirect prompt injection indicators
 - Excessive approval requests
 
-Detection findings are forwarded to the Risk Engine for scoring and prioritization.
+Detection findings are forwarded to the Risk Service for scoring and prioritization.
 
 ---
 
-## Risk Engine
+## Risk Service
 
-The Risk Engine aggregates security telemetry and findings to calculate agent risk scores.
+The Risk Service aggregates security telemetry and findings to calculate agent risk scores.
 
 Inputs:
 
@@ -660,6 +689,7 @@ Planned future enhancements include:
 ---
 
 # Implementation Roadmap
+
 ## Current Status
 
 ### Completed
@@ -668,16 +698,20 @@ Planned future enhancements include:
 - JWT Authentication
 - Tool Registry
 - Audit Logging
-- Authorization Engine
+- Authorization Service
 - Policy Engine
 - Session Service
-- Detection Engine
-- Risk Engine
-- Response Engine
+- Detection Service
+- Risk Service
+- Response Service
 - Runtime Service
 - Scenario Runner Framework
 - Local Agent Runtime Foundations
-- Simple Agent
+- Simple Agent (Baseline Implementation)
+- Ollama Agent
+- Ollama Service
+- LLM-Based Tool Selection
+- Tool Selection Evaluation Framework
 - Agent Runtime Service
 - Security-Mediated Agent Execution
 - Resource-Aware Authorization
@@ -686,68 +720,67 @@ Planned future enhancements include:
 - Secure Directory List Tool
 - Runtime Response Enforcement
 - Secure Tool Execution Integration
-
-### In Progress
-
 - Session Isolation
 
 ### Planned
 
+- Agent Abstraction
+- Multi-Provider LLM Support
+- Automated LLM Evaluation
+- Browser-Based Security Dashboard
 - Trigger Source Attribution
 - Human Approval Workflow
-- Prompt Injection Detection
-- Ollama Integration
-- Security Dashboard
+- Indirect Prompt Injection Detection
 - Agent Observability
 - Agent Skill Supply Chain Security
 
 
-# Sprint 1
+## Sprint 1
 
 - Agent Inventory
 - JWT Authentication
 - Tool Registry
 - Audit Logging
 
-# Sprint 2
+## Sprint 2
 
-- Authorization Engine
+- Authorization Service
 - Policy Engine
 
-# Sprint 3
+## Sprint 3
 
 - Session Context
 - Approval Workflow
 
-# Sprint 4
+## Sprint 4
 
-- Detection Engine
-- Findings Engine
+- Detection Service
+- Security Findings
 
-# Sprint 5
+## Sprint 5
 
-- Risk Engine
+- Risk Service
 - Risk Scoring
 
-# Sprint 6
+## Sprint 6
 
 - Management Console
 - Agent Inventory UI
-- Findings Dashboard
+- Security Findings Dashboard
 
-# Sprint 7
+## Sprint 7
 
 - MITRE ATLAS Mapping
 - OWASP LLM Mapping
 - Attack Simulation Framework
 
-# Sprint 8
+## Sprint 8
 
 - Security Agent
 - Risk Recommendations
 - Investigation Workflows
 
-# Sprint 9
+## Sprint 9
 
 - Telemetry
 - Prometheus
