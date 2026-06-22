@@ -1,7 +1,9 @@
 from app.models.tool_invocation import ToolInvocation
-from app.services.ollama_service import OllamaService
+from app.providers.ollama_provider import OllamaProvider
 
 from app.agents.enterprise_agent import EnterpriseAgent
+
+from app.providers.provider_adapter import ProviderAdapter
 
 class OllamaAgent(EnterpriseAgent):
     SYSTEM_PROMPT = """
@@ -91,14 +93,17 @@ Output:
 }
 """.strip()
 
-    def __init__(self) -> None:
-        self._ollama_service = OllamaService()
+    def __init__(
+        self,
+        provider: ProviderAdapter | None = None,
+    ) -> None:
+        self._provider = provider or OllamaProvider()
 
     def decide_tool(
         self,
         query: str,
     ) -> ToolInvocation:
-        response = self._ollama_service.chat(
+        response = self._provider.chat(
             self.SYSTEM_PROMPT,
             query,
         )
