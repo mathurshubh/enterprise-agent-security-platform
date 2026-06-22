@@ -2,8 +2,17 @@ from app.models.tool_invocation import (
     ToolInvocation,
 )
 
+from app.agents.enterprise_agent import EnterpriseAgent
 
-class SimpleAgent:
+class SimpleAgent(EnterpriseAgent):
+
+    def invoke(
+            self,
+            query: str,
+    ) -> ToolInvocation:
+            return self.decide_tool(query)
+     
+
     def decide_tool(
         self,
         query: str,
@@ -34,3 +43,6 @@ class SimpleAgent:
         raise ValueError(
             f"Unsupported query: {query}"
         )
+
+
+   

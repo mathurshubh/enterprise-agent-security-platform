@@ -38,15 +38,14 @@ from app.tools.directory_list_tool import (
 from app.tools.file_read_tool import (
     FileReadTool,
 )
-from app.services.ollama_agent import OllamaAgent
-from app.models.tool_invocation import ToolInvocation
-from app.services.simple_agent import SimpleAgent
 
+from app.agents.enterprise_agent import EnterpriseAgent
+from app.services.ollama_agent import OllamaAgent
 
 class AgentRuntimeService:
     def __init__(
         self,
-        agent: SimpleAgent | OllamaAgent | None = None,
+        agent: EnterpriseAgent | None = None,
     ) -> None:
         self._agent = agent or OllamaAgent()
 
@@ -114,7 +113,7 @@ class AgentRuntimeService:
         self,
         query: str,
     ) -> AgentRuntimeResult:
-        invocation = self._agent.decide_tool(query)
+        invocation = self._agent.invoke(query)
 
         resource = (
             invocation.parameters.get(

@@ -1,8 +1,9 @@
 from app.models.tool_invocation import ToolInvocation
 from app.services.ollama_service import OllamaService
 
+from app.agents.enterprise_agent import EnterpriseAgent
 
-class OllamaAgent:
+class OllamaAgent(EnterpriseAgent):
     SYSTEM_PROMPT = """
 You are a deterministic tool selection engine.
 
@@ -105,3 +106,10 @@ Output:
         return ToolInvocation.model_validate(
             response
         )
+    
+    def invoke(
+        self,
+        query: str,
+    ) -> ToolInvocation:
+        return self.decide_tool(query)
+    
