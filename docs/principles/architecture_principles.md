@@ -384,7 +384,7 @@ Before merging a significant architectural change, ask:
 - Does it preserve least privilege?
 - Does it increase the attack surface?
 - Does it improve or reduce maintainability?
-- Does it remain provider-independent?
+- Does it remain provider-agnostic?
 - Does it preserve backward compatibility where appropriate?
 - Is the documentation updated?
 - Does the design introduce unnecessary coupling?
