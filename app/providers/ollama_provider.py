@@ -10,9 +10,15 @@ class OllamaProvider(ProviderAdapter):
     exposing the provider-agnostic ProviderAdapter interface.
     """
 
-    def __init__(self) -> None:
-        self._ollama_service = OllamaService()
-
+    def __init__(
+        self,
+        ollama_service: OllamaService | None = None,
+    ) -> None:
+        self._ollama_service = (
+            ollama_service
+            or OllamaService()
+        )
+        
     def chat(
         self,
         system_prompt: str,
