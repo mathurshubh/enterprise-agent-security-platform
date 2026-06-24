@@ -78,9 +78,22 @@ The LLM is treated as an untrusted intent parser. All authorization, policy eval
 
 ---
 
+## Provider Independence
+
+LLM providers are infrastructure dependencies rather than security boundaries.
+
+The platform isolates provider-specific implementations behind a common ProviderAdapter interface, allowing new providers to be integrated without modifying the runtime, authorization, policy, detection, risk, response, or tool execution components.
+
+Provider selection is configuration-driven and independent of the deterministic security pipeline.
+
+---
+
 # Target Reference Architecture
 
-# (diagram remains unchanged)
+The following diagram represents the long-term target architecture of the Enterprise Agent Security Platform.
+
+Several components shown below, including the Agent Gateway, Management Console, and adaptive security controls, are planned for future releases and are not yet part of the current implementation.
+
 ```text
 Security Analysts / Administrators
                     ↓
@@ -115,75 +128,91 @@ Security Analysts / Administrators
 
 # Current Implementation Architecture
 
-Current implementation supports single-step, local LLM-governed tool execution. Multi-agent orchestration, external model providers, and advanced governance capabilities remain part of the target architecture.
+Current implementation supports provider-agnostic, single-step LLM-governed tool execution through a configurable provider architecture. The runtime is independent of the selected LLM provider, while multi-agent orchestration and advanced governance capabilities remain part of the target architecture.
+
+The current implementation supports a single enterprise agent with pluggable LLM providers.
+
+### Static Component Architecture
+
+The following diagram illustrates the relationships between the major architectural components implemented in v0.8.
+
+```text
+                  Configuration
+          (DEFAULT_PROVIDER)
+                  │
+                  ▼
+           ProviderFactory
+                  │
+                  ▼
+           ProviderAdapter
+          ▲               ▲
+          │               │
+┌────────────────┐ ┌────────────────┐
+│ OllamaProvider │ │ GeminiProvider │
+└────────────────┘ └────────────────┘
+          │               │
+          ▼               ▼
+  OllamaService     GeminiService
+
+                  ▲
+                  │
+          EnterpriseAgent
+                  │
+                  ▼
+        AgentRuntimeService
+```
+
+### Runtime Execution Flow
+
+The following diagram illustrates how a user request flows through the deterministic security pipeline during execution.
 
 ```text
 User Query
-    ↓
-OllamaAgent
-    ↓
+      │
+      ▼
+AgentRuntimeService
+      │
+      ▼
+EnterpriseAgent
+      │
+      ▼
+ProviderAdapter.chat()
+      │
+      ▼
 ToolInvocation
-    ↓
-Agent Runtime Service
-    ↓
-Runtime Service
-    ↓
+      │
+      ▼
 Authorization Service
-    ↓
+      │
+      ▼
 Policy Engine
-    ↓
-Policy Decision
-    ↓
+      │
+      ▼
 Session Service
-    ↓
+      │
+      ▼
 Detection Service
-    ↓
+      │
+      ▼
 Risk Service
-    ↓
+      │
+      ▼
 Response Service
-    ↓
+      │
+      ▼
 Secure Tool Execution
-    ↓
-File Read Tool / Directory List Tool
+      │
+      ▼
+Audit Event
 ```
 
-### Security Boundary
+---
+
+### Runtime Security Boundary
 
 The LLM is responsible only for converting natural language into a structured `ToolInvocation`.
 
 Every subsequent security decision—including authorization, policy evaluation, session management, detection, risk assessment, and response enforcement—is performed by deterministic platform services.
-
----
-
-# Runtime Security Flow
-
-```text
-User Query
-    ↓
-OllamaAgent
-    ↓
-ToolInvocation
-    ↓
-Authorization Service
-    ↓
-Policy Engine
-    ↓
-Policy Decision
-    ↓
-Session Service
-    ↓
-Detection Service
-    ↓
-Risk Service
-    ↓
-Response Service
-    ├──────────────┐
-    │              │
-    ▼              ▼
-Secure Tool   Audit Event
-Execution      Generation
-(if permitted)
-```
 
 ---
 
@@ -195,7 +224,7 @@ The platform defines explicit trust boundaries between users, agents, tools, and
 
 User input is considered untrusted and may contain malicious instructions or prompt injection attempts.
 
-## Boundary 2: LLM → Runtime
+## Boundary 2: LLM Provider → Enterprise Runtime
 
 Agent requests are validated before entering the platform.
 
@@ -214,6 +243,67 @@ Administrative actions require authentication, authorization, and full audit log
 ---
 
 # Core Components
+
+## EnterpriseAgent
+
+The EnterpriseAgent defines the abstraction for enterprise AI agents.
+
+Responsibilities:
+
+- Accept natural language requests.
+- Delegate prompt processing to the configured provider.
+- Convert provider responses into validated `ToolInvocation` objects.
+
+The EnterpriseAgent does **not** perform:
+
+- Authorization
+- Policy evaluation
+- Risk assessment
+- Detection
+- Response enforcement
+- Tool execution
+
+The EnterpriseAgent is treated solely as an intent parser within the deterministic security pipeline.
+
+---
+
+## ProviderAdapter
+
+The ProviderAdapter defines a common interface for all supported LLM providers.
+
+Responsibilities:
+
+- Submit prompts to an LLM provider.
+- Receive structured responses.
+- Abstract provider-specific SDKs and APIs.
+
+Current implementations:
+
+- OllamaProvider
+- GeminiProvider
+
+Future providers can be integrated by implementing the ProviderAdapter interface without modifying the runtime or security pipeline.
+
+---
+
+## ProviderFactory
+
+The ProviderFactory is responsible for selecting and constructing the configured LLM provider.
+
+Responsibilities:
+
+- Read provider configuration.
+- Instantiate the configured ProviderAdapter.
+- Isolate provider selection from runtime services.
+
+Current supported providers:
+
+- Ollama
+- Gemini
+
+The ProviderFactory belongs to the application composition layer and is responsible for constructing the configured provider during application initialization. It is not part of the runtime request processing pipeline.
+
+---
 
 ## Agent Inventory
 
@@ -334,7 +424,6 @@ Examples:
 - github_tool
 - web_fetch
 - shell_execute
-
 
 Each tool contains metadata describing:
 
@@ -707,10 +796,6 @@ Planned future enhancements include:
 - Runtime Service
 - Scenario Runner Framework
 - Local Agent Runtime Foundations
-- Simple Agent (Baseline Implementation)
-- Ollama Agent
-- Ollama Service
-- LLM-Based Tool Selection
 - Tool Selection Evaluation Framework
 - Agent Runtime Service
 - Security-Mediated Agent Execution
@@ -721,11 +806,18 @@ Planned future enhancements include:
 - Runtime Response Enforcement
 - Secure Tool Execution Integration
 - Session Isolation
+- EnterpriseAgent Abstraction
+- ProviderAdapter
+- ProviderFactory
+- Provider Configuration
+- Ollama Provider
+- Gemini Provider
+- Ollama Service
+- Gemini Service
+- Provider-Agnostic Tool Selection
 
 ### Planned
 
-- Agent Abstraction
-- Multi-Provider LLM Support
 - Automated LLM Evaluation
 - Browser-Based Security Dashboard
 - Trigger Source Attribution
@@ -734,56 +826,59 @@ Planned future enhancements include:
 - Agent Observability
 - Agent Skill Supply Chain Security
 
+## Planned Releases
 
-## Sprint 1
+### v0.9 – Agent Capabilities
 
-- Agent Inventory
-- JWT Authentication
-- Tool Registry
-- Audit Logging
+- Rich tool ecosystem
+- Tool metadata and capability discovery
+- Enhanced runtime orchestration
+- Expanded enterprise tooling
 
-## Sprint 2
+### v1.0 – AI Security Controls
 
-- Authorization Service
-- Policy Engine
+- Prompt injection detection
+- Indirect prompt injection detection
+- Data exfiltration detection
+- Advanced attack simulation framework
 
-## Sprint 3
+### v1.1 – Observability
 
-- Session Context
-- Approval Workflow
+- OpenTelemetry integration
+- Prometheus metrics
+- Grafana dashboards
+- Distributed tracing
 
-## Sprint 4
+### v1.2 – DevSecOps
 
-- Detection Service
-- Security Findings
+- GitHub Actions CI/CD
+- Automated security scanning
+- Release automation
+- Software supply chain validation
 
-## Sprint 5
+### v1.3 – Management Console
 
-- Risk Service
-- Risk Scoring
+- Browser-based administration console
+- Agent inventory dashboard
+- Risk monitoring
+- Security findings
+- Approval workflows
 
-## Sprint 6
+### v2.0 – Enterprise Multi-Agent Platform
 
-- Management Console
-- Agent Inventory UI
-- Security Findings Dashboard
+- Multi-agent governance
+- Distributed policy enforcement
+- Cross-agent session correlation
+- Enterprise-scale orchestration
 
-## Sprint 7
+---
 
-- MITRE ATLAS Mapping
-- OWASP LLM Mapping
-- Attack Simulation Framework
+# Architectural Decision Summary
 
-## Sprint 8
+The architecture of the Enterprise Agent Security Platform is based on three fundamental principles:
 
-- Security Agent
-- Risk Recommendations
-- Investigation Workflows
+1. **LLMs are treated as untrusted intent parsers.**
+2. **All security decisions remain deterministic and auditable.**
+3. **Provider-specific implementations are isolated behind abstractions to enable future extensibility without impacting the security pipeline.**
 
-## Sprint 9
-
-- Telemetry
-- Prometheus
-- Grafana
-- OpenTelemetry
-- Jaeger
+These principles guide all future architectural decisions and ensure the platform remains provider-independent, secure, and maintainable as additional enterprise capabilities are introduced.

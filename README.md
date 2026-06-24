@@ -2,18 +2,40 @@
 
 ![Python](https://img.shields.io/badge/Python-3.13-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.116+-009688)
-![Tests](https://img.shields.io/badge/Tests-90_Passing-success)
-![Release](https://img.shields.io/badge/Release-v0.7.0-purple)
-![LLM](https://img.shields.io/badge/LLM-Ollama-orange)
+![Tests](https://img.shields.io/badge/Tests-96_Passing-success)
+![Release](https://img.shields.io/badge/Release-v0.8.0-blue)
+![Providers](https://img.shields.io/badge/Providers-Ollama_|_Gemini-orange)
 ![Security](https://img.shields.io/badge/Security-Zero_Trust-red)
 
-Enterprise Agent Security Platform is a production-style reference implementation demonstrating how AI agents can be governed using Zero Trust security principles.
+Enterprise Agent Security Platform is a production-style reference implementation for governing enterprise AI agents using Zero Trust security principles.
 
-The platform intentionally separates intent understanding (LLM) from security enforcement (authorization, policy, detection, and risk assessment), ensuring that no security decision is delegated to the language model.
+The platform treats Large Language Models (LLMs) as untrusted intent parsers while enforcing deterministic authorization, policy evaluation, risk assessment, detection, response, and audit logging before any interaction with enterprise resources.
 
-Unlike traditional AI agent projects that rely on the LLM for orchestration and security decisions, this platform treats the LLM as an untrusted intent parser while enforcing authorization, policy, detection, and risk management through deterministic services.
+Version 0.8 introduces a provider-agnostic architecture, allowing multiple LLM providers (currently Ollama and Gemini) to be integrated without modifying the deterministic security pipeline.
 
-Enterprise-focused security platform for governing, authorizing, monitoring, and auditing AI agent interactions with enterprise resources. AI agents are treated as untrusted execution environments, with all actions evaluated through centralized authorization, auditing, policy enforcement, and risk management before interacting with enterprise resources.
+---
+
+## Architecture Highlights
+
+- Provider-agnostic LLM architecture
+- Zero Trust security model
+- Deterministic authorization pipeline
+- Resource-aware policy enforcement
+- Pluggable provider abstraction
+- Fully auditable runtime execution
+
+---
+
+## Key Design Principles
+
+- Zero Trust Architecture
+- Deterministic Security Enforcement
+- Provider Independence
+- Least Privilege Authorization
+- Full Auditability
+- LLMs Treated as Untrusted Intent Parsers
+
+---
 
 ## Problem Statement
 
@@ -28,6 +50,19 @@ This project explores how organizations can safely enable AI agents while mainta
 - Auditability
 - Detection Engineering
 
+---
+
+## What's New in v0.8
+
+- Provider-agnostic architecture
+- EnterpriseAgent abstraction
+- Gemini provider support
+- ProviderFactory
+- Externalized provider configuration
+- 96 automated tests
+
+---
+
 ## Enterprise AI Security Focus
 
 This project is designed around enterprise AI security requirements including:
@@ -41,13 +76,17 @@ This project is designed around enterprise AI security requirements including:
 - Risk classification
 - Adaptive security controls
 
+---
+
 ## Core Capabilities
 
 ### Agent Runtime
 
-- LLM-Based Tool Selection (Ollama)
-- Natural Language Query Routing
+- Provider-Agnostic Tool Selection
+- EnterpriseAgent Abstraction
+- Multi-Provider LLM Support
 - Structured Tool Invocation Generation
+- Natural Language Query Routing
 - Tool Invocation Modeling
 - Agent Runtime Orchestration
 - Secure Local Tool Execution Foundations
@@ -85,47 +124,31 @@ This project is designed around enterprise AI security requirements including:
 - Model Provenance Tracking
 - Supply Chain Visibility
 
+---
+
 ## Architecture
 
 ```text
-User Query
-  ↓
-OllamaAgent
-  ↓
-Tool Invocation
-  ↓
-Agent Runtime Service
-  ↓
-Runtime Service
-  ↓
-Authorization Service
-  ↓
-Policy Engine
-  ↓
-Policy Decision
-  ↓
-Session Service
-  ↓
-Session Events
-  ↓
-Detection Service
-  ↓
-Findings
-  ↓
-Risk Service
-  ↓
-Risk Assessments
-  ↓
-Response Service
-  ↓
-Response Actions
-  ↓
+User Request
+      │
+      ▼
+Enterprise Agent
+      │
+      ▼
+Configured LLM Provider
+(Ollama / Gemini)
+      │
+      ▼
+ToolInvocation
+      │
+      ▼
+Deterministic Security Pipeline
+      │
+      ▼
 Secure Tool Execution
-  ↓
-File Read Tool / Directory List Tool
-  ↓
-Agent Runtime Result
 ```
+
+---
 
 ## Documentation
 
@@ -134,14 +157,16 @@ The project documentation is organized as follows:
 ```text
 docs/
 ├── api/
-│   └── openapi-design.md              # REST API design
+│   └── openapi-design.md
 ├── architecture/
-│   ├── system-architecture.md         # Overall system architecture
-│   └── data-model.md                  # Domain model and relationships
+│   ├── system-architecture.md
+│   └── data-model.md
 ├── evaluations/
-│   └── tool-selection-evaluation-v1.md # LLM tool selection evaluation
+│   └── tool-selection-evaluation-v1.md
+├── releases/
+│   └── v0.8.0.md
 └── security/
-    └── threat-model.md                # Threat model and security assumptions
+    └── threat-model.md
 ```
 
 ### Key Documents
@@ -150,75 +175,32 @@ docs/
 - **Threat Model:** `docs/security/threat-model.md`
 - **OpenAPI Design:** `docs/api/openapi-design.md`
 - **LLM Evaluation:** `docs/evaluations/tool-selection-evaluation-v1.md`
- 
-### Security Validation Flow
+- **Release Notes:** `docs/releases/v0.8.0.md`
 
-```text
-Attack Scenarios
-  ↓
-Scenario Runner
-  ↓
-Runtime Service
-  ↓
-Authorization Service
-  ↓
-Detection Service
-  ↓
-Risk Service
-  ↓
-Scenario Results
-  ↓
-Automated Security Validation
-```
+---
 
-## Current Status
+### Near-Term Roadmap
 
-### Completed
-
-Architecture
-
-- System Architecture
-- Threat Model
-- OpenAPI Design
-- Data Model
-
-Security
-
-- JWT Authentication
-- Authorization
-- Policy Engine
-- Resource Authorization
-
-Runtime
-
-- Runtime Service
-- Agent Runtime
-- Ollama Integration
-- LLM Tool Selection
-
-Validation
-
-- Scenario Framework
-- Evaluation Framework
-- 90 Automated Unit & Integration Tests
-
-### Planned
-
-- Human Approval Workflow
 - Indirect Prompt Injection Detection
-- Agent Abstraction
-- Multi-Provider LLM Support (Gemini / OpenAI / Claude)
+- Human Approval Workflow
 - Browser-Based Security Dashboard
+
+---
 
 ## AI-Powered Tool Selection
 
-The platform uses a locally hosted Ollama model to translate natural language requests into structured `ToolInvocation` objects.
+The platform uses a provider-agnostic architecture to translate natural language requests into validated `ToolInvocation` objects.
 
-Security decisions are never delegated to the LLM.
+Current provider implementations include:
 
-Every tool invocation is evaluated through deterministic authorization, resource-aware policies, behavioral detection, risk assessment, and response enforcement before interacting with enterprise resources.
+- Ollama
+- Gemini
 
-The initial implementation was evaluated using a representative prompt suite covering supported requests, unsupported requests, and prompt injection scenarios. Results are documented in `docs/evaluations/tool-selection-evaluation-v1.md`.
+The selected provider is instantiated during application initialization through the ProviderFactory based on the configured provider.
+
+Regardless of the selected provider, every ToolInvocation passes through deterministic authorization, policy evaluation, detection, risk assessment, response enforcement, and audit logging before interacting with enterprise resources.
+
+---
 
 ## Tech Stack
 
@@ -227,18 +209,28 @@ Backend
 - FastAPI
 - Pydantic
 
-AI
+AI & LLM
 
 - Ollama
-- Llama 3.2 3B (Local Inference)
+- Google Gemini
+- Llama 3.2 via Ollama
+
+Security
+
+- PyJWT
 
 Testing
 
 - Pytest
 
-Security
+Observability (Planned)
 
-- PyJWT
+- OpenTelemetry
+- Prometheus
+- Grafana
+- Jaeger
+
+---
 
 ## Quick Start
 
@@ -265,6 +257,8 @@ pip install -r requirements.txt
 python -m pytest
 ```
 
+---
+
 ## Running the Demo
 
 Start the Python REPL:
@@ -284,6 +278,8 @@ print(service.execute("read notes.txt"))
 print(service.execute("read secrets.txt"))
 ```
 
+---
+
 ## Example
 
 Query
@@ -302,7 +298,7 @@ file_read
 
 ↓
 
-Authorization
+Policy Decision
 
 ```text
 ALLOW
@@ -334,7 +330,7 @@ file_read
 
 ↓
 
-Authorization
+Policy Decision
 
 ```text
 DENY
@@ -348,35 +344,75 @@ Output
 None
 ```
 
-## Project Structure
+---
+
+## Repository Structure
 
 ```text
 enterprise-agent-security-platform/
+│
 ├── app/
-│   ├── api/             # FastAPI endpoints
-│   ├── auth/            # Authentication & authorization
-│   ├── models/          # Domain models
-│   ├── policy/          # Policy evaluation engine
-│   ├── services/        # Runtime orchestration & business logic
-│   └── tools/           # Secure tool implementations
-├── demo_workspace/      # Sample workspace for tool execution
+│   │
+│   ├── __init__.py
+│   ├── agents/                  # Enterprise agent abstractions
+│   │   └── enterprise_agent.py
+│   │
+│   ├── api/                     # FastAPI endpoints
+│   │
+│   ├── auth/                    # Authentication and authorization
+│   │
+│   ├── config/                  # Application configuration
+│   │
+│   ├── models/                  # Domain models
+│   │
+│   ├── policy/                  # Policy evaluation engine
+│   │
+│   ├── providers/               # LLM provider abstraction layer
+│   │   ├── provider_adapter.py
+│   │   ├── provider_factory.py
+│   │   ├── ollama_provider.py
+│   │   └── gemini_provider.py
+│   │
+│   ├── services/                # Business logic and orchestration
+│   │
+│   └── tools/                   # Secure tool implementations
+│
+├── demo_workspace/              # Sample workspace for runtime demonstrations
+│
 ├── docs/
+│   ├── api/                     # API design documentation
+│   ├── architecture/            # Architecture and design documents
+│   ├── evaluations/             # LLM evaluation reports
+│   ├── releases/                # Release notes
+│   └── security/                # Threat model and security documentation
+│
+├── scripts/                     # Development and validation utilities
+│
+├── tests/
 │   ├── api/
-│   ├── architecture/
-│   ├── evaluations/
-│   └── security/
-├── tests/               # Unit and integration tests
-├── requirements.txt
-└── README.md
+│   ├── auth/
+│   ├── models/
+│   ├── policy/
+│   ├── providers/
+│   ├── scenarios/
+│   ├── services/
+│   └── tools/
+│
+├── requirements.txt             # Python dependencies
+├── pytest.ini                   # Pytest configuration
+└── README.md                    # Project overview
 ```
+
+---
 
 ### Planned Technologies
 
-- Redis
 - OpenTelemetry
 - Prometheus
 - Grafana
 - Jaeger
+
+---
 
 ## Project Goals
 
@@ -388,6 +424,26 @@ enterprise-agent-security-platform/
 ---
 
 ## Current Implementation Status
+
+### Security Validation Flow
+
+```text
+Attack Scenarios
+  ↓
+Scenario Runner
+  ↓
+Runtime Service
+  ↓
+Authorization Service
+  ↓
+Detection Service
+  ↓
+Risk Service
+  ↓
+Scenario Results
+  ↓
+Automated Security Validation
+```
 
 ### Implemented
 
@@ -407,6 +463,17 @@ enterprise-agent-security-platform/
 - Runtime Result
 - Agent Runtime Result
 
+#### Agents
+
+- EnterpriseAgent
+
+#### Provider Layer
+
+- ProviderFactory
+- ProviderAdapter
+- OllamaProvider
+- GeminiProvider
+
 #### Services
 
 - Agent Inventory Service
@@ -423,9 +490,7 @@ enterprise-agent-security-platform/
 - Response Service
 - Runtime Service
 - Scenario Runner Service
-- Simple Agent (baseline implementation)
 - Ollama Service
-- Ollama Agent
 - Agent Runtime Service
 - Security-Mediated Execution Pipeline
 - Secure File Read Tool
@@ -450,10 +515,10 @@ python -m pytest
 
 Current validation:
 
-- 90 automated tests passing
+- 96 automated tests passing
 - Resource-aware authorization validated
 - Governed agent execution validated
-- LLM tool selection evaluated (14/15)
+- LLM tool selection evaluation completed (14/15 scenarios passed)
 - Manual validation completed for governed agent execution
 - Manual validation completed for resource-aware authorization
 
@@ -465,18 +530,18 @@ Manual tool selection evaluation:
 
 ### Immediate Next Milestone
 
-- Agent Abstraction
+- v0.9 – Rich Tool Ecosystem
 
 ### Upcoming Roadmap
 
-- Agent Abstraction
-- Multi-Provider LLM Support
-- Automated LLM Evaluation Suite
 - Prompt Injection Detection
+- Indirect Prompt Injection Detection
+- Automated LLM Evaluation Suite
 - Human Approval Workflow
-- Browser-Based Security Dashboard
+- Browser-Based Dashboard
 - Agent Observability
-- Agent Skill Supply Chain Security
+
+---
 
 ## Future Vision: Agentic Security Analytics
 
@@ -505,8 +570,9 @@ This capability is not part of the current MVP and will only be considered after
 
 The goal is not to build another chatbot, but rather an AI Security Analytics capability that helps humans understand, investigate, and govern autonomous agents.
 
+---
 
-## Planned AI Security Enhancements
+## Roadmap Beyond v1.0
 
 - Indirect Prompt Injection Detection
 - Session-Based Behavioral Analysis
@@ -518,9 +584,6 @@ The goal is not to build another chatbot, but rather an AI Security Analytics ca
 - Model Governance and Provenance
 - Control Effectiveness Metrics
 - Agent Traceability and Investigation Workflows
-
-## Future Enhancements
-
 - Agent Attack Simulations
 - Adversarial Evaluation Harness
 - Prompt Injection Validation Scenarios

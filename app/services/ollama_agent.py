@@ -1,8 +1,6 @@
+from app.agents.enterprise_agent import EnterpriseAgent
 from app.models.tool_invocation import ToolInvocation
 from app.providers.ollama_provider import OllamaProvider
-
-from app.agents.enterprise_agent import EnterpriseAgent
-
 from app.providers.provider_adapter import ProviderAdapter
 
 class OllamaAgent(EnterpriseAgent):

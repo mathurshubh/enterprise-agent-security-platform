@@ -42,12 +42,19 @@ from app.tools.file_read_tool import (
 from app.agents.enterprise_agent import EnterpriseAgent
 from app.services.ollama_agent import OllamaAgent
 
+from app.providers.provider_factory import ProviderFactory
+
 class AgentRuntimeService:
     def __init__(
         self,
         agent: EnterpriseAgent | None = None,
     ) -> None:
-        self._agent = agent or OllamaAgent()
+        provider = ProviderFactory.create()
+
+        self._agent = (
+            agent
+            or OllamaAgent(provider)
+        )
 
         self._file_read_tool = FileReadTool(
             "demo_workspace"
