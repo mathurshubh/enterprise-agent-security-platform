@@ -6,6 +6,7 @@
 ![Release](https://img.shields.io/badge/Release-v0.8.0-blue)
 ![Providers](https://img.shields.io/badge/Providers-Ollama_|_Gemini-orange)
 ![Security](https://img.shields.io/badge/Security-Zero_Trust-red)
+![License](https://img.shields.io/badge/License-MIT-green)
 
 Enterprise Agent Security Platform is a production-style reference implementation for governing enterprise AI agents using Zero Trust security principles.
 
@@ -600,3 +601,9 @@ The goal is not to build another chatbot, but rather an AI Security Analytics ca
 - Shadow AI Discovery
 - Unauthorized Model Detection
 - Unregistered Agent Detection
+
+---
+
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
