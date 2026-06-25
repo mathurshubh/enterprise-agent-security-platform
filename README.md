@@ -2,7 +2,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.13-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.116+-009688)
-![Tests](https://img.shields.io/badge/Tests-96_Passing-success)
+![Tests](https://img.shields.io/badge/Tests-97_Passing-success)
 ![Release](https://img.shields.io/badge/Release-v0.8.0-blue)
 ![Providers](https://img.shields.io/badge/Providers-Ollama_|_Gemini-orange)
 ![Security](https://img.shields.io/badge/Security-Zero_Trust-red)
@@ -11,7 +11,11 @@ Enterprise Agent Security Platform is a production-style reference implementatio
 
 The platform treats Large Language Models (LLMs) as untrusted intent parsers while enforcing deterministic authorization, policy evaluation, risk assessment, detection, response, and audit logging before any interaction with enterprise resources.
 
-Version 0.8 introduces a provider-agnostic architecture, allowing multiple LLM providers (currently Ollama and Gemini) to be integrated without modifying the deterministic security pipeline.
+The current implementation builds on the v0.8 provider-agnostic architecture while extending the platform toward the v0.9 Rich Tool Ecosystem roadmap.
+
+Current status: v0.8 establishes the provider-agnostic runtime and deterministic security pipeline. v0.9 focuses on expanding the governed tool ecosystem before introducing advanced AI security detections in v1.0.
+
+Current implementation focuses on deterministic runtime governance for AI agents. Advanced behavioral detection, observability, and multi-agent capabilities are planned for future releases.
 
 ---
 
@@ -22,7 +26,7 @@ Version 0.8 introduces a provider-agnostic architecture, allowing multiple LLM p
 - Deterministic authorization pipeline
 - Resource-aware policy enforcement
 - Pluggable provider abstraction
-- Fully auditable runtime execution
+- Runtime security telemetry
 
 ---
 
@@ -59,7 +63,7 @@ This project explores how organizations can safely enable AI agents while mainta
 - Gemini provider support
 - ProviderFactory
 - Externalized provider configuration
-- 96 automated tests
+- 97 automated tests
 
 ---
 
@@ -101,7 +105,7 @@ This project is designed around enterprise AI security requirements including:
 
 ### Security Controls
 
-- JWT Authentication
+- Identity Foundation
 - RBAC
 - Tool Authorization
 - Policy Enforcement
@@ -111,7 +115,7 @@ This project is designed around enterprise AI security requirements including:
 
 ### Security Monitoring
 
-- Audit Logging
+- Security Event Recording
 - Detection Engineering
 - Risk Management
 - Security Telemetry
@@ -462,6 +466,7 @@ Automated Security Validation
 - Tool Invocation
 - Runtime Result
 - Agent Runtime Result
+- Tool Metadata
 
 #### Agents
 
@@ -478,7 +483,7 @@ Automated Security Validation
 
 - Agent Inventory Service
 - Tool Registry Service
-- Audit Logging Service
+- Audit Service
 - JWT Authentication Service
 - Authorization Service
 - Policy Engine
@@ -515,7 +520,7 @@ python -m pytest
 
 Current validation:
 
-- 96 automated tests passing
+- 97 automated tests passing
 - Resource-aware authorization validated
 - Governed agent execution validated
 - LLM tool selection evaluation completed (14/15 scenarios passed)
