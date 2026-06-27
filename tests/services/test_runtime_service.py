@@ -2,7 +2,6 @@ from app.auth.authorization_service import AuthorizationService
 from app.models.agent import Agent, AgentStatus, RiskTier
 from app.models.audit_event import Decision
 from app.models.risk_assessment import RiskLevel
-from app.models.tool import Tool, ToolRiskLevel
 from app.policy.policy_engine import PolicyEngine
 from app.services.agent_service import AgentService
 from app.services.detection_service import DetectionService
@@ -12,6 +11,15 @@ from app.services.risk_service import RiskService
 from app.services.runtime_service import RuntimeService
 from app.services.session_service import SessionService
 from app.services.tool_service import ToolService
+from app.models.tool import Tool
+from app.models.tool_risk_level import ToolRiskLevel
+
+from app.models.tool_capability import ToolCapability
+from app.models.tool_governance import ToolGovernance
+from app.models.tool_identity import ToolIdentity
+from app.models.tool_metadata import ToolMetadata
+from app.models.tool_operational import ToolOperational
+
 
 
 def create_runtime_service(
@@ -33,20 +41,50 @@ def create_runtime_service(
     )
     
     tool_service.register_tool(
-        Tool(
-            tool_id="file_read",
-            risk_level=ToolRiskLevel.LOW,
-            required_permission="files:read",
+    Tool(
+        metadata=ToolMetadata(
+            identity=ToolIdentity(
+                tool_id="file_read",
+                name="File Read",
+                description="Read files from the workspace",
+            ),
+            governance=ToolGovernance(
+                risk_level=ToolRiskLevel.LOW,
+                required_permissions=[
+                    "files:read",
+                ],
+            ),
+            capability=ToolCapability(
+                category="filesystem",
+                reads_files=True,
+            ),
+            operational=ToolOperational(),
         )
     )
+)
 
     tool_service.register_tool(
-        Tool(
-            tool_id="directory_list",
-            risk_level=ToolRiskLevel.LOW,
-            required_permission="files:list",
+    Tool(
+        metadata=ToolMetadata(
+            identity=ToolIdentity(
+                tool_id="directory_list",
+                name="Directory List",
+                description="List files in the workspace",
+            ),
+            governance=ToolGovernance(
+                risk_level=ToolRiskLevel.LOW,
+                required_permissions=[
+                    "files:list",
+                ],
+            ),
+            capability=ToolCapability(
+                category="filesystem",
+                reads_files=True,
+            ),
+            operational=ToolOperational(),
         )
     )
+)
 
     authorization_service = AuthorizationService(
         agent_service,

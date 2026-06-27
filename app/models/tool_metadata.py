@@ -1,31 +1,18 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+
+from app.models.tool_capability import ToolCapability
+from app.models.tool_governance import ToolGovernance
+from app.models.tool_identity import ToolIdentity
+from app.models.tool_operational import ToolOperational
 
 
 class ToolMetadata(BaseModel):
-    """Describes a tool for governance and security."""
+    """Complete metadata describing a registered tool."""
 
-    tool_id: str = Field(
-        description="Unique tool identifier."
-    )
+    identity: ToolIdentity
 
-    name: str = Field(
-        description="Human-readable tool name."
-    )
+    governance: ToolGovernance
 
-    description: str = Field(
-        description="Purpose of the tool."
-    )
+    capability: ToolCapability
 
-    category: str = Field(
-        description="Capability category."
-    )
-
-    risk_level: str = Field(
-        description="Risk classification."
-    )
-
-    required_permissions: list[str] = Field(
-        default_factory=list,
-        description="Permissions required to execute the tool."
-    )
-    
+    operational: ToolOperational
