@@ -1,6 +1,12 @@
 import pytest
 
-from app.models.tool import Tool, ToolRiskLevel
+from app.models.tool import Tool
+from app.models.tool_capability import ToolCapability
+from app.models.tool_governance import ToolGovernance
+from app.models.tool_identity import ToolIdentity
+from app.models.tool_metadata import ToolMetadata
+from app.models.tool_operational import ToolOperational
+from app.models.tool_risk_level import ToolRiskLevel
 from app.services.tool_service import (
     ToolAlreadyExistsError,
     ToolNotFoundError,
@@ -10,10 +16,28 @@ from app.services.tool_service import (
 
 def create_tool(tool_id: str = "file_read") -> Tool:
     return Tool(
-        tool_id=tool_id,
-        risk_level=ToolRiskLevel.LOW,
-        required_permission="files:read",
-        approval_required=False,
+        metadata=ToolMetadata(
+            identity=ToolIdentity(
+                tool_id=tool_id,
+                name=tool_id.replace(
+                    "_",
+                    " ",
+                ).title(),
+                description="Test tool",
+            ),
+            governance=ToolGovernance(
+                risk_level=ToolRiskLevel.LOW,
+                required_permissions=[
+                    "files:read",
+                ],
+                approval_required=False,
+            ),
+            capability=ToolCapability(
+                category="filesystem",
+                reads_files=True,
+            ),
+            operational=ToolOperational(),
+        )
     )
 
 

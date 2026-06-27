@@ -1,8 +1,14 @@
 from app.models.agent import Agent, AgentStatus, RiskTier
 from app.models.audit_event import Decision
-from app.models.tool import Tool, ToolRiskLevel
+from app.models.tool import Tool
+from app.models.tool_risk_level import ToolRiskLevel
 from app.policy.policy_engine import PolicyEngine
 
+from app.models.tool_capability import ToolCapability
+from app.models.tool_governance import ToolGovernance
+from app.models.tool_identity import ToolIdentity
+from app.models.tool_metadata import ToolMetadata
+from app.models.tool_operational import ToolOperational
 
 def create_agent(
     risk_tier: RiskTier = RiskTier.HIGH,
@@ -22,10 +28,25 @@ def create_tool(
     risk_level: ToolRiskLevel = ToolRiskLevel.LOW,
 ) -> Tool:
     return Tool(
-        tool_id="file_read",
-        risk_level=risk_level,
-        required_permission="files:read",
-        approval_required=False,
+        metadata=ToolMetadata(
+            identity=ToolIdentity(
+                tool_id="file_read",
+                name="File Read",
+                description="Read files from the workspace",
+            ),
+            governance=ToolGovernance(
+                risk_level=risk_level,
+                required_permissions=[
+                    "files:read",
+                ],
+                approval_required=False,
+            ),
+            capability=ToolCapability(
+                category="filesystem",
+                reads_files=True,
+            ),
+            operational=ToolOperational(),
+        )
     )
 
 

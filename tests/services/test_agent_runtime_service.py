@@ -4,13 +4,51 @@ from app.models.agent_runtime_result import (
 from app.models.response_action import (
     ResponseType,
 )
+from app.models.tool_invocation import (
+    ToolInvocation,
+)
 from app.services.agent_runtime_service import (
     AgentRuntimeService,
 )
 
 
+class FakeAgent:
+    def invoke(
+        self,
+        query: str,
+    ) -> ToolInvocation:
+        normalized_query = query.strip().lower()
+
+        if normalized_query.startswith("read "):
+            return ToolInvocation(
+                tool_id="file_read",
+                parameters={
+                    "path": query.strip()[5:],
+                },
+            )
+
+        if normalized_query == "list files":
+            return ToolInvocation(
+                tool_id="directory_list",
+                parameters={
+                    "path": ".",
+                },
+            )
+
+        return ToolInvocation(
+            tool_id="",
+            parameters={},
+        )
+
+
+def create_service() -> AgentRuntimeService:
+    return AgentRuntimeService(
+        agent=FakeAgent(),
+    )
+
+
 def test_execute_read_query() -> None:
-    service = AgentRuntimeService()
+    service = create_service()
 
     result = service.execute(
         "read notes.txt"
@@ -35,7 +73,7 @@ def test_execute_read_query() -> None:
 
 
 def test_execute_protected_resource_query() -> None:
-    service = AgentRuntimeService()
+    service = create_service()
 
     result = service.execute(
         "read secrets.txt"
@@ -52,7 +90,7 @@ def test_execute_protected_resource_query() -> None:
 
 
 def test_execute_list_query() -> None:
-    service = AgentRuntimeService()
+    service = create_service()
 
     result = service.execute(
         "list files"
@@ -83,7 +121,7 @@ def test_execute_list_query() -> None:
 
 
 def test_execute_unsupported_query() -> None:
-    service = AgentRuntimeService()
+    service = create_service()
 
     result = service.execute(
         "send email"

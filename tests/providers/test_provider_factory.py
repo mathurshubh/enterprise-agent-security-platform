@@ -24,6 +24,11 @@ def test_provider_factory_returns_gemini(monkeypatch):
         "DEFAULT_PROVIDER",
         "gemini",
     )
+    monkeypatch.setattr(
+        GeminiProvider,
+        "__init__",
+        lambda self: None,
+    )
 
     provider = ProviderFactory.create()
 

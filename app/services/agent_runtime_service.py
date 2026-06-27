@@ -14,10 +14,15 @@ from app.models.agent import (
     RiskTier,
 )
 from app.models.audit_event import Decision
-from app.models.tool import (
-    Tool,
-    ToolRiskLevel,
-)
+
+from app.models.tool import Tool
+from app.models.tool_capability import ToolCapability
+from app.models.tool_governance import ToolGovernance
+from app.models.tool_identity import ToolIdentity
+from app.models.tool_metadata import ToolMetadata
+from app.models.tool_operational import ToolOperational
+from app.models.tool_risk_level import ToolRiskLevel
+
 from app.policy.policy_engine import PolicyEngine
 from app.services.agent_service import AgentService
 from app.services.detection_service import (
@@ -45,24 +50,26 @@ from app.services.ollama_agent import OllamaAgent
 from app.providers.provider_factory import ProviderFactory
 
 class AgentRuntimeService:
+    _AGENT_ID = "agent-1"
+    _WORKSPACE_ROOT = "demo_workspace"
+
     def __init__(
         self,
         agent: EnterpriseAgent | None = None,
     ) -> None:
-        provider = ProviderFactory.create()
-
-        self._agent = (
-            agent
-            or OllamaAgent(provider)
-        )
+        if agent is None:
+            provider = ProviderFactory.create()
+            self._agent = OllamaAgent(provider)
+        else:
+            self._agent = agent
 
         self._file_read_tool = FileReadTool(
-            "demo_workspace"
+            self._WORKSPACE_ROOT
         )
 
         self._directory_list_tool = (
             DirectoryListTool(
-                "demo_workspace"
+                self._WORKSPACE_ROOT
             )
         )
 
@@ -70,34 +77,12 @@ class AgentRuntimeService:
         tool_service = ToolService()
         session_service = SessionService()
 
-        agent_service.register_agent(
-            Agent(
-                agent_id="agent-1",
-                name="Local Agent",
-                owner="security-team",
-                risk_tier=RiskTier.HIGH,
-                approved_tools=[
-                    "file_read",
-                    "directory_list",
-                ],
-                status=AgentStatus.ACTIVE,
-            )
+        self._register_default_agent(
+            agent_service
         )
 
-        tool_service.register_tool(
-            Tool(
-                tool_id="file_read",
-                risk_level=ToolRiskLevel.LOW,
-                required_permission="files:read",
-            )
-        )
-
-        tool_service.register_tool(
-            Tool(
-                tool_id="directory_list",
-                risk_level=ToolRiskLevel.LOW,
-                required_permission="files:list",
-            )
+        self._register_default_tools(
+            tool_service
         )
 
         authorization_service = (
@@ -114,6 +99,76 @@ class AgentRuntimeService:
             DetectionService(),
             RiskService(),
             ResponseService(),
+        )
+
+    @classmethod
+    def _register_default_agent(
+        cls,
+        agent_service: AgentService,
+    ) -> None:
+        agent_service.register_agent(
+            Agent(
+                agent_id=cls._AGENT_ID,
+                name="Local Agent",
+                owner="security-team",
+                risk_tier=RiskTier.HIGH,
+                approved_tools=[
+                    "file_read",
+                    "directory_list",
+                ],
+                status=AgentStatus.ACTIVE,
+            )
+        )
+
+    @classmethod
+    def _register_default_tools(
+        cls,
+        tool_service: ToolService,
+    ) -> None:
+        tool_service.register_tool(
+            cls._create_filesystem_tool(
+                tool_id="file_read",
+                name="File Read",
+                description="Read files from the workspace",
+                required_permission="files:read",
+            )
+        )
+
+        tool_service.register_tool(
+            cls._create_filesystem_tool(
+                tool_id="directory_list",
+                name="Directory List",
+                description="List files in the workspace",
+                required_permission="files:list",
+            )
+        )
+
+    @staticmethod
+    def _create_filesystem_tool(
+        tool_id: str,
+        name: str,
+        description: str,
+        required_permission: str,
+    ) -> Tool:
+        return Tool(
+            metadata=ToolMetadata(
+                identity=ToolIdentity(
+                    tool_id=tool_id,
+                    name=name,
+                    description=description,
+                ),
+                governance=ToolGovernance(
+                    risk_level=ToolRiskLevel.LOW,
+                    required_permissions=[
+                        required_permission,
+                    ],
+                ),
+                capability=ToolCapability(
+                    category="filesystem",
+                    reads_files=True,
+                ),
+                operational=ToolOperational(),
+            )
         )
 
     def execute(
@@ -135,7 +190,7 @@ class AgentRuntimeService:
         runtime_result = (
             self._runtime_service.execute(
                 session_id=session_id,
-                agent_id="agent-1",
+                agent_id=self._AGENT_ID,
                 tool_id=invocation.tool_id,
                 resource=resource,
             )
