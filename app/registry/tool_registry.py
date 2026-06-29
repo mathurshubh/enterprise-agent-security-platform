@@ -6,8 +6,8 @@ class DuplicateToolRegistrationError(Exception):
 
 
 class ToolNotRegisteredError(Exception):
-    """Raised when a tool is not registered."""    
-    
+    """Raised when a tool is not registered."""
+
 
 class ToolRegistry:
     def __init__(self) -> None:

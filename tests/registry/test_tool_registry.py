@@ -7,7 +7,8 @@ from app.models.tool_metadata import ToolMetadata
 from app.models.tool_operational import ToolOperational
 from app.models.tool_risk_level import ToolRiskLevel
 from app.registry.tool_registry import (
-    ToolRegistrationError,
+    DuplicateToolRegistrationError,
+    ToolNotRegisteredError,
     ToolRegistry,
 )
 from app.tools.base_tool import BaseTool
@@ -63,10 +64,14 @@ def test_get_returns_registered_tool_by_id():
     assert registry.get("example_tool") is tool
 
 
-def test_get_unknown_tool_returns_none():
+def test_get_unknown_tool_raises_error():
     registry = ToolRegistry()
 
-    assert registry.get("missing_tool") is None
+    with pytest.raises(
+        ToolNotRegisteredError,
+        match="missing_tool",
+    ):
+        registry.get("missing_tool")
 
 
 def test_exists_returns_true_for_registered_tool():
@@ -108,7 +113,7 @@ def test_register_rejects_duplicate_tool_ids():
     registry.register(ExampleTool("duplicate_tool"))
 
     with pytest.raises(
-        ToolRegistrationError,
+        DuplicateToolRegistrationError,
         match="duplicate_tool",
     ):
         registry.register(ExampleTool("duplicate_tool"))
@@ -121,7 +126,7 @@ def test_rejected_duplicate_does_not_replace_original_tool():
 
     registry.register(original_tool)
 
-    with pytest.raises(ToolRegistrationError):
+    with pytest.raises(DuplicateToolRegistrationError):
         registry.register(duplicate_tool)
 
     assert registry.get("duplicate_tool") is original_tool
