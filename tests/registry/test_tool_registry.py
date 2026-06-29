@@ -1,0 +1,128 @@
+import pytest
+
+from app.models.tool_capability import ToolCapability
+from app.models.tool_governance import ToolGovernance
+from app.models.tool_identity import ToolIdentity
+from app.models.tool_metadata import ToolMetadata
+from app.models.tool_operational import ToolOperational
+from app.models.tool_risk_level import ToolRiskLevel
+from app.registry.tool_registry import (
+    ToolRegistrationError,
+    ToolRegistry,
+)
+from app.tools.base_tool import BaseTool
+
+
+class ExampleTool(BaseTool):
+    def __init__(
+        self,
+        tool_id: str = "example_tool",
+    ) -> None:
+        self._metadata = ToolMetadata(
+            identity=ToolIdentity(
+                tool_id=tool_id,
+                name="Example Tool",
+                description="Example executable tool",
+            ),
+            governance=ToolGovernance(
+                risk_level=ToolRiskLevel.LOW,
+                required_permissions=["example:execute"],
+            ),
+            capability=ToolCapability(
+                category="example",
+            ),
+            operational=ToolOperational(),
+        )
+
+    @property
+    def metadata(self) -> ToolMetadata:
+        return self._metadata
+
+    def execute(
+        self,
+        parameters: dict[str, object],
+    ) -> dict[str, object]:
+        return parameters
+
+
+def test_register_returns_registered_tool():
+    registry = ToolRegistry()
+    tool = ExampleTool()
+
+    result = registry.register(tool)
+
+    assert result is tool
+
+
+def test_get_returns_registered_tool_by_id():
+    registry = ToolRegistry()
+    tool = ExampleTool()
+
+    registry.register(tool)
+
+    assert registry.get("example_tool") is tool
+
+
+def test_get_unknown_tool_returns_none():
+    registry = ToolRegistry()
+
+    assert registry.get("missing_tool") is None
+
+
+def test_exists_returns_true_for_registered_tool():
+    registry = ToolRegistry()
+
+    registry.register(ExampleTool())
+
+    assert registry.exists("example_tool") is True
+
+
+def test_exists_returns_false_for_unknown_tool():
+    registry = ToolRegistry()
+
+    assert registry.exists("missing_tool") is False
+
+
+def test_list_tools_returns_registered_tools_in_registration_order():
+    registry = ToolRegistry()
+    first_tool = ExampleTool("first_tool")
+    second_tool = ExampleTool("second_tool")
+
+    registry.register(first_tool)
+    registry.register(second_tool)
+
+    assert registry.list_tools() == [
+        first_tool,
+        second_tool,
+    ]
+
+
+def test_list_tools_returns_empty_list_when_registry_is_empty():
+    registry = ToolRegistry()
+
+    assert registry.list_tools() == []
+
+
+def test_register_rejects_duplicate_tool_ids():
+    registry = ToolRegistry()
+    registry.register(ExampleTool("duplicate_tool"))
+
+    with pytest.raises(
+        ToolRegistrationError,
+        match="duplicate_tool",
+    ):
+        registry.register(ExampleTool("duplicate_tool"))
+
+
+def test_rejected_duplicate_does_not_replace_original_tool():
+    registry = ToolRegistry()
+    original_tool = ExampleTool("duplicate_tool")
+    duplicate_tool = ExampleTool("duplicate_tool")
+
+    registry.register(original_tool)
+
+    with pytest.raises(ToolRegistrationError):
+        registry.register(duplicate_tool)
+
+    assert registry.get("duplicate_tool") is original_tool
+    assert registry.list_tools() == [original_tool]
