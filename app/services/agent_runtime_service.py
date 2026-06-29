@@ -24,6 +24,7 @@ from app.models.tool_operational import ToolOperational
 from app.models.tool_risk_level import ToolRiskLevel
 
 from app.policy.policy_engine import PolicyEngine
+from app.registry.tool_registry import ToolRegistry
 from app.services.agent_service import AgentService
 from app.services.detection_service import (
     DetectionService,
@@ -63,15 +64,8 @@ class AgentRuntimeService:
         else:
             self._agent = agent
 
-        self._file_read_tool = FileReadTool(
-            self._WORKSPACE_ROOT
-        )
-
-        self._directory_list_tool = (
-            DirectoryListTool(
-                self._WORKSPACE_ROOT
-            )
-        )
+        self._tool_registry = ToolRegistry()
+        self._register_executable_tools()
 
         agent_service = AgentService()
         tool_service = ToolService()
@@ -99,6 +93,19 @@ class AgentRuntimeService:
             DetectionService(),
             RiskService(),
             ResponseService(),
+        )
+
+    def _register_executable_tools(self) -> None:
+        self._tool_registry.register(
+            FileReadTool(
+                self._WORKSPACE_ROOT
+            )
+        )
+
+        self._tool_registry.register(
+            DirectoryListTool(
+                self._WORKSPACE_ROOT
+            )
         )
 
     @classmethod
@@ -215,36 +222,15 @@ class AgentRuntimeService:
                 output=None,
             )
 
-        if invocation.tool_id == "file_read":
-            output = self._file_read_tool.read(
-                invocation.parameters[
-                    "path"
-                ]
-            )
+        tool = self._tool_registry.get(
+            invocation.tool_id
+        )
+        output = tool.execute(
+            invocation.parameters
+        )
 
-            return AgentRuntimeResult(
-                decision=decision.value,
-                response_type=response_type,
-                output=output,
-            )
-
-        if invocation.tool_id == "directory_list":
-            output = (
-                self._directory_list_tool
-                .list_directory(
-                    invocation.parameters[
-                        "path"
-                    ]
-                )
-            )
-
-            return AgentRuntimeResult(
-                decision=decision.value,
-                response_type=response_type,
-                output=output,
-            )
-
-        raise ValueError(
-            f"Unsupported tool: "
-            f"{invocation.tool_id}"
+        return AgentRuntimeResult(
+            decision=decision.value,
+            response_type=response_type,
+            output=output,
         )
