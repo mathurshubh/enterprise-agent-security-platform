@@ -1,3 +1,4 @@
+from app.models.tool_metadata import ToolMetadata
 from app.tools.base_tool import BaseTool
 
 
@@ -46,3 +47,9 @@ class ToolRegistry:
 
     def list_tools(self) -> list[BaseTool]:
         return list(self._tools.values())
+
+    def discover_tools(self) -> tuple[ToolMetadata, ...]:
+        return tuple(
+            tool.metadata.model_copy(deep=True)
+            for tool in self._tools.values()
+        )
