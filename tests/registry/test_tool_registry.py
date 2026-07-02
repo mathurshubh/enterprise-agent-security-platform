@@ -108,6 +108,85 @@ def test_list_tools_returns_empty_list_when_registry_is_empty():
     assert registry.list_tools() == []
 
 
+def test_discover_tools_returns_metadata_for_registered_tools():
+    registry = ToolRegistry()
+    tool = ExampleTool("discoverable_tool")
+
+    registry.register(tool)
+
+    discovered_tools = registry.discover_tools()
+
+    assert len(discovered_tools) == 1
+    assert discovered_tools[0] == tool.metadata
+    assert (
+        discovered_tools[0].identity.tool_id
+        == "discoverable_tool"
+    )
+
+
+def test_discover_tools_returns_metadata_in_registration_order():
+    registry = ToolRegistry()
+    registry.register(ExampleTool("first_tool"))
+    registry.register(ExampleTool("second_tool"))
+
+    discovered_tools = registry.discover_tools()
+
+    assert [
+        metadata.identity.tool_id
+        for metadata in discovered_tools
+    ] == [
+        "first_tool",
+        "second_tool",
+    ]
+
+
+def test_discover_tools_returns_empty_tuple_when_registry_is_empty():
+    registry = ToolRegistry()
+
+    assert registry.discover_tools() == ()
+
+
+def test_discover_tools_does_not_expose_executable_tools():
+    registry = ToolRegistry()
+    registry.register(ExampleTool())
+
+    discovered_tools = registry.discover_tools()
+
+    assert isinstance(
+        discovered_tools[0],
+        ToolMetadata,
+    )
+    assert not isinstance(
+        discovered_tools[0],
+        BaseTool,
+    )
+    assert not hasattr(
+        discovered_tools[0],
+        "execute",
+    )
+
+
+def test_discover_tools_returns_defensive_metadata_copies():
+    registry = ToolRegistry()
+    tool = ExampleTool("immutable_tool")
+    registry.register(tool)
+
+    discovered_metadata = registry.discover_tools()[0]
+    discovered_metadata.identity.name = "Changed Name"
+    discovered_metadata.governance.required_permissions.append(
+        "extra:permission"
+    )
+
+    registered_metadata = registry.get(
+        "immutable_tool"
+    ).metadata
+
+    assert registered_metadata.identity.name == "Example Tool"
+    assert registered_metadata.governance.required_permissions == [
+        "example:execute",
+    ]
+
+
 def test_register_rejects_duplicate_tool_ids():
     registry = ToolRegistry()
     registry.register(ExampleTool("duplicate_tool"))
