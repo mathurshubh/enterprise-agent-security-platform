@@ -1,4 +1,6 @@
 import uuid
+from app.auth import authorization_service
+from app.auth import authorization_service
 from app.models.agent_runtime_result import (
     AgentRuntimeResult,
 )
@@ -50,6 +52,10 @@ from app.services.ollama_agent import OllamaAgent
 
 from app.providers.provider_factory import ProviderFactory
 
+from app.detection.engine import DetectionEngine
+from app.detection.prompt_injection_rule import PromptInjectionRule
+
+
 class AgentRuntimeService:
     _AGENT_ID = "agent-1"
     _WORKSPACE_ROOT = "demo_workspace"
@@ -87,9 +93,16 @@ class AgentRuntimeService:
             )
         )
 
+        detection_engine = DetectionEngine(
+            [
+                PromptInjectionRule(),
+            ]
+        )
+
         self._runtime_service = RuntimeService(
             authorization_service,
             session_service,
+            detection_engine,
             DetectionService(),
             RiskService(),
             ResponseService(),
