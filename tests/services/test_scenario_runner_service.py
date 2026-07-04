@@ -11,7 +11,7 @@ from tests.services.test_runtime_service import (
 
 
 def test_run_normal_behavior_scenario():
-    runtime_service, _ = create_runtime_service(
+    runtime_service, session_service = create_runtime_service(
         ["file_read"]
     )
     runner = ScenarioRunnerService(runtime_service)
@@ -19,8 +19,6 @@ def test_run_normal_behavior_scenario():
     scenario = AttackScenario(
         scenario_id="scenario-1",
         name="Normal Behavior",
-        session_id="session-1",
-        agent_id="agent-1",
         tool_sequence=["file_read"],
         expected_findings=[],
         expected_risk_level=RiskLevel.LOW,
@@ -35,18 +33,19 @@ def test_run_normal_behavior_scenario():
         result.observed_risk_level
         == RiskLevel.LOW
     )
+    assert len(
+        session_service.list_events("scenario-run-scenario-1")
+    ) == 1
 
 
 
 def test_run_excessive_denial_scenario():
-    runtime_service, _ = create_runtime_service([])
+    runtime_service, session_service = create_runtime_service([])
     runner = ScenarioRunnerService(runtime_service)
 
     scenario = AttackScenario(
         scenario_id="scenario-2",
         name="Excessive Denials",
-        session_id="session-2",
-        agent_id="agent-1",
         tool_sequence=[
             "file_read",
             "file_read",
@@ -67,6 +66,9 @@ def test_run_excessive_denial_scenario():
         result.observed_risk_level
         == RiskLevel.MEDIUM
     )
+    assert len(
+        session_service.list_events("scenario-run-scenario-2")
+    ) == 3
 
 
 def test_run_empty_scenario_raises_error():
@@ -78,8 +80,6 @@ def test_run_empty_scenario_raises_error():
     scenario = AttackScenario(
         scenario_id="scenario-3",
         name="Empty Scenario",
-        session_id="session-3",
-        agent_id="agent-1",
         tool_sequence=[],
         expected_findings=[],
         expected_risk_level=RiskLevel.LOW,

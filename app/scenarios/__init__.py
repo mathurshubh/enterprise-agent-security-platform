@@ -1,0 +1,1 @@
+"""Immutable attack scenario assets."""
