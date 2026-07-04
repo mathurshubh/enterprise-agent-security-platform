@@ -4,6 +4,8 @@ from app.services.runtime_service import RuntimeService
 
 
 class ScenarioRunnerService:
+    _RUNTIME_AGENT_ID = "agent-1"
+
     def __init__(
         self,
         runtime_service: RuntimeService,
@@ -15,11 +17,12 @@ class ScenarioRunnerService:
         scenario: AttackScenario,
     ) -> ScenarioResult:
         runtime_result = None
+        session_id = f"scenario-run-{scenario.scenario_id}"
 
         for tool_id in scenario.tool_sequence:
             runtime_result = self._runtime_service.execute(
-                session_id=scenario.session_id,
-                agent_id=scenario.agent_id,
+                session_id=session_id,
+                agent_id=self._RUNTIME_AGENT_ID,
                 tool_id=tool_id,
             )
 
@@ -35,7 +38,7 @@ class ScenarioRunnerService:
 
         passed = (
             observed_findings
-            == scenario.expected_findings
+            == list(scenario.expected_findings)
             and runtime_result.risk_assessment.risk_level
             == scenario.expected_risk_level
         )
