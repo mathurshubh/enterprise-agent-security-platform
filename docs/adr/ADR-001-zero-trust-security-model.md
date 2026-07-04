@@ -11,7 +11,7 @@
 
 # Context
 
-Enterprise AI agents introduce new security challenges that differ from traditional application architectures.
+Enterprise Agents introduce new security challenges that differ from traditional application architectures.
 
 Unlike deterministic software, AI agents process untrusted natural language, interact with external models, invoke tools, retrieve external information, and may access sensitive enterprise resources.
 
@@ -30,8 +30,8 @@ Every security-relevant operation must be explicitly verified before execution.
 Zero Trust applies to:
 
 - users
-- enterprise agents
-- tool invocations
+- Enterprise Agents
+- `ToolInvocation` objects
 - provider responses
 - retrieved documents
 - external APIs
@@ -47,13 +47,13 @@ Every request must pass through deterministic security controls before any tool 
 
 # Rationale
 
-Zero Trust aligns with the project's objective of governing enterprise AI agents rather than trusting them.
+Zero Trust aligns with the project's objective of governing Enterprise Agents rather than trusting them.
 
 This approach provides several advantages:
 
 - consistent enforcement of least privilege
 - deterministic authorization decisions
-- provider-independent security
+- provider-agnostic security
 - reduced blast radius for compromised components
 - improved auditability
 - easier reasoning about trust boundaries
@@ -116,10 +116,10 @@ Security decisions must remain under the control of trusted platform components.
 Zero Trust establishes the following security invariants:
 
 - Every request is authenticated.
-- Every tool invocation is authorized.
+- Every `ToolInvocation` is authorized.
 - Every provider response is treated as untrusted.
 - Every security decision is deterministic.
-- Tool execution is always the final step in the request lifecycle.
+- Executable tools are resolved through the Tool Registry before `BaseTool` execution.
 
 Compromise of a single component must not permit unrestricted access to enterprise resources.
 

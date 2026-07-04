@@ -24,7 +24,7 @@ They may:
 - produce inconsistent responses
 - return malformed structured data
 
-The Enterprise Agent Security Platform governs enterprise AI agents that may interact with sensitive systems and enterprise resources.
+The Enterprise Agent Security Platform governs Enterprise Agents that may interact with sensitive systems and enterprise resources.
 
 Relying on LLMs to make security decisions would introduce non-deterministic behavior into the platform and significantly increase the attack surface.
 
@@ -62,7 +62,7 @@ Large Language Models excel at interpreting natural language but cannot provide 
 Separating intent interpretation from security enforcement provides several architectural benefits:
 
 - deterministic authorization decisions
-- provider-independent security behavior
+- provider-agnostic security behavior
 - improved auditability
 - reduced impact of prompt injection attacks
 - easier validation and testing
@@ -118,7 +118,7 @@ The deterministic security pipeline already performs authoritative validation.
 - Consistent security behavior across providers.
 - Reduced susceptibility to prompt injection.
 - Simplified testing of security controls.
-- Supports future provider abstraction.
+- Supports the current Provider-agnostic Architecture.
 
 ## Negative
 
@@ -139,7 +139,7 @@ Every LLM output is treated as untrusted until validated.
 
 Security enforcement occurs only after:
 
-1. ToolInvocation validation
+1. `ToolInvocation` validation
 2. Authentication
 3. Authorization
 4. Policy evaluation
@@ -169,6 +169,7 @@ Compromise of an LLM provider must not bypass deterministic platform security co
 - System Architecture
 - Threat Model
 - ADR-001: Adopt a Zero Trust Security Model
+- ADR-007: Adopt a Provider-agnostic Runtime
 
 ---
 

@@ -11,7 +11,7 @@
 
 # Context
 
-Enterprise AI agents generate requests using probabilistic Large Language Models.
+Enterprise Agents generate requests using probabilistic Large Language Models.
 
 While LLMs are effective at interpreting user intent, they cannot provide deterministic security guarantees.
 
@@ -25,41 +25,53 @@ Executing tools directly from LLM output introduces significant risks, including
 - data exfiltration
 - inconsistent authorization decisions
 
-The platform requires a security architecture that guarantees every tool invocation is evaluated consistently before execution.
+The platform requires a security architecture that guarantees every `ToolInvocation` is evaluated consistently before execution.
 
 ---
 
 # Decision
 
-The Enterprise Agent Security Platform adopts a deterministic security pipeline for every tool invocation.
+The Enterprise Agent Security Platform adopts a deterministic security pipeline for every `ToolInvocation`.
 
-Every `ToolInvocation` follows the same sequence of security controls before execution.
+Every `ToolInvocation` follows the same sequence of deterministic security controls before execution.
 
-The current pipeline is:
+The current v0.9 runtime flow is:
 
 ```text
-Authentication
+User Request
+        ↓
+Enterprise Agent
+        ↓
+ProviderAdapter
+        ↓
+ToolInvocation
         ↓
 Authorization
         ↓
 Policy Evaluation
         ↓
-Session Validation
+Session Event Recording
         ↓
 Detection
         ↓
 Risk Assessment
         ↓
-Response Decision
+Response Selection
         ↓
-Tool Execution
+RuntimeResult
+        ↓
+Tool Registry
+        ↓
+BaseTool Execution
+        ↓
+Audit Logging
 ```
 
 No component may bypass or reorder the pipeline.
 
 Each stage performs one deterministic security function.
 
-Tool execution occurs only after all previous stages have successfully completed.
+Executable `BaseTool` resolution occurs only after deterministic security evaluation has allowed the action.
 
 ---
 
@@ -104,7 +116,7 @@ Additional security services can be inserted into the pipeline without modifying
 
 ## Auditability
 
-Each stage produces deterministic security decisions that can be independently audited and explained.
+Each stage produces deterministic security decisions and execution context that can be independently audited and explained.
 
 ---
 
@@ -148,7 +160,7 @@ This duplicates security logic, complicates maintenance, and makes consistent en
 - Consistent enforcement across all tools.
 - Easier reasoning about security.
 - Simplified testing.
-- Provider-independent governance.
+- Provider-agnostic governance.
 - Supports future security services.
 
 ## Negative
@@ -166,11 +178,13 @@ This duplicates security logic, complicates maintenance, and makes consistent en
 
 # Security Considerations
 
-Every ToolInvocation is treated as untrusted until the complete pipeline has successfully executed.
+Every `ToolInvocation` is treated as untrusted until the complete pipeline has successfully executed.
 
 Security decisions remain deterministic throughout the pipeline.
 
 No component may execute tools independently.
+
+The Tool Registry is the only runtime boundary that resolves executable `BaseTool` instances.
 
 The pipeline also provides multiple opportunities to detect:
 
@@ -202,7 +216,8 @@ before execution occurs.
 - Threat Model
 - ADR-001: Adopt a Zero Trust Security Model
 - ADR-002: Treat the LLM as an Untrusted Intent Parser
-- ADR-003: Establish the Runtime Service as the Security Orchestrator
+- ADR-003: Establish the Runtime Layer as the Security Orchestrator
+- ADR-005: Adopt a Centralized Tool Registry
 
 ---
 
@@ -210,4 +225,4 @@ before execution occurs.
 
 The deterministic security pipeline is one of the fundamental architectural invariants of the Enterprise Agent Security Platform.
 
-Future releases may introduce additional deterministic security stages, but the principle that every ToolInvocation passes through the complete pipeline before execution must remain unchanged.
+Future releases may introduce additional deterministic security stages, but the principle that every `ToolInvocation` passes through the complete pipeline before `BaseTool` execution must remain unchanged.
