@@ -78,11 +78,11 @@ The LLM is treated as an untrusted intent parser. All authorization, policy eval
 
 ---
 
-## Provider Independence
+## Provider-agnostic Architecture
 
 LLM providers are infrastructure dependencies rather than security boundaries.
 
-The platform isolates provider-specific implementations behind a common ProviderAdapter interface, allowing new providers to be integrated without modifying the runtime, authorization, policy, detection, risk, response, or tool execution components.
+The platform isolates provider-specific implementations behind a common `ProviderAdapter` interface, allowing new providers to be integrated without modifying the runtime, authorization, policy, detection, risk, response, or tool execution components.
 
 Provider selection is configuration-driven and independent of the deterministic security pipeline.
 
@@ -134,32 +134,36 @@ The current implementation supports a single enterprise agent with pluggable LLM
 
 ### Static Component Architecture
 
-The following diagram illustrates the relationships between the major architectural components implemented in v0.8.
+The following diagram illustrates the relationships between the major architectural components implemented in v0.9.
 
 ```text
-                  Configuration
+                Configuration
           (DEFAULT_PROVIDER)
                   │
                   ▼
            ProviderFactory
                   │
                   ▼
-           ProviderAdapter
-          ▲               ▲
-          │               │
-┌────────────────┐ ┌────────────────┐
-│ OllamaProvider │ │ GeminiProvider │
-└────────────────┘ └────────────────┘
-          │               │
-          ▼               ▼
-  OllamaService     GeminiService
+          ProviderAdapter
+             ▲         ▲
+             │         │
+      OllamaProvider  GeminiProvider
 
                   ▲
                   │
           EnterpriseAgent
+                  ▲
+                  │
+        AgentRuntimeService
                   │
                   ▼
-        AgentRuntimeService
+            Tool Registry
+                  │
+                  ▼
+              BaseTool
+           ┌─────┴─────┐
+           ▼           ▼
+    FileReadTool  DirectoryListTool
 ```
 
 ### Runtime Execution Flow
@@ -170,16 +174,16 @@ The following diagram illustrates how a user request flows through the determini
 User Query
       │
       ▼
-AgentRuntimeService
+`AgentRuntimeService`
       │
       ▼
-EnterpriseAgent
+`EnterpriseAgent`
       │
       ▼
-ProviderAdapter.chat()
+`ProviderAdapter`.chat()
       │
       ▼
-ToolInvocation
+`ToolInvocation`
       │
       ▼
 Authorization Service
@@ -200,6 +204,12 @@ Risk Service
 Response Service
       │
       ▼
+Tool Registry
+      │
+      ▼
+Resolved `BaseTool`
+      │
+      ▼
 Secure Tool Execution
       │
       ▼
@@ -210,9 +220,7 @@ Audit Event
 
 ### Runtime Security Boundary
 
-The LLM is responsible only for converting natural language into a structured `ToolInvocation`.
-
-Every subsequent security decision—including authorization, policy evaluation, session management, detection, risk assessment, and response enforcement—is performed by deterministic platform services.
+The `ProviderAdapter` and `EnterpriseAgent` are responsible only for translating natural language into a syntactically valid `ToolInvocation`. From that point onward, every authorization, policy evaluation, session check, detection, risk assessment, response decision, and tool execution is performed by deterministic platform services. The LLM is never trusted to make security decisions.
 
 ---
 
@@ -224,9 +232,9 @@ The platform defines explicit trust boundaries between users, agents, tools, and
 
 User input is considered untrusted and may contain malicious instructions or prompt injection attempts.
 
-## Boundary 2: LLM Provider → Enterprise Runtime
+## Boundary 2: LLM Output → Runtime
 
-Agent requests are validated before entering the platform.
+Structured `ToolInvocation` objects produced by the `EnterpriseAgent` are treated as untrusted input and must be validated before entering the deterministic security pipeline.
 
 ## Boundary 3: Runtime → Tool Execution
 
@@ -244,17 +252,17 @@ Administrative actions require authentication, authorization, and full audit log
 
 # Core Components
 
-## EnterpriseAgent
+## `EnterpriseAgent`
 
-The EnterpriseAgent defines the abstraction for enterprise AI agents.
+The `EnterpriseAgent` defines the abstraction for enterprise AI agents.
 
 Responsibilities:
 
 - Accept natural language requests.
 - Delegate prompt processing to the configured provider.
-- Convert provider responses into validated `ToolInvocation` objects.
+- Convert provider responses into validated ``ToolInvocation`` objects.
 
-The EnterpriseAgent does **not** perform:
+The `EnterpriseAgent` does **not** perform:
 
 - Authorization
 - Policy evaluation
@@ -263,13 +271,13 @@ The EnterpriseAgent does **not** perform:
 - Response enforcement
 - Tool execution
 
-The EnterpriseAgent is treated solely as an intent parser within the deterministic security pipeline.
+The `EnterpriseAgent` is treated solely as an intent parser within the deterministic security pipeline.
 
 ---
 
-## ProviderAdapter
+## `ProviderAdapter`
 
-The ProviderAdapter defines a common interface for all supported LLM providers.
+The `ProviderAdapter` defines a common interface for all supported LLM providers.
 
 Responsibilities:
 
@@ -282,18 +290,18 @@ Current implementations:
 - OllamaProvider
 - GeminiProvider
 
-Future providers can be integrated by implementing the ProviderAdapter interface without modifying the runtime or security pipeline.
+Future providers can be integrated by implementing the `ProviderAdapter` interface without modifying the runtime or security pipeline.
 
 ---
 
-## ProviderFactory
+## `ProviderFactory`
 
-The ProviderFactory is responsible for selecting and constructing the configured LLM provider.
+The `ProviderFactory` is responsible for selecting and constructing the configured LLM provider.
 
 Responsibilities:
 
 - Read provider configuration.
-- Instantiate the configured ProviderAdapter.
+- Instantiate the configured `ProviderAdapter`.
 - Isolate provider selection from runtime services.
 
 Current supported providers:
@@ -301,11 +309,11 @@ Current supported providers:
 - Ollama
 - Gemini
 
-The ProviderFactory belongs to the application composition layer and is responsible for constructing the configured provider during application initialization. It is not part of the runtime request processing pipeline.
+The `ProviderFactory` belongs to the application composition layer and is responsible for constructing the configured provider during application initialization. It is not part of the runtime request processing pipeline.
 
 ---
 
-## Agent Inventory
+## Agent Registry
 
 The platform maintains a centralized inventory of all registered AI agents.
 
@@ -413,63 +421,46 @@ Examples:
 
 ## Tool Registry
 
-Inventory of approved tools.
+The Tool Registry is the centralized registry of all executable tools approved for use within the platform.
 
-Only tools registered in the Tool Registry are eligible for execution.
+Every executable tool implements the `BaseTool` abstraction and registers immutable `ToolMetadata` describing its identity, capabilities, governance attributes, and operational characteristics.
 
-Examples:
+The runtime never executes tools directly. Instead, it resolves the requested tool through the Tool Registry after successful authorization, policy evaluation, detection, risk assessment, and response enforcement.
 
-- file_read
-- file_write
-- github_tool
-- web_fetch
-- shell_execute
+Tool Discovery and Tool Inventory services expose only `ToolMetadata`; executable tool instances remain behind deterministic security controls.
 
-Each tool contains metadata describing:
+The Tool Registry is the only component authorized to resolve executable tool instances.
 
-- Risk level
-- Required permissions
-- Approval requirements
-
-Tool categories:
-
-- Read Operations
-- Write Operations
-- External Network Operations
-- Administrative Operations
-
-Higher-risk categories may require additional authorization checks or approval workflows.
+The Tool Registry represents the single trust boundary between the deterministic security pipeline and executable tool implementations.
 
 ---
 
 ## Secure Tool Execution
 
-Responsible for executing approved tools after they pass runtime security controls.
+Secure Tool Execution is responsible for executing the resolved `BaseTool` implementation returned by the Tool Registry.
 
-Responsibilities:
+Execution occurs only after deterministic authorization, policy evaluation, session validation, detection, risk assessment, and response enforcement have succeeded.
 
-- Execute approved tools
-- Enforce workspace isolation
-- Validate file paths
-- Prevent path traversal
-- Generate execution audit events
-- Execute only after successful authorization and response enforcement
+The runtime never instantiates or executes tool implementations directly; all executable tools are obtained from the Tool Registry.
 
 Current implementations:
 
-- File Read Tool
-- Directory List Tool
+* FileReadTool
+* DirectoryListTool
 
-Future capabilities:
+Future implementations may include:
 
-- Shell execution controls
-- External API controls
-- Data loss prevention checks
-- Runtime enforcement actions
+* Shell execution
+* External API tools
+* GitHub integrations
+* Browser automation
+* Enterprise SaaS connectors
 
 ---
 
-## Model Registry
+## Model Registry (Future Capability)
+
+The Model Registry is planned as a future governance capability and is not part of the current implementation. It will extend the same governance pattern established by the Tool Registry to foundation models through immutable model metadata, discovery, inventory, authorization, lifecycle management, and compliance validation.
 
 Maintains the inventory of approved AI models used by enterprise agents.
 
@@ -594,7 +585,7 @@ Examples:
 
 ---
 
-## Security Agent
+## Security Agent (Future Capability)
 
 The platform includes a defensive security-focused agent.
 
@@ -624,13 +615,13 @@ Recommendation:
 
 ---
 
-## Management Console
+## Management Console (Future Capability)
 
 The platform includes a web-based management console for security analysts and administrators.
 
 The console provides visibility into:
 
-- Agent Inventory
+- Agent Registry
 - Agent Risk Scores
 - Security Findings
 - Approval Workflows
@@ -653,6 +644,17 @@ Future implementation will use:
 
 The platform maintains an inventory of enterprise AI assets.
 
+Current Assets
+
+- Agents
+- Tools
+
+Planned Assets
+
+- Models
+- Knowledge Sources
+- Vector Stores
+
 Tracked asset categories:
 
 - Agents
@@ -671,6 +673,7 @@ Inventory metadata may include:
 - Environment
 - Registration Date
 - Lifecycle Status
+
 
 The inventory provides governance, visibility, risk management, and auditability across the enterprise AI ecosystem.
 
@@ -705,29 +708,6 @@ The platform should enable investigators to determine:
 
 ---
 
-## Model Governance
-
-The platform maintains governance information for approved AI models.
-
-Tracked attributes:
-
-- Model Name
-- Provider
-- Version
-- Approval Status
-- Risk Classification
-- Deployment Environment
-- Registration Date
-
-Future capabilities:
-
-- Model provenance tracking
-- Supply-chain visibility
-- Approved model inventory
-- Model lifecycle management
-
----
-
 ## Control Effectiveness
 
 The platform measures whether security controls are functioning as intended.
@@ -747,7 +727,7 @@ The goal is to evaluate control effectiveness, not simply control existence.
 
 ### Planned Console Views
 
-- Agent Inventory Dashboard
+- Agent Registry Dashboard
 - Security Findings Dashboard
 - Approval Queue
 - Risk Monitoring
@@ -767,9 +747,9 @@ Planned future enhancements include:
 - Agent security maturity assessments
 - Session-based behavioral analysis
 - Indirect prompt injection detection
+- Attack simulation framework
 - Advanced resource-aware authorization policies
 - Risk-adaptive authorization
-- Attack simulation framework
 - Multi-agent governance controls
 - Shadow AI discovery
 - Unauthorized model detection
@@ -781,104 +761,133 @@ Planned future enhancements include:
 
 ## Current Status
 
-### Completed
+### Implemented
 
-- Agent Inventory
-- JWT Authentication
+#### Core Runtime
+
+- `EnterpriseAgent`
+- `AgentRuntimeService`
+- Runtime Service
+- Scenario Runner Framework
+- Local Agent Runtime Foundations
+- Security-Mediated Agent Execution
+- Runtime Tool Resolution
+- Runtime Response Enforcement
+
+#### Provider Architecture
+
+- `ProviderAdapter`
+- `ProviderFactory`
+- Provider Configuration
+- Ollama Provider
+- Gemini Provider
+- Ollama Service
+- Gemini Service
+- Provider-agnostic Tool Selection
+
+#### Tool Governance
+
 - Tool Registry
-- Audit Logging
+- Rich Tool Metadata
+- `BaseTool` abstraction
+- Tool Discovery
+- Tool Inventory Service
+- Secure Tool Execution Integration
+- Secure `FileReadTool`
+- Secure `DirectoryListTool`
+
+#### Security Services
+
+- JWT Authentication
 - Authorization Service
 - Policy Engine
 - Session Service
 - Detection Service
 - Risk Service
 - Response Service
-- Runtime Service
-- Scenario Runner Framework
-- Local Agent Runtime Foundations
-- Tool Selection Evaluation Framework
-- Agent Runtime Service
-- Security-Mediated Agent Execution
+- Audit Logging
+
+#### Security Controls
+
 - Resource-Aware Authorization
 - Protected Resource Policies
-- Secure File Read Tool
-- Secure Directory List Tool
-- Runtime Response Enforcement
-- Secure Tool Execution Integration
 - Session Isolation
-- EnterpriseAgent Abstraction
-- ProviderAdapter
-- ProviderFactory
-- Provider Configuration
-- Ollama Provider
-- Gemini Provider
-- Ollama Service
-- Gemini Service
-- Provider-Agnostic Tool Selection
+
+#### Governance & Validation
+
+- Agent Registry
+- Tool Selection Evaluation Framework
 
 ### Planned
 
 - Automated LLM Evaluation
+- Human Approval Workflow
 - Browser-Based Security Dashboard
 - Trigger Source Attribution
-- Human Approval Workflow
 - Indirect Prompt Injection Detection
 - Agent Observability
 - Agent Skill Supply Chain Security
 
 ## Planned Releases
 
-### v0.9 – Agent Capabilities
+Roadmap items represent planned capabilities and may evolve based on implementation priorities.
 
-- Rich tool ecosystem
-- Tool metadata and capability discovery
-- Enhanced runtime orchestration
-- Expanded enterprise tooling
+### v0.9 – Tool Governance ✅
 
-### v1.0 – AI Security Controls
+- Rich Tool Metadata
+- Tool Registry
+- `BaseTool` abstraction
+- Tool Discovery
+- Tool Inventory
+- Runtime Tool Resolution
 
-- Prompt injection detection
-- Indirect prompt injection detection
-- Data exfiltration detection
-- Advanced attack simulation framework
-
-### v1.1 – Observability
-
-- OpenTelemetry integration
-- Prometheus metrics
-- Grafana dashboards
-- Distributed tracing
-
-### v1.2 – DevSecOps
-
-- GitHub Actions CI/CD
-- Automated security scanning
-- Release automation
-- Software supply chain validation
-
-### v1.3 – Management Console
+### v0.9.1 – Enterprise Management Console
 
 - Browser-based administration console
-- Agent inventory dashboard
+- Agent registry dashboard
 - Risk monitoring
 - Security findings
 - Approval workflows
 
-### v2.0 – Enterprise Multi-Agent Platform
+### v1.0 – Runtime Security
 
-- Multi-agent governance
-- Distributed policy enforcement
-- Cross-agent session correlation
-- Enterprise-scale orchestration
+- Prompt Injection Detection
+- Data Exfiltration Detection
+- Risk-Based Authorization
+- Attack Simulation Framework
+
+### v1.1 – Observability
+
+- OpenTelemetry
+- Prometheus
+- Grafana
+- Jaeger
+
+### v1.2 – DevSecOps
+
+- GitHub Actions
+- CI/CD
+- Security Scanning
+- Supply Chain Validation
+
+### v2.0 – Enterprise Multi-Agent Security Platform
+
+- Multi-Agent Governance
+- Cross-Agent Authorization
+- Enterprise AI Control Plane
 
 ---
 
 # Architectural Decision Summary
 
-The architecture of the Enterprise Agent Security Platform is based on three fundamental principles:
+The architecture of the Enterprise Agent Security Platform is based on four fundamental principles:
 
-1. **LLMs are treated as untrusted intent parsers.**
-2. **All security decisions remain deterministic and auditable.**
-3. **Provider-specific implementations are isolated behind abstractions to enable future extensibility without impacting the security pipeline.**
+1. LLMs are treated as untrusted intent parsers.
 
-These principles guide all future architectural decisions and ensure the platform remains provider-independent, secure, and maintainable as additional enterprise capabilities are introduced.
+2. All authorization, policy evaluation, detection, risk assessment, and response decisions remain deterministic and auditable.
+
+3. Provider-specific implementations are isolated behind provider-agnostic abstractions.
+
+4. Executable tools are governed through a centralized Tool Registry that separates metadata, discovery, inventory, and execution while preserving Zero Trust principles.
+
+These principles guide all future architectural decisions and ensure the platform remains provider-agnostic, secure, and maintainable as additional enterprise capabilities are introduced.

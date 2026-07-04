@@ -26,7 +26,7 @@ Authorizing a tool alone is insufficient.
 
 For example:
 
-A user may be authorized to invoke `FileReadTool` but should not necessarily be permitted to read every file on the system.
+An Enterprise Agent may be authorized to invoke the `file_read` tool but should not necessarily be permitted to read every file on the system.
 
 The platform therefore requires authorization decisions that consider both the requested tool and the target resource.
 
@@ -43,7 +43,7 @@ Authorization decisions evaluate both:
 
 Tool authorization alone is never considered sufficient.
 
-Every ToolInvocation is evaluated against resource-specific authorization policies before execution.
+Every `ToolInvocation` is evaluated against resource-specific authorization policies before execution.
 
 The Authorization Service remains deterministic and independent of LLM reasoning.
 
@@ -85,7 +85,7 @@ Resource-aware authorization enables future policy models including:
 - cloud resource authorization
 - data classification policies
 
-without changing the Runtime architecture.
+without changing the runtime architecture.
 
 ---
 
@@ -111,7 +111,7 @@ Use RBAC as the sole authorization mechanism.
 
 RBAC identifies who may perform an action but does not evaluate the target resource.
 
-Enterprise AI agents require finer-grained authorization.
+Enterprise Agents require finer-grained authorization.
 
 ---
 
@@ -184,9 +184,9 @@ by ensuring every requested resource is evaluated independently.
 - Architecture Principles
 - System Architecture
 - Threat Model
-- ADR-003: Establish the Runtime Service as the Security Orchestrator
+- ADR-003: Establish the Runtime Layer as the Security Orchestrator
 - ADR-004: Adopt a Deterministic Security Pipeline
-- ADR-005: Adopt a Tool Registry for Controlled Tool Execution
+- ADR-005: Adopt a Centralized Tool Registry
 
 ---
 
