@@ -1,12 +1,10 @@
 import uuid
-from app.auth import authorization_service
-from app.auth import authorization_service
+from typing import Protocol
+
 from app.models.agent_runtime_result import (
     AgentRuntimeResult,
 )
-from app.models.response_action import (
-    ResponseType,
-)
+from app.models.runtime_result import RuntimeResult
 from app.auth.authorization_service import (
     AuthorizationService,
 )
@@ -56,6 +54,21 @@ from app.detection.engine import DetectionEngine
 from app.detection.prompt_injection_rule import PromptInjectionRule
 
 
+class RuntimeExecutor(Protocol):
+    def execute(
+        self,
+        session_id: str,
+        agent_id: str,
+        tool_id: str,
+        resource: str | None = None,
+        user_prompt: str = "",
+        model_output: str = "",
+        tool_output: str = "",
+    ) -> RuntimeResult:
+        """Execute the deterministic runtime security pipeline."""
+        ...
+
+
 class AgentRuntimeService:
     _AGENT_ID = "agent-1"
     _WORKSPACE_ROOT = "demo_workspace"
@@ -63,6 +76,8 @@ class AgentRuntimeService:
     def __init__(
         self,
         agent: EnterpriseAgent | None = None,
+        runtime_service: RuntimeExecutor | None = None,
+        tool_registry: ToolRegistry | None = None,
     ) -> None:
         if agent is None:
             provider = ProviderFactory.create()
@@ -70,27 +85,29 @@ class AgentRuntimeService:
         else:
             self._agent = agent
 
-        self._tool_registry = ToolRegistry()
-        self._register_executable_tools()
+        self._tool_registry = tool_registry or ToolRegistry()
+
+        if tool_registry is None:
+            self._register_executable_tools()
+
+        self._runtime_service: RuntimeExecutor
+
+        if runtime_service is not None:
+            self._runtime_service = runtime_service
+            return
 
         agent_service = AgentService()
         tool_service = ToolService()
         session_service = SessionService()
 
-        self._register_default_agent(
-            agent_service
-        )
+        self._register_default_agent(agent_service)
 
-        self._register_default_tools(
-            tool_service
-        )
+        self._register_default_tools(tool_service)
 
-        authorization_service = (
-            AuthorizationService(
-                agent_service,
-                tool_service,
-                PolicyEngine(),
-            )
+        authorization_service = AuthorizationService(
+            agent_service,
+            tool_service,
+            PolicyEngine(),
         )
 
         detection_engine = DetectionEngine(
@@ -109,17 +126,9 @@ class AgentRuntimeService:
         )
 
     def _register_executable_tools(self) -> None:
-        self._tool_registry.register(
-            FileReadTool(
-                self._WORKSPACE_ROOT
-            )
-        )
+        self._tool_registry.register(FileReadTool(self._WORKSPACE_ROOT))
 
-        self._tool_registry.register(
-            DirectoryListTool(
-                self._WORKSPACE_ROOT
-            )
-        )
+        self._tool_registry.register(DirectoryListTool(self._WORKSPACE_ROOT))
 
     @classmethod
     def _register_default_agent(
@@ -197,50 +206,30 @@ class AgentRuntimeService:
     ) -> AgentRuntimeResult:
         invocation = self._agent.invoke(query)
 
-        resource = (
-            invocation.parameters.get(
-                "path"
-            )
+        resource = invocation.parameters.get("path")
+
+        session_id = str(uuid.uuid4())
+
+        runtime_result = self._runtime_service.execute(
+            session_id=session_id,
+            agent_id=self._AGENT_ID,
+            tool_id=invocation.tool_id,
+            resource=resource,
         )
 
-        session_id = str(
-            uuid.uuid4()
-        )
+        decision = runtime_result.event.decision
 
-        runtime_result = (
-            self._runtime_service.execute(
-                session_id=session_id,
-                agent_id=self._AGENT_ID,
-                tool_id=invocation.tool_id,
-                resource=resource,
-            )
-        )
+        response_type = runtime_result.response_action.response_type
 
-        decision = (
-            runtime_result.event.decision
-        )
-
-        response_type = (
-            runtime_result.response_action.response_type
-        )
-
-        if (
-            decision == Decision.DENY
-            or response_type
-            != ResponseType.MONITOR
-        ):
+        if decision != Decision.ALLOW:
             return AgentRuntimeResult(
                 decision=decision.value,
                 response_type=response_type,
                 output=None,
             )
 
-        tool = self._tool_registry.get(
-            invocation.tool_id
-        )
-        output = tool.execute(
-            invocation.parameters
-        )
+        tool = self._tool_registry.get(invocation.tool_id)
+        output = tool.execute(invocation.parameters)
 
         return AgentRuntimeResult(
             decision=decision.value,
