@@ -1,5 +1,8 @@
+from collections.abc import Mapping
+
 import pytest
 
+from app.agents.enterprise_agent import EnterpriseAgent
 from app.models.audit_event import Decision
 from app.models.agent_runtime_result import (
     AgentRuntimeResult,
@@ -29,11 +32,12 @@ from app.registry.tool_registry import (
 )
 from app.services.agent_runtime_service import (
     AgentRuntimeService,
+    RuntimeExecutor,
 )
 from app.tools.base_tool import BaseTool
 
 
-class FakeAgent:
+class FakeAgent(EnterpriseAgent):
     def invoke(
         self,
         query: str,
@@ -62,7 +66,7 @@ class FakeAgent:
         )
 
 
-class UnknownToolAgent:
+class UnknownToolAgent(EnterpriseAgent):
     def invoke(
         self,
         query: str,
@@ -75,8 +79,14 @@ class UnknownToolAgent:
         )
 
 
-class AllowingRuntimeService:
-    def __init__(self) -> None:
+class StubRuntimeService(RuntimeExecutor):
+    def __init__(
+        self,
+        decision: Decision = Decision.ALLOW,
+        response_type: ResponseType = ResponseType.MONITOR,
+    ) -> None:
+        self._decision = decision
+        self._response_type = response_type
         self.calls: list[dict[str, str | None]] = []
 
     def execute(
@@ -85,6 +95,9 @@ class AllowingRuntimeService:
         agent_id: str,
         tool_id: str,
         resource: str | None = None,
+        user_prompt: str = "",
+        model_output: str = "",
+        tool_output: str = "",
     ) -> RuntimeResult:
         self.calls.append(
             {
@@ -100,7 +113,7 @@ class AllowingRuntimeService:
                 session_id=session_id,
                 agent_id=agent_id,
                 tool_id=tool_id,
-                decision=Decision.ALLOW,
+                decision=self._decision,
             ),
             findings=[],
             risk_assessment=RiskAssessment(
@@ -114,9 +127,17 @@ class AllowingRuntimeService:
                 session_id=session_id,
                 agent_id=agent_id,
                 risk_level=RiskLevel.LOW,
-                response_type=ResponseType.MONITOR,
-                reason="allowed for test",
+                response_type=self._response_type,
+                reason="stubbed for test",
             ),
+        )
+
+
+class AllowingRuntimeService(StubRuntimeService):
+    def __init__(self) -> None:
+        super().__init__(
+            decision=Decision.ALLOW,
+            response_type=ResponseType.MONITOR,
         )
 
 
@@ -150,9 +171,9 @@ class RecordingTool(BaseTool):
 
     def execute(
         self,
-        parameters: dict[str, object],
+        parameters: Mapping[str, object],
     ) -> str:
-        self.parameters = parameters
+        self.parameters = dict(parameters)
         return self.output
 
 
@@ -165,9 +186,7 @@ def create_service() -> AgentRuntimeService:
 def test_execute_read_query() -> None:
     service = create_service()
 
-    result = service.execute(
-        "read notes.txt"
-    )
+    result = service.execute("read notes.txt")
 
     assert isinstance(
         result,
@@ -176,10 +195,7 @@ def test_execute_read_query() -> None:
 
     assert result.decision == "ALLOW"
 
-    assert (
-        result.response_type
-        == ResponseType.MONITOR
-    )
+    assert result.response_type == ResponseType.MONITOR
 
     assert isinstance(
         result.output,
@@ -190,9 +206,7 @@ def test_execute_read_query() -> None:
 def test_execute_protected_resource_query() -> None:
     service = create_service()
 
-    result = service.execute(
-        "read secrets.txt"
-    )
+    result = service.execute("read secrets.txt")
 
     assert isinstance(
         result,
@@ -207,9 +221,7 @@ def test_execute_protected_resource_query() -> None:
 def test_execute_list_query() -> None:
     service = create_service()
 
-    result = service.execute(
-        "list files"
-    )
+    result = service.execute("list files")
 
     assert isinstance(
         result,
@@ -218,24 +230,17 @@ def test_execute_list_query() -> None:
 
     assert result.decision == "ALLOW"
 
-    assert (
-        result.response_type
-        == ResponseType.MONITOR
-    )
+    assert result.response_type == ResponseType.MONITOR
 
     assert isinstance(
         result.output,
         list,
     )
 
-    assert all(
-        isinstance(item, str)
-        for item in result.output
-    )
+    assert all(isinstance(item, str) for item in result.output)
 
 
 def test_execute_uses_tool_registry_for_approved_tool() -> None:
-    service = create_service()
     registry = ToolRegistry()
     tool = RecordingTool(
         "file_read",
@@ -243,19 +248,16 @@ def test_execute_uses_tool_registry_for_approved_tool() -> None:
     )
     registry.register(tool)
     runtime_service = AllowingRuntimeService()
-
-    service._tool_registry = registry
-    service._runtime_service = runtime_service
-
-    result = service.execute(
-        "read notes.txt"
+    service = AgentRuntimeService(
+        agent=FakeAgent(),
+        runtime_service=runtime_service,
+        tool_registry=registry,
     )
+
+    result = service.execute("read notes.txt")
 
     assert result.decision == "ALLOW"
-    assert (
-        result.response_type
-        == ResponseType.MONITOR
-    )
+    assert result.response_type == ResponseType.MONITOR
     assert result.output == "registry output"
     assert tool.parameters == {
         "path": "notes.txt",
@@ -263,11 +265,84 @@ def test_execute_uses_tool_registry_for_approved_tool() -> None:
     assert runtime_service.calls[0]["tool_id"] == "file_read"
 
 
+def test_execute_denied_decision_does_not_execute_tool() -> None:
+    registry = ToolRegistry()
+    tool = RecordingTool(
+        "file_read",
+        "registry output",
+    )
+    registry.register(tool)
+    service = AgentRuntimeService(
+        agent=FakeAgent(),
+        runtime_service=StubRuntimeService(
+            decision=Decision.DENY,
+            response_type=ResponseType.MONITOR,
+        ),
+        tool_registry=registry,
+    )
+
+    result = service.execute("read notes.txt")
+
+    assert result.decision == "DENY"
+    assert result.response_type == ResponseType.MONITOR
+    assert result.output is None
+    assert tool.parameters is None
+
+
+def test_execute_approval_required_decision_does_not_execute_tool() -> None:
+    registry = ToolRegistry()
+    tool = RecordingTool(
+        "file_read",
+        "registry output",
+    )
+    registry.register(tool)
+    service = AgentRuntimeService(
+        agent=FakeAgent(),
+        runtime_service=StubRuntimeService(
+            decision=Decision.APPROVAL_REQUIRED,
+            response_type=ResponseType.REQUIRE_APPROVAL,
+        ),
+        tool_registry=registry,
+    )
+
+    result = service.execute("read notes.txt")
+
+    assert result.decision == "APPROVAL_REQUIRED"
+    assert result.response_type == ResponseType.REQUIRE_APPROVAL
+    assert result.output is None
+    assert tool.parameters is None
+
+
+def test_monitor_response_does_not_override_approval_required() -> None:
+    registry = ToolRegistry()
+    tool = RecordingTool(
+        "file_read",
+        "registry output",
+    )
+    registry.register(tool)
+    service = AgentRuntimeService(
+        agent=FakeAgent(),
+        runtime_service=StubRuntimeService(
+            decision=Decision.APPROVAL_REQUIRED,
+            response_type=ResponseType.MONITOR,
+        ),
+        tool_registry=registry,
+    )
+
+    result = service.execute("read notes.txt")
+
+    assert result.decision == "APPROVAL_REQUIRED"
+    assert result.response_type == ResponseType.MONITOR
+    assert result.output is None
+    assert tool.parameters is None
+
+
 def test_execute_allowed_unregistered_tool_raises_error() -> None:
+    runtime_service = AllowingRuntimeService()
     service = AgentRuntimeService(
         agent=UnknownToolAgent(),
+        runtime_service=runtime_service,
     )
-    service._runtime_service = AllowingRuntimeService()
 
     with pytest.raises(
         ToolNotRegisteredError,
@@ -276,13 +351,10 @@ def test_execute_allowed_unregistered_tool_raises_error() -> None:
         service.execute("use unknown tool")
 
 
-
 def test_execute_unsupported_query() -> None:
     service = create_service()
 
-    result = service.execute(
-        "send email"
-    )
+    result = service.execute("send email")
 
     assert isinstance(
         result,
@@ -291,9 +363,6 @@ def test_execute_unsupported_query() -> None:
 
     assert result.decision == "DENY"
 
-    assert (
-        result.response_type
-        == ResponseType.MONITOR
-    )
+    assert result.response_type == ResponseType.MONITOR
 
     assert result.output is None
