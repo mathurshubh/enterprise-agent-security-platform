@@ -34,6 +34,11 @@ Do **not** pivot this repository into a pure governance or compliance platform.
 - Do not introduce new frameworks or dependencies without approval.
 - Do not modify unrelated files.
 - Ask clarifying questions if requirements are ambiguous.
+- Preserve backwards compatibility unless explicitly instructed otherwise.
+- Prefer minimal, focused pull requests.
+- Avoid large-scale formatting or repository-wide refactoring unless requested.
+- Reuse existing abstractions before introducing new ones.
+- Keep composition/bootstrap logic separate from domain logic where practical.
 
 ---
 
@@ -66,21 +71,44 @@ Avoid introducing LLM-based decision-making into core security controls unless e
 
 ---
 
-# Architecture Priorities
+## LLM Trust Boundary
 
-Current implementation priorities:
+Treat every LLM as an **untrusted intent parser**.
 
-1. Detection Engine
-2. Risk Engine
-3. Approval Workflow
-4. Response Actions
+The LLM is responsible only for converting natural language into structured
+`ToolInvocation` objects.
 
-Future enhancements:
+The following security decisions must remain deterministic and outside the LLM:
 
-- Control Validation
-- Attack Simulation
-- Model Registry expansion
-- AI Asset Inventory expansion
+- Authorization
+- Policy Evaluation
+- Detection
+- Risk Assessment
+- Approval Decisions
+- Response Actions
+
+Never move security-critical decisions into prompts unless explicitly requested.
+
+---
+
+# Architecture Principles
+
+Prefer architecture consistency over introducing new abstractions.
+
+Current architectural principles:
+
+- RuntimeService is the single deterministic runtime security pipeline.
+- AgentRuntimeService is responsible only for:
+  - LLM invocation
+  - ToolInvocation generation
+  - Executing approved tools
+- Avoid duplicating runtime orchestration.
+- Prefer dependency injection over constructing dependencies inside services.
+- Prefer Protocol interfaces when appropriate.
+- Keep services cohesive and focused on a single responsibility.
+- Preserve trust boundaries between AI components and deterministic security components.
+
+Future architectural enhancements should build upon these principles rather than replacing them.
 
 ---
 
@@ -161,7 +189,18 @@ When implementing changes:
 6. Summarize modifications.
 7. Wait for approval before continuing with unrelated work.
 
-Avoid large, multi-feature commits.
+Before considering work complete:
+
+- Verify trust boundaries remain intact.
+- Verify security decisions remain deterministic.
+- Update tests alongside implementation.
+- Execute Ruff (if available).
+- Execute:
+
+    .venv/bin/python -m pytest
+
+- Ensure documentation reflects implementation.
+- Summarize architectural impact before proposing the change for merge.
 
 ---
 
@@ -194,3 +233,48 @@ This repository is intended to demonstrate:
 Implementation depth is preferred over architectural breadth.
 
 A few well-implemented security capabilities are more valuable than many partially implemented features.
+
+---
+
+# Architecture Review Checklist
+
+Before completing a change, verify:
+
+## Architecture
+
+- Responsibilities remain well separated.
+- No duplicated orchestration has been introduced.
+- Existing architecture has not been unnecessarily redesigned.
+- New abstractions provide measurable value.
+
+## Security
+
+- Authorization remains deterministic.
+- Fail-closed behavior is preserved.
+- No security decisions have moved into the LLM.
+- Trust boundaries remain intact.
+
+## Engineering
+
+- Tests have been updated.
+- Existing tests pass.
+- Scope remains focused.
+- Unrelated files have not been modified.
+
+## Documentation
+
+- Documentation matches implementation.
+- Roadmap items are not marked complete until implemented and tested.
+
+## Additional AI Documentation
+
+Repository-specific implementation guidance is located in:
+
+- docs/ai/README.md
+- docs/ai/PROJECT_CONTEXT.md
+- docs/ai/ARCHITECTURE_PRINCIPLES.md
+- docs/ai/IMPLEMENTATION_WORKFLOW.md
+- docs/ai/DEVELOPMENT_CHECKLIST.md
+- docs/ai/PULL_REQUEST_GUIDELINES.md
+
+Read these documents before making architectural or implementation changes.
