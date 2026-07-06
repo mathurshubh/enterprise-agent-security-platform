@@ -2,6 +2,7 @@ from app.auth.authorization_service import AuthorizationService
 from app.detection.engine import DetectionEngine
 from app.detection.prompt_injection_rule import PromptInjectionRule
 from app.detection.sensitive_file_access_rule import SensitiveFileAccessRule
+from app.detection.data_exfiltration_rule import DataExfiltrationRule
 from app.models.agent import Agent, AgentStatus, RiskTier
 from app.models.audit_event import Decision
 from app.models.risk_assessment import RiskLevel
@@ -101,6 +102,7 @@ def create_runtime_service(
         [
             PromptInjectionRule(),
             SensitiveFileAccessRule(),
+            DataExfiltrationRule(),
         ]
     )
 
