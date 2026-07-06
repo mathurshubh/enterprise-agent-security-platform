@@ -97,20 +97,17 @@ Never move security-critical decisions into prompts unless explicitly requested.
 
 Prefer architecture consistency over introducing new abstractions.
 
+For service responsibilities, runtime orchestration, and trust boundaries, refer to the authoritative [docs/ai/ARCHITECTURE_PRINCIPLES.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/ai/ARCHITECTURE_PRINCIPLES.md).
+
 Current architectural principles:
 
-- RuntimeService is the single deterministic runtime security pipeline.
-- AgentRuntimeService is responsible only for:
-  - LLM invocation
-  - ToolInvocation generation
-  - Executing approved tools
-- Avoid duplicating runtime orchestration.
 - Prefer dependency injection over constructing dependencies inside services.
 - Prefer Protocol interfaces when appropriate.
 - Keep services cohesive and focused on a single responsibility.
 - Preserve trust boundaries between AI components and deterministic security components.
 
 Future architectural enhancements should build upon these principles rather than replacing them.
+
 
 ---
 
@@ -331,33 +328,8 @@ A few well-implemented security capabilities are more valuable than many partial
 
 # Architecture Review Checklist
 
-Before completing a change, verify:
+Before completing a change, verify all checklist criteria in the authoritative [docs/ai/REVIEW_CHECKLIST.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/ai/REVIEW_CHECKLIST.md) are met.
 
-## Architecture
-
-- Responsibilities remain well separated.
-- No duplicated orchestration has been introduced.
-- Existing architecture has not been unnecessarily redesigned.
-- New abstractions provide measurable value.
-
-## Security
-
-- Authorization remains deterministic.
-- Fail-closed behavior is preserved.
-- No security decisions have moved into the LLM.
-- Trust boundaries remain intact.
-
-## Engineering
-
-- Tests have been updated.
-- Existing tests pass.
-- Scope remains focused.
-- Unrelated files have not been modified.
-
-## Documentation
-
-- Documentation matches implementation.
-- Roadmap items are not marked complete until implemented and tested.
 
 ## Additional AI Documentation
 
