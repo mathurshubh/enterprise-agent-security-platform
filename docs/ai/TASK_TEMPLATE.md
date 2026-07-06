@@ -1,8 +1,12 @@
 # Read first:
 
+- AGENTS.md
+- docs/ai/README.md
 - docs/ai/PROJECT_CONTEXT.md
-- docs/ai/ENGINEERING_GUIDE.md
 - docs/ai/ARCHITECTURE_PRINCIPLES.md
+- docs/ai/IMPLEMENTATION_WORKFLOW.md
+- docs/ai/ENGINEERING_GUIDE.md
+
 
 ## Task:
 
@@ -18,4 +22,8 @@
 
 ## Only modify files necessary for this task.
 
-## Run through REVIEW_CHECKLIST.md before finishing.
+## Before finishing
+
+Run through:
+
+- docs/ai/REVIEW_CHECKLIST.md

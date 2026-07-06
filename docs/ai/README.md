@@ -1,10 +1,9 @@
 # AI Development Documentation
 
-Read in this order:
+This directory contains repository-specific guidance for AI coding assistants and contributors.
 
-1. AGENTS.md
-2. PROJECT_CONTEXT.md
-3. ARCHITECTURE_PRINCIPLES.md
-4. IMPLEMENTATION_WORKFLOW.md
+After reading AGENTS.md at the root of the repository, refer to these documents in the following order:
 
-These documents provide repository-specific guidance for AI coding assistants and contributors.
+1. PROJECT_CONTEXT.md
+2. ARCHITECTURE_PRINCIPLES.md
+3. IMPLEMENTATION_WORKFLOW.md

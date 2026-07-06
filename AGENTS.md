@@ -363,11 +363,8 @@ Before completing a change, verify:
 
 Repository-specific implementation guidance is located in:
 
-- docs/ai/README.md
 - docs/ai/PROJECT_CONTEXT.md
 - docs/ai/ARCHITECTURE_PRINCIPLES.md
 - docs/ai/IMPLEMENTATION_WORKFLOW.md
-- docs/ai/DEVELOPMENT_CHECKLIST.md
-- docs/ai/PULL_REQUEST_GUIDELINES.md
 
-Read these documents before making architectural or implementation changes.
+Refer to docs/ai/README.md for the index and recommended reading order.
