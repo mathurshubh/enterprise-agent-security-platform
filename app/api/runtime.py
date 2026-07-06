@@ -5,6 +5,7 @@ from app.auth.authorization_service import AuthorizationService
 from app.detection.engine import DetectionEngine
 from app.detection.prompt_injection_rule import PromptInjectionRule
 from app.detection.sensitive_file_access_rule import SensitiveFileAccessRule
+from app.detection.data_exfiltration_rule import DataExfiltrationRule
 from app.policy.policy_engine import PolicyEngine
 from app.services.agent_service import AgentService
 from app.services.detection_service import DetectionService
@@ -38,6 +39,7 @@ detection_engine = DetectionEngine(
     [
         PromptInjectionRule(),
         SensitiveFileAccessRule(),
+        DataExfiltrationRule(),
     ]
 )
 
