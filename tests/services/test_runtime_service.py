@@ -142,6 +142,26 @@ def test_execute_authorized_request():
     ]
 
 
+def test_create_default_preserves_default_authorization():
+    service = RuntimeService.create_default()
+
+    allowed_result = service.execute(
+        session_id="session-1",
+        agent_id="agent-1",
+        tool_id="file_read",
+        resource="notes.txt",
+    )
+    denied_result = service.execute(
+        session_id="session-2",
+        agent_id="agent-1",
+        tool_id="file_read",
+        resource="secrets.txt",
+    )
+
+    assert allowed_result.event.decision == Decision.ALLOW
+    assert denied_result.event.decision == Decision.DENY
+
+
 def test_execute_denied_request():
     service, session_service = create_runtime_service([])
 
