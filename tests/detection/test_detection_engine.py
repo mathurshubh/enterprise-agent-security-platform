@@ -1,6 +1,7 @@
 from app.detection.category import DetectionCategory
 from app.detection.context import DetectionContext
 from app.detection.engine import DetectionEngine
+from app.detection.metadata import RuleMetadata
 from app.detection.rule import DetectionRule
 from app.models.finding import Finding, Severity
 
@@ -24,6 +25,17 @@ class StubRule(DetectionRule):
         self,
     ) -> DetectionCategory:
         return DetectionCategory.PROMPT_SECURITY
+
+    @property
+    def metadata(
+        self,
+    ) -> RuleMetadata:
+        return RuleMetadata(
+            name=self.rule_name,
+            category=self.category,
+            description="stub rule",
+        )
+
 
 
     def evaluate(

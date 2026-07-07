@@ -3,6 +3,7 @@ from uuid import NAMESPACE_URL, uuid5
 
 from app.detection.category import DetectionCategory
 from app.detection.context import DetectionContext
+from app.detection.metadata import RuleMetadata
 from app.detection.rule import DetectionRule
 from app.models.finding import Finding, Severity
 
@@ -38,6 +39,15 @@ class SensitiveFileAccessRule(DetectionRule):
     @property
     def category(self) -> DetectionCategory:
         return DetectionCategory.DATA_SECURITY
+
+    @property
+    def metadata(self) -> RuleMetadata:
+        return RuleMetadata(
+            name=self.rule_name,
+            category=self.category,
+            description="Detects access to sensitive files based on metadata resource path and user prompt.",
+        )
+
 
 
     def evaluate(self, context: DetectionContext) -> list[Finding]:

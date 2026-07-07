@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 
 from app.detection.category import DetectionCategory
 from app.detection.context import DetectionContext
+from app.detection.metadata import RuleMetadata
 from app.models.finding import Finding
 
 
@@ -22,10 +23,18 @@ class DetectionRule(ABC):
     ) -> DetectionCategory:
         raise NotImplementedError
 
+    @property
+    @abstractmethod
+    def metadata(
+        self,
+    ) -> RuleMetadata:
+        raise NotImplementedError
+
     @abstractmethod
     def evaluate(
         self,
         context: DetectionContext,
     ) -> list[Finding]:
         raise NotImplementedError
+
 
