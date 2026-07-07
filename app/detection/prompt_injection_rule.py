@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from uuid import NAMESPACE_URL, uuid5
 
+from app.detection.category import DetectionCategory
 from app.detection.context import DetectionContext
 from app.detection.rule import DetectionRule
 from app.models.finding import Finding, Severity
@@ -27,6 +28,13 @@ class PromptInjectionRule(DetectionRule):
         self,
     ) -> str:
         return self._RULE_NAME
+
+    @property
+    def category(
+        self,
+    ) -> DetectionCategory:
+        return DetectionCategory.PROMPT_SECURITY
+
 
     def evaluate(
         self,
