@@ -3,6 +3,7 @@ from uuid import NAMESPACE_URL, uuid5
 
 from app.detection.category import DetectionCategory
 from app.detection.context import DetectionContext
+from app.detection.metadata import RuleMetadata
 from app.detection.rule import DetectionRule
 from app.models.finding import Finding, Severity
 
@@ -34,6 +35,17 @@ class PromptInjectionRule(DetectionRule):
         self,
     ) -> DetectionCategory:
         return DetectionCategory.PROMPT_SECURITY
+
+    @property
+    def metadata(
+        self,
+    ) -> RuleMetadata:
+        return RuleMetadata(
+            name=self.rule_name,
+            category=self.category,
+            description="Detects common deterministic prompt injection indicators.",
+        )
+
 
 
     def evaluate(
