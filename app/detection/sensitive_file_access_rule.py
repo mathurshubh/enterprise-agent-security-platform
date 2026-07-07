@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from uuid import NAMESPACE_URL, uuid5
 
+from app.detection.category import DetectionCategory
 from app.detection.context import DetectionContext
 from app.detection.rule import DetectionRule
 from app.models.finding import Finding, Severity
@@ -33,6 +34,11 @@ class SensitiveFileAccessRule(DetectionRule):
     @property
     def rule_name(self) -> str:
         return self._RULE_NAME
+
+    @property
+    def category(self) -> DetectionCategory:
+        return DetectionCategory.DATA_SECURITY
+
 
     def evaluate(self, context: DetectionContext) -> list[Finding]:
         resource = context.metadata.get("resource", "").strip().casefold()

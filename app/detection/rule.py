@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 
+from app.detection.category import DetectionCategory
 from app.detection.context import DetectionContext
 from app.models.finding import Finding
 
@@ -14,9 +15,17 @@ class DetectionRule(ABC):
     ) -> str:
         raise NotImplementedError
 
+    @property
+    @abstractmethod
+    def category(
+        self,
+    ) -> DetectionCategory:
+        raise NotImplementedError
+
     @abstractmethod
     def evaluate(
         self,
         context: DetectionContext,
     ) -> list[Finding]:
         raise NotImplementedError
+

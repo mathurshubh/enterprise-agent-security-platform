@@ -1,3 +1,4 @@
+from app.detection.category import DetectionCategory
 from app.detection.context import DetectionContext
 from app.detection.engine import DetectionEngine
 from app.detection.rule import DetectionRule
@@ -17,6 +18,13 @@ class StubRule(DetectionRule):
         self,
     ) -> str:
         return self._rule_name
+
+    @property
+    def category(
+        self,
+    ) -> DetectionCategory:
+        return DetectionCategory.PROMPT_SECURITY
+
 
     def evaluate(
         self,
