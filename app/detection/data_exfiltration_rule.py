@@ -51,11 +51,21 @@ class DataExfiltrationRule(DetectionRule):
 
     @property
     def metadata(self) -> RuleMetadata:
+        from app.detection.security_standard import SecurityControlReference, SecurityFramework
+
         return RuleMetadata(
             name=self.rule_name,
             category=self.category,
             description="Detects data exfiltration attempts based on presence of action and sensitive indicator.",
+            controls=(
+                SecurityControlReference(
+                    framework=SecurityFramework.MITRE_ATTACK,
+                    control_id="T1048",
+                    title="Exfiltration Over Alternative Protocol",
+                ),
+            ),
         )
+
 
 
 

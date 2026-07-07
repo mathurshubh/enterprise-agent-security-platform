@@ -40,11 +40,26 @@ class PromptInjectionRule(DetectionRule):
     def metadata(
         self,
     ) -> RuleMetadata:
+        from app.detection.security_standard import SecurityControlReference, SecurityFramework
+
         return RuleMetadata(
             name=self.rule_name,
             category=self.category,
             description="Detects common deterministic prompt injection indicators.",
+            controls=(
+                SecurityControlReference(
+                    framework=SecurityFramework.OWASP_LLM,
+                    control_id="LLM01",
+                    title="Prompt Injection",
+                ),
+                SecurityControlReference(
+                    framework=SecurityFramework.MITRE_ATLAS,
+                    control_id="AML.T0043",
+                    title="User Prompt Injection",
+                ),
+            ),
         )
+
 
 
 

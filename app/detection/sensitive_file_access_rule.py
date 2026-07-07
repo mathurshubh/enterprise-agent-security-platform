@@ -42,11 +42,21 @@ class SensitiveFileAccessRule(DetectionRule):
 
     @property
     def metadata(self) -> RuleMetadata:
+        from app.detection.security_standard import SecurityControlReference, SecurityFramework
+
         return RuleMetadata(
             name=self.rule_name,
             category=self.category,
             description="Detects access to sensitive files based on metadata resource path and user prompt.",
+            controls=(
+                SecurityControlReference(
+                    framework=SecurityFramework.MITRE_ATTACK,
+                    control_id="T1083",
+                    title="File and Directory Discovery",
+                ),
+            ),
         )
+
 
 
 
