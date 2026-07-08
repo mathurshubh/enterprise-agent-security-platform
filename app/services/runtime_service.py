@@ -22,6 +22,8 @@ from app.policy.policy_engine import PolicyEngine
 from app.services.agent_service import AgentService
 from app.services.detection_service import DetectionService
 from app.services.response_service import ResponseService
+from app.models.audit_event import Decision
+from app.models.response_action import ResponseType
 from app.services.risk_service import RiskService
 from app.services.session_service import SessionService
 from app.services.tool_service import ToolService
@@ -212,9 +214,17 @@ class RuntimeService:
             )
         )
 
+        # Enforce Zero Trust response actions on final decision
+        if recorded_event.decision == Decision.ALLOW:
+            if response_action.response_type == ResponseType.SUSPEND_AGENT:
+                recorded_event.decision = Decision.DENY
+            elif response_action.response_type == ResponseType.REQUIRE_APPROVAL:
+                recorded_event.decision = Decision.APPROVAL_REQUIRED
+
         return RuntimeResult(
             event=recorded_event,
             findings=findings,
             risk_assessment=risk_assessment,
             response_action=response_action,
         )
+
