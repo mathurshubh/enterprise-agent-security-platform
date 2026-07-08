@@ -6,6 +6,7 @@ from app.models.audit_event import Decision
 from app.models.agent_runtime_result import (
     AgentRuntimeResult,
 )
+from app.models.response_action import ResponseType
 from app.models.runtime_result import RuntimeResult
 from app.registry.tool_registry import ToolRegistry
 from app.services.runtime_service import RuntimeService
@@ -81,11 +82,20 @@ class AgentRuntimeService:
             agent_id=self._AGENT_ID,
             tool_id=invocation.tool_id,
             resource=resource,
+            user_prompt=query,
+            model_output=invocation.model_dump_json(),
+            tool_output="",
         )
 
         decision = runtime_result.event.decision
 
         response_type = runtime_result.response_action.response_type
+
+        # Enforce Zero Trust response actions at execution time
+        if response_type == ResponseType.SUSPEND_AGENT:
+            decision = Decision.DENY
+        elif response_type == ResponseType.REQUIRE_APPROVAL:
+            decision = Decision.APPROVAL_REQUIRED
 
         if decision != Decision.ALLOW:
             return AgentRuntimeResult(
@@ -102,3 +112,4 @@ class AgentRuntimeService:
             response_type=response_type,
             output=output,
         )
+
