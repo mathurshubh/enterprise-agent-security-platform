@@ -128,127 +128,125 @@ Security Analysts / Administrators
 
 # Current Implementation Architecture
 
-Current implementation supports provider-agnostic, single-step LLM-governed tool execution through a configurable provider architecture. The runtime is independent of the selected LLM provider, while multi-agent orchestration and advanced governance capabilities remain part of the target architecture.
-
-The current implementation supports a single enterprise agent with pluggable LLM providers.
+The current implementation supports a single enterprise agent with pluggable, provider-agnostic LLM providers. The execution pipeline enforces Zero Trust security controls deterministically outside of the LLM.
 
 ### Static Component Architecture
 
-The following diagram illustrates the relationships between the major architectural components implemented in v0.9.
+The following diagram illustrates the relationships between the major architectural components.
 
-```text
-                Configuration
-          (DEFAULT_PROVIDER)
-                  │
-                  ▼
-           ProviderFactory
-                  │
-                  ▼
-          ProviderAdapter
-             ▲         ▲
-             │         │
-      OllamaProvider  GeminiProvider
+```mermaid
+classDiagram
+    class AgentRuntimeService {
+        +execute(query) AgentRuntimeResult
+    }
+    class RuntimeService {
+        +execute(session_id, agent_id, tool_id, resource, user_prompt, model_output, tool_output) RuntimeResult
+    }
+    class AuthorizationService {
+        +authorize(agent_id, tool_id, resource) Decision
+    }
+    class DetectionEngine {
+        +evaluate(context) list~Finding~
+    }
+    class RiskService {
+        +assess(findings) RiskAssessment
+    }
+    class ResponseService {
+        +recommend(assessment) ResponseAction
+    }
+    class AuditService {
+        +record_event(event) AuditEvent
+    }
+    class ToolRegistry {
+        +get(tool_id) BaseTool
+    }
 
-                  ▲
-                  │
-          EnterpriseAgent
-                  ▲
-                  │
-        AgentRuntimeService
-                  │
-                  ▼
-            Tool Registry
-                  │
-                  ▼
-              BaseTool
-           ┌─────┴─────┐
-           ▼           ▼
-    FileReadTool  DirectoryListTool
+    AgentRuntimeService --> RuntimeService
+    AgentRuntimeService --> ToolRegistry
+    RuntimeService --> AuthorizationService
+    RuntimeService --> DetectionEngine
+    RuntimeService --> RiskService
+    RuntimeService --> ResponseService
+    RuntimeService --> AuditService
 ```
 
-### Runtime Execution Flow
+### Runtime Security Pipeline
 
-The following diagram illustrates how a user request flows through the deterministic security pipeline during execution.
+The `RuntimeService` is the single authoritative security decision point in the system. The runtime pipeline executes as follows:
 
-```text
-User Query
-      │
-      ▼
-`AgentRuntimeService`
-      │
-      ▼
-`EnterpriseAgent`
-      │
-      ▼
-`ProviderAdapter`.chat()
-      │
-      ▼
-`ToolInvocation`
-      │
-      ▼
-Authorization Service
-      │
-      ▼
-Policy Engine
-      │
-      ▼
-Session Service
-      │
-      ▼
-Detection Service
-      │
-      ▼
-Risk Service
-      │
-      ▼
-Response Service
-      │
-      ▼
-Tool Registry
-      │
-      ▼
-Resolved `BaseTool`
-      │
-      ▼
-Secure Tool Execution
-      │
-      ▼
-Audit Event
+```mermaid
+flowchart TD
+    UserQuery[User Request] --> Agent[AgentRuntimeService]
+    Agent --> LLM[LLM Provider / Untrusted Intent Parser]
+    LLM --> ToolInvoc[ToolInvocation]
+    ToolInvoc --> SecurityBoundary["Deterministic Security Boundary: RuntimeService"]
+    
+    subgraph SecurityBoundary [RuntimeService Enforcement]
+        Auth[1. Authorization Service] --> Policy[2. Policy Engine]
+        Policy --> SessionSvc[3. Session Service Event Logging]
+        SessionSvc --> DetEngine[4. Detection Engine]
+        DetEngine --> RiskSvc[5. Risk Service Analysis]
+        RiskSvc --> RespSvc[6. Response Service Recommendation]
+        RespSvc --> FinalDec{7. Final Decision Calculation}
+        FinalDec --> AuditSvc[8. Audit Service Event Logging]
+    end
+
+    FinalDec -->|ALLOW| Exec[9. Tool Execution via Tool Registry]
+    FinalDec -->|DENY / APPROVAL_REQUIRED| Block[9. Block / Suspend / Hold]
 ```
 
----
+### Runtime Decision Flow
 
-### Runtime Security Boundary
-
-The `ProviderAdapter` and `EnterpriseAgent` are responsible only for translating natural language into a syntactically valid `ToolInvocation`. From that point onward, every authorization, policy evaluation, session check, detection, risk assessment, response decision, and tool execution is performed by deterministic platform services. The LLM is never trusted to make security decisions.
+The relationship between the security services is deterministic and hierarchical:
+1. **Authorization & Policy**: Form the baseline access control checking if the agent is allowed to request the tool/resource.
+2. **Detection & Behavioral Analysis**: Scan the raw runtime context (prompts, outputs, metadata) for active threat indicators.
+3. **Risk Scoring & Response Recommendation**: Map the volume and severity of findings to response actions (MONITOR, ALERT, REQUIRE_APPROVAL, SUSPEND_AGENT).
+4. **Final Decision**: If the baseline authorization was `ALLOW`, but risk response dictates restrictive enforcement, `RuntimeService` overrides the decision:
+   - `SUSPEND_AGENT` overrides decision to `Decision.DENY`.
+   - `REQUIRE_APPROVAL` overrides decision to `Decision.APPROVAL_REQUIRED`.
+   - Otherwise, the baseline authorization is preserved.
 
 ---
 
 # Trust Boundaries
 
-The platform defines explicit trust boundaries between users, agents, tools, and enterprise systems.
+The platform enforces strict boundaries to isolate untrusted inputs from secure execution contexts:
 
-## Boundary 1: User → Agent
+```mermaid
+flowchart TD
+    subgraph UntrustedZone [Untrusted Zone]
+        Prompt["User Prompt (Untrusted)"]
+        LLM["LLM Provider (Untrusted Intent Parser)"]
+    end
 
-User input is considered untrusted and may contain malicious instructions or prompt injection attempts.
+    subgraph TrustBoundary ["Deterministic Security Boundary (RuntimeService)"]
+        Validation["ToolInvocation Validation"]
+        Pipeline["Auth / Policy / Detection / Risk / Response"]
+        FinalDecision["Final Decision Point"]
+    end
 
-## Boundary 2: LLM Output → Runtime
+    subgraph SecureZone [Secure Zone]
+        Registry["Tool Registry"]
+        Execution["Secure Tool Execution (BaseTool)"]
+        Audit["Audit Service (Immutable Record)"]
+    end
 
-Structured `ToolInvocation` objects produced by the `EnterpriseAgent` are treated as untrusted input and must be validated before entering the deterministic security pipeline.
+    Prompt -->|Natural Language| LLM
+    LLM -->|Model Output| Validation
+    Validation --> Pipeline
+    Pipeline --> FinalDecision
+    FinalDecision -->|ALLOW| Registry
+    Registry --> Execution
+    FinalDecision --> Audit
+```
 
-## Boundary 3: Runtime → Tool Execution
-
-All tool executions require authorization and policy evaluation.
-
-## Boundary 4: Tool → Enterprise Resource
-
-Enterprise systems are protected through least-privilege access controls and approval workflows.
-
-## Boundary 5: Platform → Management Console
-
-Administrative actions require authentication, authorization, and full audit logging.
+- **Boundary 1 (User Prompt)**: Treated as untrusted; subject to content scan via `PromptInjectionRule`.
+- **Boundary 2 (LLM Output)**: Treated as untrusted payload; parsed into `ToolInvocation` and validated.
+- **Boundary 3 (Runtime Security Boundary)**: `RuntimeService` intercepts all calls and evaluates security controls deterministically outside of LLM influence.
+- **Boundary 4 (Secure Execution)**: Only after a final `ALLOW` decision is computed can execution proceed via the `Tool Registry`.
 
 ---
+
 
 # Core Components
 
@@ -458,132 +456,93 @@ Future implementations may include:
 
 ---
 
-## Model Registry (Future Capability)
+## Model Registry
 
-The Model Registry is planned as a future governance capability and is not part of the current implementation. It will extend the same governance pattern established by the Tool Registry to foundation models through immutable model metadata, discovery, inventory, authorization, lifecycle management, and compliance validation.
-
-Maintains the inventory of approved AI models used by enterprise agents.
+The Model Registry maintains a centralized inventory of approved AI models used by enterprise agents.
 
 Tracked attributes:
-
-- Model Name
+- Model ID (name / identifier)
 - Provider
 - Version
 - Risk Classification
 - Approval Status
-- Deployment Environment
-
-Responsibilities:
-
-- Approved model inventory
-- Model governance
-- Model lifecycle visibility
-- Model provenance tracking
-- Supply-chain awareness
 
 The Model Registry serves as the authoritative source of truth for approved AI models within the enterprise.
 
 ---
 
-## Audit Pipeline
+## Runtime Audit
 
-Captures all security-relevant events.
+The platform integrates two distinct event-tracking layers to handle auditing and behavioral analysis:
 
-Events include:
-
-- Tool usage
-- Authorization decisions
-- Policy violations
-- Approval actions
-- Runtime response actions
-
-Future audit attributes may include:
-
-- Session identifiers
-- Trigger source attribution
-- Policy evaluation results
-- Risk score snapshots
-
-Example trigger sources:
-
-- USER_PROMPT
-- AGENT_REASONING
-- TOOL_OUTPUT
-- RETRIEVED_CONTENT
+1. **`SessionService` (Stateful / Behavioral Tracker)**:
+   * **Role**: Tracks security-relevant events within an active session lifecycle.
+   * **Characteristics**: Stateful.
+   * **Use Case**: Used dynamically by detection rules (such as `detect_excessive_denials`) to analyze sequential access patterns and detect brute-force or abuse behaviors.
+2. **`AuditService` (Append-Only / Compliance Log)**:
+   * **Role**: Captures immutable audit records of all runtime request decisions.
+   * **Characteristics**: Stateless, append-only, decoupled from runtime logic.
+   * **Use Case**: Logs final, authoritative execution decisions (ALLOW, DENY, APPROVAL_REQUIRED) and caller/tool metadata, serving as the official record for SIEM ingestion and security compliance.
 
 ---
 
-## Detection Service
+## Detection Architecture
 
-Processes audit events and authorization decisions to identify suspicious or unauthorized agent behavior and generate security findings.
+The platform implements a stateless, deterministic detection framework to scan agent queries, model intents, and tool execution environments for threat indicators.
 
-Responsibilities:
+```
+DetectionRule ──> RuleMetadata ──> DetectionRegistry ──> DetectionEngine
+```
 
-- Analyze audit events
-- Evaluate authorization outcomes
-- Detect anomalous behavior patterns
-- Generate security findings
-- Forward findings to the Risk Service
+### Components
 
-Example detections:
+- **`DetectionRule`**: A protocol defining the standard interface for threat detection rules. Each rule implements `evaluate(context)` and returns a list of `Finding` events.
+- **`DetectionCategory`**: Enums that group detection rules into stable, high-level threat families:
+  * `PROMPT_SECURITY` — Prompt injections, jailbreaks, instruction overrides
+  * `DATA_SECURITY` — Sensitive data access, exfiltration attempts
+  * `TOOL_SECURITY` — Unauthorized tool execution, argument abuse
+  * `IDENTITY_SECURITY` — Agent spoofing and impersonation
+  * `BEHAVIORAL_SECURITY` — State-based violations (e.g. excessive denials)
+  * `POLICY_SECURITY` — Static policy rule breaches
+- **`RuleMetadata`**: A frozen, immutable dataclass containing the rule's metadata (name, category, description, and mapped framework references).
+- **`DetectionRegistry`**: A central discovery and lookup component to register and retrieve active detection rules.
+- **`DetectionEngine`**: A stateless orchestrator that executes all registered detection rules against a request's `DetectionContext`.
 
-- Excessive denied tool executions
-- Repeated policy violations
-- Unauthorized tool access attempts
-- Excessive file access
-- High-risk action frequency spikes
-- Potential data exfiltration
-- Read-then-exfiltration sequences
-- Approval workflow abuse
-- Tool chain escalation
-- Indirect prompt injection indicators
-- Excessive approval requests
+### Determinism and Statelessness
 
-Detection findings are forwarded to the Risk Service for scoring and prioritization.
+Detection rules are intentionally **stateless** and **deterministic**. They evaluate the provided `DetectionContext` (representing a single snapshot of the prompt, model output, and tool output) without maintaining local execution state. This guarantees thread-safety, predictable execution times, and prevents side effects. Behavioral detection (e.g. correlating events across time) is delegated to services analyzing session events tracked by the stateful `SessionService`.
 
 ---
 
-## Risk Service
+## Security Standards Mapping
 
-The Risk Service aggregates security telemetry and findings to calculate agent risk scores.
+The platform maps detection rules to industry-standard security frameworks to support incident response, threat hunting, and compliance reports.
 
-Inputs:
+### Mappings
+- **OWASP LLM Top 10**: Mapped via control ID (e.g. `LLM01` for Prompt Injection).
+- **MITRE ATLAS**: Adversarial threat techniques (e.g. `AML.T0043` for User Prompt Injection).
+- **MITRE ATT&CK**: Mapped to standard attacker techniques (e.g. `T1083` for File Discovery, `T1048` for Exfiltration Over Alternative Protocol).
 
-- Agent Risk Tier
-- Policy Violations
-- Detection Findings
-- Tool Usage Patterns
-- Approval History
-
-Outputs:
-
-- Risk Score
-- Severity Classification
-- Recommended Actions
-- Risk-Based Authorization Signals
-
-Example:
-
-Risk Score: 92
-
-Recommended Actions:
-
-- Disable Agent
-- Require Human Approval
-- Notify Security Team
-
-Future enhancement:
-
-Risk scores may influence authorization decisions through adaptive security controls.
-
-Examples:
-
-- Force approval workflow
-- Restrict tool access
-- Temporarily suspend agents
-- Deny high-risk actions
+### Architectural Posture
+Mappings exist **purely as metadata** within each rule's `RuleMetadata`. Mappings are not involved in runtime execution logic or threat detection, keeping the core detection pipeline simple and fast.
 
 ---
+
+## Risk & Response Services
+
+Calculates risk levels and recommends actions based on detection findings:
+
+1. **`RiskService`**: Aggregates all findings generated during execution and calculates a combined risk score by summing static severity weights (`LOW = 10`, `MEDIUM = 25`, `HIGH = 50`, `CRITICAL = 100`). The score determines the `RiskLevel` (`LOW`, `MEDIUM`, `HIGH`, `CRITICAL`).
+2. **`ResponseService`**: Recommends a `ResponseAction` based on the calculated risk level:
+   * `LOW` risk level maps to `ResponseType.MONITOR`
+   * `MEDIUM` risk level maps to `ResponseType.ALERT`
+   * `HIGH` risk level maps to `ResponseType.REQUIRE_APPROVAL`
+   * `CRITICAL` risk level maps to `ResponseType.SUSPEND_AGENT`
+
+These recommendations are passed back to the `RuntimeService`, which enforces the overrides.
+
+---
+
 
 ## Security Agent (Future Capability)
 
@@ -741,8 +700,6 @@ The platform is designed to support additional AI security capabilities.
 
 Planned future enhancements include:
 
-- OWASP LLM Top 10 risk mapping
-- MITRE ATLAS technique mapping
 - Security posture scoring
 - Agent security maturity assessments
 - Session-based behavioral analysis
@@ -763,118 +720,44 @@ Planned future enhancements include:
 
 ### Implemented
 
-#### Core Runtime
-
+#### Core Runtime & Registries
 - `EnterpriseAgent`
-- `AgentRuntimeService`
-- Runtime Service
-- Scenario Runner Framework
-- Local Agent Runtime Foundations
-- Security-Mediated Agent Execution
-- Runtime Tool Resolution
-- Runtime Response Enforcement
+- `AgentRuntimeService` (thin orchestrator)
+- `RuntimeService` (single authoritative security decision point)
+- Agent Registry
+- Tool Registry (with `BaseTool` abstraction and rich metadata)
+- Model Registry
+- Detection Registry
+- Tool Discovery and Tool Inventory Service
 
 #### Provider Architecture
-
-- `ProviderAdapter`
-- `ProviderFactory`
-- Provider Configuration
-- Ollama Provider
-- Gemini Provider
-- Ollama Service
-- Gemini Service
+- `ProviderAdapter` and `ProviderFactory`
+- Ollama and Gemini Providers
 - Provider-agnostic Tool Selection
 
-#### Tool Governance
+#### Security Controls & Auditing
+- JWT Authentication and Role-Based Access Control (RBAC)
+- Authorization Service and Policy Engine (resource-aware authorization)
+- `SessionService` (stateful event logging)
+- `AuditService` (immutable, append-only audit logging)
+- Secure Tool Execution (`FileReadTool`, `DirectoryListTool`)
 
-- Tool Registry
-- Rich Tool Metadata
-- `BaseTool` abstraction
-- Tool Discovery
-- Tool Inventory Service
-- Secure Tool Execution Integration
-- Secure `FileReadTool`
-- Secure `DirectoryListTool`
-
-#### Security Services
-
-- JWT Authentication
-- Authorization Service
-- Policy Engine
-- Session Service
-- Detection Service
-- Risk Service
-- Response Service
-- Audit Logging
-
-#### Security Controls
-
-- Resource-Aware Authorization
-- Protected Resource Policies
-- Session Isolation
-
-#### Governance & Validation
-
-- Agent Registry
-- Tool Selection Evaluation Framework
+#### Detection & Risk Framework
+- stateless, deterministic `DetectionEngine`
+- `PromptInjectionRule` (OWASP LLM01, MITRE ATLAS user prompt injection)
+- `SensitiveFileAccessRule` (MITRE ATT&CK file discovery)
+- `DataExfiltrationRule` (MITRE ATT&CK exfiltration)
+- `RiskService` (severity-based risk assessment)
+- `ResponseService` (maps risk levels to enforcement actions)
 
 ### Planned
 
-- Automated LLM Evaluation
-- Human Approval Workflow
-- Browser-Based Security Dashboard
-- Trigger Source Attribution
-- Indirect Prompt Injection Detection
-- Agent Observability
-- Agent Skill Supply Chain Security
-
-## Planned Releases
-
-Roadmap items represent planned capabilities and may evolve based on implementation priorities.
-
-### v0.9 – Tool Governance ✅
-
-- Rich Tool Metadata
-- Tool Registry
-- `BaseTool` abstraction
-- Tool Discovery
-- Tool Inventory
-- Runtime Tool Resolution
-
-### v0.9.1 – Enterprise Management Console
-
-- Browser-based administration console
-- Agent registry dashboard
-- Risk monitoring
-- Security findings
-- Approval workflows
-
-### v1.0 – Runtime Security
-
-- Prompt Injection Detection
-- Data Exfiltration Detection
-- Risk-Based Authorization
-- Attack Simulation Framework
-
-### v1.1 – Observability
-
-- OpenTelemetry
-- Prometheus
-- Grafana
-- Jaeger
-
-### v1.2 – DevSecOps
-
-- GitHub Actions
-- CI/CD
-- Security Scanning
-- Supply Chain Validation
-
-### v2.0 – Enterprise Multi-Agent Security Platform
-
+- REST API Expansion
+- Enterprise Management Console
+- Observability integration (OpenTelemetry, Prometheus, Grafana, Jaeger)
 - Multi-Agent Governance
-- Cross-Agent Authorization
-- Enterprise AI Control Plane
+- External assessment tool integrations (Promptfoo, NVIDIA Garak, Microsoft PyRIT, PurpleLlama, Giskard)
+
 
 ---
 
