@@ -2,220 +2,263 @@
 
 ![Python](https://img.shields.io/badge/Python-3.13-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.116+-009688)
-![Tests](https://img.shields.io/badge/Tests-128_Passing-success)
-![Release](https://img.shields.io/badge/Release-v0.9.0-blue)
+![Tests](https://img.shields.io/badge/Tests-186_Passing-success)
 ![Providers](https://img.shields.io/badge/Providers-Ollama_|_Gemini-orange)
 ![Security](https://img.shields.io/badge/Security-Zero_Trust-red)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
-Enterprise Agent Security Platform is a production-style Zero Trust governance platform for enterprise AI agents. Rather than building another AI agent framework, the project focuses on governing AI agents through deterministic security controls, authorization, policy enforcement, runtime monitoring, and auditability.
-The platform treats Large Language Models (LLMs) as untrusted intent parsers.
-Authorization, policy evaluation, detection, risk assessment, response, and audit logging remain deterministic.
-Version 0.9 introduces a governed Rich Tool Ecosystem featuring Tool Registry, Rich Tool Metadata, Tool Discovery, and Tool Inventory.
-Future releases will focus on observability, attack detection, and multi-agent governance.
+A Zero Trust security platform for governing enterprise AI agents. Rather than building another AI agent framework, this project focuses on governing AI agents through deterministic security controls, runtime detection, risk-based response, and immutable audit logging.
+
+> **The platform intentionally treats every LLM as an untrusted intent parser. All security decisions remain deterministic and are enforced outside the model.**
+
+---
+
+## Current Architecture
+
+```mermaid
+flowchart TD
+    A["User Request"] --> B["Enterprise Agent"]
+    B --> C["Provider-Agnostic LLM"]
+    C --> D["ToolInvocation"]
+    D --> E["RuntimeService"]
+    E --> F["Authorization"]
+    F --> G["Policy Engine"]
+    G --> H["Detection Engine"]
+    H --> I["Risk Service"]
+    I --> J["Response Service"]
+    J --> K{"Final Decision"}
+    K -->|ALLOW| L["Tool Execution"]
+    K -->|DENY| M["Blocked"]
+    K -->|APPROVAL_REQUIRED| N["Held for Review"]
+    E --> O["Session Event"]
+    E --> P["Audit Event"]
+```
+
+`RuntimeService` is the single authoritative source of security decisions. The LLM never makes authorization, policy, or security decisions.
 
 ---
 
 ## Why This Project?
 
-Most AI agent frameworks focus on agent capabilities.
-Enterprise Agent Security Platform focuses on governing those agents.
-The platform demonstrates how organizations can apply Zero Trust principles to AI agents by separating natural language understanding from deterministic security enforcement.
+Most AI agent frameworks focus on agent capabilities. This platform focuses on governing those agents.
+
+The project demonstrates how organizations can apply Zero Trust principles to AI agents by separating natural language understanding from deterministic security enforcement. Every tool invocation passes through a complete security pipeline before execution is permitted.
 
 ---
 
-## Security Architecture
+## Project Metrics
 
-The Enterprise Agent Security Platform treats Large Language Models (LLMs) as untrusted intent parsers rather than trusted decision makers.
-Every request follows a deterministic security pipeline:
-
-```
-User Request
-        ↓
-Enterprise Agent
-        ↓
-ToolInvocation
-        ↓
-Authorization
-        ↓
-Policy Evaluation
-        ↓
-Detection
-        ↓
-Risk Assessment
-        ↓
-Response Selection
-        ↓
-Audit Logging
-        ↓
-Tool Registry
-        ↓
-Secure Tool Execution
-```
-
-The LLM never makes authorization, policy, or security decisions. All security controls remain deterministic and independently enforceable.
+| Metric | Current |
+|----------|---------|
+| Automated Tests | 186 |
+| Detection Rules | 3 |
+| Security Framework Mappings | 4 (OWASP LLM Top 10, MITRE ATLAS, MITRE ATT&CK) |
+| Runtime Services | 8+ |
+| Supported Tool Types | 2 |
+| Python Version | 3.13+ |
+| Architecture | Provider-Agnostic |
+| Security Model | Zero Trust |
 
 ---
 
 ## Key Design Principles
 
-- Zero Trust Architecture
-- Deterministic Security Enforcement
-- Provider-agnostic Architecture
-- Least Privilege Authorization
-- Full Auditability
-- LLMs Treated as Untrusted Intent Parsers
+- **Zero Trust Architecture** — Every request is verified, never implicitly trusted
+- **Deterministic Security** — All security decisions are computed by deterministic code, never by LLMs
+- **Provider-Agnostic** — LLM providers are interchangeable without affecting security controls
+- **Least Privilege** — Agents are authorized only for explicitly approved tools and resources
+- **Full Auditability** — Every runtime decision produces an immutable audit record
+- **LLMs as Untrusted Intent Parsers** — The LLM converts natural language to structured `ToolInvocation` objects; nothing more
 
 ---
 
-## Runtime Architecture
+## Runtime Security Pipeline
 
-```text
-User Request
-      │
-      ▼
-Enterprise Agent
-      │
-      ▼
-Configured LLM Provider
-      │
-      ▼
-ToolInvocation
-      │
-      ▼
-Authorization
-      │
-      ▼
-Policy Engine
-      │
-      ▼
-Detection
-      │
-      ▼
-Risk
-      │
-      ▼
-Response
-      │
-      ▼
-Tool Registry
-      │
-      ▼
-Resolved BaseTool
-      │
-      ├── FileReadTool
-      ├── DirectoryListTool
-      └── Future Tools
-      │
-      ▼
-Secure Tool Execution
+Every tool invocation follows this deterministic pipeline inside `RuntimeService`:
+
+```
+1. Authorization     → Is the agent permitted to use this tool?
+2. Policy Evaluation → Does the resource-aware policy allow this action?
+3. Session Event     → Record the initial authorization decision
+4. Detection         → Run all registered detection rules against the runtime context
+5. Risk Assessment   → Score findings by severity and volume
+6. Response          → Select a response action based on risk level
+7. Decision Override → Apply Zero Trust enforcement (SUSPEND_AGENT → DENY, REQUIRE_APPROVAL → APPROVAL_REQUIRED)
+8. Audit Event       → Record the final authoritative decision
+9. Return            → AgentRuntimeService executes the tool only if decision is ALLOW
 ```
 
----
-
-## Architecture Highlights
-
-- Provider-agnostic LLM architecture
-- Zero Trust security model
-- Deterministic authorization pipeline
-- Resource-aware policy enforcement
-- Pluggable provider abstraction
-- Deterministic runtime security pipeline
-- Rich Tool Metadata
-- Centralized Tool Registry
-- Tool Discovery and Inventory
-- Governed Tool Execution
+`AgentRuntimeService` is a thin orchestration layer responsible only for invoking the LLM, calling `RuntimeService`, and executing tools when permitted. It does not interpret or transform security decisions.
 
 ---
 
-## What's New in v0.9
+## Detection Framework
 
+The platform implements a layered detection framework for identifying threats in AI agent runtime activity.
+
+### Architecture
+
+```
+DetectionRule → RuleMetadata → DetectionRegistry → DetectionEngine → Risk → Response
+```
+
+### Detection Rules
+
+Each detection rule implements the `DetectionRule` protocol and evaluates a `DetectionContext` containing:
+
+- `user_prompt` — The raw user input
+- `model_output` — The serialized LLM response
+- `tool_output` — Output from prior tool executions
+- `metadata` — Contextual attributes such as `tool_id` and `resource`
+
+| Rule | Category | Description |
+|------|----------|-------------|
+| `PromptInjectionRule` | `PROMPT_SECURITY` | Detects deterministic prompt injection indicators in user prompts and model output |
+| `SensitiveFileAccessRule` | `DATA_SECURITY` | Detects access to sensitive files (`.env`, `credentials`, `id_rsa`, etc.) |
+| `DataExfiltrationRule` | `DATA_SECURITY` | Detects concurrent presence of exfiltration actions and sensitive data indicators |
+
+### Detection Taxonomy
+
+Detection categories classify types of detections rather than individual rules, keeping the taxonomy stable as rules are added:
+
+- `PROMPT_SECURITY` — Prompt injection, jailbreaking
+- `DATA_SECURITY` — Sensitive file access, data exfiltration
+- `TOOL_SECURITY` — Tool abuse, unauthorized tool usage
+- `IDENTITY_SECURITY` — Identity spoofing, impersonation
+- `BEHAVIORAL_SECURITY` — Anomalous behavioral patterns
+- `POLICY_SECURITY` — Policy violations
+
+### Rule Metadata
+
+Every detection rule exposes a frozen `RuleMetadata` dataclass containing:
+
+- `name` — Stable rule identifier
+- `category` — `DetectionCategory` classification
+- `description` — Human-readable description
+- `controls` — Tuple of `SecurityControlReference` mappings to industry frameworks
+
+### Detection Registry
+
+The `DetectionRegistry` provides centralized rule discovery and metadata lookup:
+
+- `register(rule)` — Register a detection rule
+- `get(rule_name)` — Retrieve a rule by name
+- `rules()` — List all registered rules
+- `categories()` — Return the set of active categories
+- `metadata()` — Return metadata for all registered rules
+
+---
+
+## Security Standards Mapping
+
+Detection rules are mapped to industry security frameworks through `SecurityControlReference`:
+
+| Rule | Framework | Control ID | Title |
+|------|-----------|------------|-------|
+| `PromptInjectionRule` | OWASP LLM Top 10 | LLM01 | Prompt Injection |
+| `PromptInjectionRule` | MITRE ATLAS | AML.T0043 | User Prompt Injection |
+| `SensitiveFileAccessRule` | MITRE ATT&CK | T1083 | File and Directory Discovery |
+| `DataExfiltrationRule` | MITRE ATT&CK | T1048 | Exfiltration Over Alternative Protocol |
+
+Supported frameworks:
+
+- **OWASP LLM Top 10** — AI-specific application security risks
+- **MITRE ATLAS** — Adversarial Threat Landscape for AI Systems
+- **MITRE ATT&CK** — Enterprise adversary techniques
+
+---
+
+## Implemented Features
+
+### Core Runtime
+- Enterprise Agent Runtime
+- Provider-agnostic LLM integration (Ollama, Gemini)
+- Runtime orchestration via `RuntimeService`
+- Governed tool execution through Tool Registry
+
+### Security Platform
+- JWT authentication
+- Role-Based Access Control (RBAC)
+- Authorization Service
+- Policy Engine with resource-aware authorization
+- Runtime Service as single security authority
+- Session management
+- Audit Service with runtime integration
+
+### Detection & Risk
+- Detection Engine
+- Prompt Injection Detection
+- Sensitive File Access Detection
+- Data Exfiltration Detection
+- Detection Registry
+- Rule Metadata
+- Detection Taxonomy
+- Security Standards Mapping (OWASP LLM, MITRE ATLAS, MITRE ATT&CK)
+- Risk Service
+- Response Service (MONITOR, ALERT, REQUIRE_APPROVAL, SUSPEND_AGENT)
+
+### Registries
+- Agent Registry
 - Tool Registry
-- Rich Tool Metadata
-- BaseTool abstraction
-- Runtime Tool Resolution
+- Model Registry
+- Detection Registry
+
+### Tool Ecosystem
+- `BaseTool` abstraction
+- Rich Tool Metadata (identity, capabilities, governance, operational)
 - Tool Discovery
 - Tool Inventory Service
-- Provider-agnostic LLM support
-- 128 automated tests
+- File Read Tool
+- Directory List Tool
 
 ---
 
-## Enterprise Tool Governance
+## Current Project Status
 
-Every executable tool implements the `BaseTool` abstraction and registers immutable `ToolMetadata` describing its identity, capabilities, governance attributes, and operational characteristics.
-The runtime resolves tools through the centralized Tool Registry rather than executing implementations directly. Discovery and inventory services expose only `ToolMetadata`, while executable tool instances remain behind deterministic authorization, policy evaluation, detection, risk assessment, and response controls.
+### ✅ Backend (Completed)
 
----
+- ✅ Runtime Security Pipeline
+- ✅ JWT Authentication
+- ✅ Role-Based Access Control
+- ✅ Policy Engine
+- ✅ Detection Engine
+- ✅ Risk Assessment
+- ✅ Response Engine
+- ✅ Runtime Audit
+- ✅ Detection Registry
+- ✅ Security Standards Mapping (OWASP LLM, MITRE ATLAS, MITRE ATT&CK)
+- ✅ Provider-Agnostic Model Layer (Ollama, Gemini)
+- ✅ Tool Governance
+- ✅ 186 Automated Tests
 
-## Engineering Metrics
+### 🚧 In Progress
 
-- 128 automated tests
-- Zero test warnings
-- Provider-agnostic runtime architecture
-- 2 LLM providers
-- Zero Trust architecture
-- Rich Tool Metadata model
-- Tool Registry
-- Tool Discovery
-- Tool Inventory Service
-- Provider-agnostic tool execution pipeline
+- 🚧 REST API Expansion
+- 🚧 Management APIs
+- 🚧 Enterprise Security Console
 
----
+### 📋 Planned
 
-## Problem Statement
-
-Organizations are increasingly deploying AI agents with access to enterprise systems, repositories, APIs, and sensitive data.
-This project explores how organizations can safely enable AI agents while maintaining:
-- Visibility
-- Governance
-- Authorization
-- Risk Management
-- Auditability
-- Detection Engineering
-
----
-
-## AI-Powered Tool Selection
-
-The platform uses a provider-agnostic architecture to translate natural language requests into validated `ToolInvocation` objects.
-Validated ToolInvocation objects are resolved through the Tool Registry before execution.
-The Tool Registry resolves executable tools using immutable Tool Metadata while keeping execution behind deterministic security controls.
-Current provider implementations include:
-- Ollama
-- Gemini
-The selected provider is instantiated during application initialization through the ProviderFactory based on the configured provider.
-Regardless of the selected provider, every `ToolInvocation` passes through deterministic authorization, policy evaluation, detection, risk assessment, response selection, and audit logging. Only after these controls succeed does the runtime resolve the requested tool through the Tool Registry and execute the appropriate `BaseTool` implementation.
+- 📋 Promptfoo Integration
+- 📋 NVIDIA Garak
+- 📋 Microsoft PyRIT
+- 📋 PurpleLlama
+- 📋 Giskard
+- 📋 Multi-Agent Governance
+- 📋 Model Governance
+- 📋 Observability Dashboard
 
 ---
 
 ## Tech Stack
 
-Backend
+**Backend:** FastAPI, Pydantic
 
-- FastAPI
-- Pydantic
+**AI & LLM:** Ollama (Llama 3.2), Google Gemini
 
-AI & LLM
+**Security:** PyJWT
 
-- Ollama
-- Google Gemini
-- Llama 3.2 via Ollama
-
-Security
-
-- PyJWT
-
-Testing
-
-- Pytest
-
-Observability (Planned)
-
-- OpenTelemetry
-- Prometheus
-- Grafana
-- Jaeger
+**Testing:** Pytest, Ruff
 
 ---
 
@@ -333,12 +376,44 @@ None
 
 ---
 
+## Testing
+
+The platform maintains a comprehensive automated test suite validated with Ruff and Pytest:
+
+- **186 automated tests** covering services, models, detection rules, policies, registries, scenarios, and tools
+- **Ruff** linting with zero violations
+- **Zero test warnings**
+
+```bash
+.venv/bin/ruff check
+.venv/bin/python -m pytest
+```
+
+Test coverage spans:
+
+- Runtime security pipeline
+- Authorization and policy enforcement
+- Detection rule evaluation
+- Risk assessment and response selection
+- Audit event recording
+- Tool registry and execution
+- Provider abstraction
+- Attack scenario validation
+
+---
+
 ## Documentation
 
 The project documentation is organized as follows:
 
 ```text
 docs/
+├── ai/
+│   ├── ARCHITECTURE_PRINCIPLES.md
+│   ├── IMPLEMENTATION_WORKFLOW.md
+│   ├── PROJECT_CONTEXT.md
+│   ├── README.md
+│   └── REVIEW_CHECKLIST.md
 ├── api/
 │   └── openapi-design.md
 ├── architecture/
@@ -355,10 +430,10 @@ docs/
 ### Key Documents
 
 - **System Architecture:** `docs/architecture/system-architecture.md`
+- **Data Model:** `docs/architecture/data-model.md`
 - **Threat Model:** `docs/security/threat-model.md`
 - **OpenAPI Design:** `docs/api/openapi-design.md`
 - **LLM Evaluation:** `docs/evaluations/tool-selection-evaluation-v1.md`
-- **Release Notes:** `docs/releases/v0.9.0.md`
 
 ---
 
@@ -372,17 +447,19 @@ enterprise-agent-security-platform/
 │   ├── api/             # FastAPI REST API
 │   ├── auth/            # Authentication & authorization
 │   ├── config/          # Configuration
+│   ├── detection/       # Detection rules, engine, registry, taxonomy
 │   ├── models/          # Domain models
 │   ├── policy/          # Deterministic policy engine
 │   ├── providers/       # LLM provider abstraction
 │   ├── registry/        # Tool Registry and discovery
+│   ├── scenarios/       # Attack scenarios
 │   ├── services/        # Runtime orchestration services
 │   └── tools/           # Governed tool implementations
 │
 ├── demo_workspace/      # Demo workspace
-├── docs/                # Architecture, security and release docs
+├── docs/                # Architecture, security, and AI docs
 ├── scripts/             # Development utilities
-├── tests/               # Unit and scenario tests
+├── tests/               # Unit and scenario tests (186 tests)
 ├── requirements.txt
 ├── pytest.ini
 ├── LICENSE
@@ -392,158 +469,46 @@ enterprise-agent-security-platform/
 
 ---
 
-## Current Implementation Status
+## Roadmap
 
-### Security Validation Flow
+### Completed
 
-```text
-Attack Scenarios
-  ↓
-Scenario Runner
-  ↓
-Runtime Service
-  ↓
-Authorization Service
-  ↓
-Detection Service
-  ↓
-Risk Service
-  ↓
-Scenario Results
-  ↓
-Automated Security Validation
-```
-
-### Implemented
-
-#### Core Runtime
-- Enterprise Agent Runtime
-- Provider-agnostic LLM integration
-- Runtime orchestration
-- Governed tool execution through the Tool Registry
-
-#### Security Platform
-- JWT authentication
-- Authorization service
-- Policy engine
-- Resource-aware authorization
-- Detection service
-- Risk service
-- Response service
-- Audit logging
-- Session management
-
-#### Tool Ecosystem
-- Rich Tool Metadata
-- BaseTool abstraction
-- Tool Registry
-- Tool Discovery
-- Tool Inventory Service
-- File Read Tool
-- Directory List Tool
-
-#### Testing & Validation
-- 128 automated tests
-- Runtime scenario validation
-- Authorization validation
-- Tool selection evaluation
-- Zero test warnings
-
-Current validation:
-
-- 128 automated tests passing
-- 0 test warnings
-- Resource-aware authorization validated
-- Governed agent execution validated
-- LLM tool selection evaluation completed (14/15 scenarios passed)
-- Manual validation completed for governed agent execution
-- Manual validation completed for resource-aware authorization
-
-Manual tool selection evaluation:
-
-- Model: llama3.2:3b
-- 14/15 evaluation scenarios passed (93.3%)
-- See docs/evaluations/tool-selection-evaluation-v1.md
-
-### Immediate Next Milestone
-
-- v0.9.1 – Enterprise Management Console
-
-### Upcoming Roadmap
-
-Near-term priorities:
-- Enterprise Management Console
-- Human Approval Workflow
-- Browser-Based Security Dashboard
-
-- Indirect Prompt Injection Detection
+- Agent Registry and lifecycle management
+- Tool Registry with rich metadata
+- Model Registry
+- JWT authentication and RBAC
+- Policy Engine with resource-aware authorization
+- Runtime Service as single security authority
 - Prompt Injection Detection
-- Automated LLM Evaluation Suite
-- Agent Observability
-- Session-Based Behavioral Analysis
-- Advanced Resource-Aware Authorization Policies
-- Risk-Based Authorization
-- MITRE ATLAS Technique Mapping
-- OWASP LLM Top 10 Coverage Mapping
-- AI Asset Inventory
-- Model Governance and Provenance
-- Control Effectiveness Metrics
-- Agent Traceability and Investigation Workflows
-- Agent Attack Simulations
-- Adversarial Evaluation Harness
-- Prompt Injection Validation Scenarios
-- Tool Abuse Simulation Framework
-- Adaptive Security Controls
+- Sensitive File Access Detection
+- Data Exfiltration Detection
+- Detection Registry and taxonomy
+- Rule Metadata and Security Standards Mapping
+- Risk Service and Response Service
+- Runtime Audit Integration
+- Provider-agnostic LLM architecture (Ollama, Gemini)
+- 186 automated tests with Ruff validation
+
+### Upcoming
+
+- REST API expansion
+- Enterprise Security Console
+- React Dashboard
+- Human Approval Workflow
+- Promptfoo Integration
+- NVIDIA Garak Integration
+- Microsoft PyRIT Integration
+- Agent Observability (OpenTelemetry, Prometheus, Grafana)
 - Multi-Agent Governance
-- Security Posture Scoring
-- Agent Risk Analytics
-- Shadow AI Discovery
-- Unauthorized Model Detection
-- Unregistered Agent Detection
-
----
-
-### Planned Technologies
-
-- OpenTelemetry
-- Prometheus
-- Grafana
-- Jaeger
 
 ---
 
 ## Project Goals
 
-- Demonstrate production-style Zero Trust governance for enterprise AI agents.
-- Showcase deterministic security architecture and secure engineering patterns.
-- Build a production-quality AI security portfolio project.
-- Provide a reference architecture for governed enterprise AI agents.
-
----
-
-## Future Vision: Agentic Security Analytics
-
-The long-term vision is to evolve the platform from runtime governance into a comprehensive enterprise AI Security Operations capability.
-The objective is to help security teams investigate, understand, and govern autonomous agents using natural language while preserving auditability, explainability, and human oversight.
-Potential capabilities include:
-- Prompt injection trend analysis
-- Agent risk investigations
-- Executive AI security posture reporting
-- Root cause analysis assistance
-- Evidence-backed recommendation generation
-- Security analyst investigation workflows
-
-Any future analytics capability will adhere to the following principles:
-
-- Evidence Grounding: Every conclusion must reference supporting telemetry.
-- Authorization Awareness: Access to analytics will remain role-based and policy-aware.
-- Prompt Injection Resistance: Retrieved evidence will be treated as untrusted input.
-- Auditability: Investigations, evidence retrieval, reports, and approvals will be logged.
-- Human Oversight: Recommendations will support analysts rather than automatically triggering security actions.
-
-The long-term objective is to evolve the platform into an evidence-driven AI Security Operations capability that assists human analysts while preserving deterministic governance, explainability, and human oversight.
-
-This capability is not part of the current MVP and will only be considered after the runtime security platform, telemetry collection, and validation framework have matured.
+- Demonstrate production-style Zero Trust governance for enterprise AI agents
+- Showcase deterministic security architecture and secure engineering patterns
+- Build a production-quality AI security platform
+- Provide a reference architecture for governed enterprise AI agents
 
 ---
 
