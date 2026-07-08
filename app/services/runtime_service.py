@@ -1,3 +1,4 @@
+import uuid
 from app.auth.authorization_service import AuthorizationService
 from app.detection.context import DetectionContext
 from app.detection.engine import DetectionEngine
@@ -22,8 +23,9 @@ from app.policy.policy_engine import PolicyEngine
 from app.services.agent_service import AgentService
 from app.services.detection_service import DetectionService
 from app.services.response_service import ResponseService
-from app.models.audit_event import Decision
+from app.models.audit_event import AuditEvent, Decision
 from app.models.response_action import ResponseType
+from app.services.audit_service import AuditService
 from app.services.risk_service import RiskService
 from app.services.session_service import SessionService
 from app.services.tool_service import ToolService
@@ -38,6 +40,7 @@ class RuntimeService:
         detection_service: DetectionService,
         risk_service: RiskService,
         response_service: ResponseService,
+        audit_service: AuditService | None = None,
     ) -> None:
         self._authorization_service = authorization_service
         self._session_service = session_service
@@ -45,6 +48,8 @@ class RuntimeService:
         self._detection_service = detection_service
         self._risk_service = risk_service
         self._response_service = response_service
+        self._audit_service = audit_service or AuditService()
+
 
     @classmethod
     def create_default(
@@ -81,7 +86,9 @@ class RuntimeService:
             DetectionService(),
             RiskService(),
             ResponseService(),
+            AuditService(),
         )
+
 
     @staticmethod
     def _register_default_agent(
@@ -221,10 +228,20 @@ class RuntimeService:
             elif response_action.response_type == ResponseType.REQUIRE_APPROVAL:
                 recorded_event.decision = Decision.APPROVAL_REQUIRED
 
+        # Record audit event matching the final decision
+        audit_event = AuditEvent(
+            event_id=f"evt-{uuid.uuid4()}",
+            agent_id=agent_id,
+            tool_id=tool_id,
+            decision=recorded_event.decision,
+        )
+        self._audit_service.record_event(audit_event)
+
         return RuntimeResult(
             event=recorded_event,
             findings=findings,
             risk_assessment=risk_assessment,
             response_action=response_action,
         )
+
 

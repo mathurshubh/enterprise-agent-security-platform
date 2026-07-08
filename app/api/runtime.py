@@ -8,6 +8,7 @@ from app.detection.sensitive_file_access_rule import SensitiveFileAccessRule
 from app.detection.data_exfiltration_rule import DataExfiltrationRule
 from app.policy.policy_engine import PolicyEngine
 from app.services.agent_service import AgentService
+from app.services.audit_service import AuditService
 from app.services.detection_service import DetectionService
 from app.services.response_service import ResponseService
 from app.services.risk_service import RiskService
@@ -43,6 +44,8 @@ detection_engine = DetectionEngine(
     ]
 )
 
+audit_service = AuditService()
+
 runtime_service = RuntimeService(
     authorization_service,
     session_service,
@@ -50,6 +53,7 @@ runtime_service = RuntimeService(
     detection_service,
     risk_service,
     response_service,
+    audit_service,
 )
 
 
