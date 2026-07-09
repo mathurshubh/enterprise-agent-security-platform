@@ -592,10 +592,12 @@ The management console serves as the primary user interface for governance and o
 
 Future implementation will use:
 
-- Next.js
+- React
 - TypeScript
+- Vite
 - Tailwind CSS
-- shadcn/ui
+- React Router
+- Axios
 
 ---
 

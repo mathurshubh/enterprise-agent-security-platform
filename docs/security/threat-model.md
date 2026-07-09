@@ -237,7 +237,7 @@ We maintain an honest posture regarding current limitations:
 
 Upcoming roadmap priorities:
 - REST Management APIs
-- Enterprise Security Console (React/Next.js dashboard)
+- Enterprise Security Console (React/Vite dashboard)
 - External assessment tool integrations:
   - **Promptfoo** (AI evaluation and prompt testing)
   - **NVIDIA Garak** (LLM vulnerability scanner)
