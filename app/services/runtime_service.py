@@ -2,9 +2,6 @@ import uuid
 from app.auth.authorization_service import AuthorizationService
 from app.detection.context import DetectionContext
 from app.detection.engine import DetectionEngine
-from app.detection.prompt_injection_rule import PromptInjectionRule
-from app.detection.sensitive_file_access_rule import SensitiveFileAccessRule
-from app.detection.data_exfiltration_rule import DataExfiltrationRule
 from app.models.agent import Agent, AgentStatus, RiskTier
 from app.models.runtime_result import RuntimeResult
 from app.models.risk_assessment import (
@@ -71,12 +68,9 @@ class RuntimeService:
             tool_service,
             PolicyEngine(),
         )
+        from app.api.dependencies import create_default_detection_registry
         detection_engine = DetectionEngine(
-            [
-                PromptInjectionRule(),
-                SensitiveFileAccessRule(),
-                DataExfiltrationRule(),
-            ]
+            create_default_detection_registry().rules()
         )
 
         return cls(
