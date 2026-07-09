@@ -13,3 +13,4 @@ class SecurityControlReference:
     framework: SecurityFramework
     control_id: str
     title: str
+    version: str = "latest"

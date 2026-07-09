@@ -1,14 +1,14 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 
+from app.api.dependencies import (
+    agent_service,
+    audit_service,
+    detection_registry,
+)
 from app.auth.authorization_service import AuthorizationService
 from app.detection.engine import DetectionEngine
-from app.detection.prompt_injection_rule import PromptInjectionRule
-from app.detection.sensitive_file_access_rule import SensitiveFileAccessRule
-from app.detection.data_exfiltration_rule import DataExfiltrationRule
 from app.policy.policy_engine import PolicyEngine
-from app.services.agent_service import AgentService
-from app.services.audit_service import AuditService
 from app.services.detection_service import DetectionService
 from app.services.response_service import ResponseService
 from app.services.risk_service import RiskService
@@ -21,7 +21,6 @@ router = APIRouter()
 
 policy_engine = PolicyEngine()
 
-agent_service = AgentService()
 tool_service = ToolService()
 session_service = SessionService()
 
@@ -33,18 +32,9 @@ authorization_service = AuthorizationService(
 
 detection_service = DetectionService()
 risk_service = RiskService()
-
 response_service = ResponseService()
 
-detection_engine = DetectionEngine(
-    [
-        PromptInjectionRule(),
-        SensitiveFileAccessRule(),
-        DataExfiltrationRule(),
-    ]
-)
-
-audit_service = AuditService()
+detection_engine = DetectionEngine(detection_registry.rules())
 
 runtime_service = RuntimeService(
     authorization_service,
