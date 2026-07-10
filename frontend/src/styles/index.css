@@ -1,0 +1,105 @@
+/*
+ * Enterprise Security Console — Global Stylesheet
+ *
+ * Tailwind CSS v4 uses a single @import directive instead of
+ * the @tailwind directives used in v3.  The Vite plugin handles
+ * all scanning and compilation automatically.
+ *
+ * Custom CSS properties below define the dark enterprise theme.
+ * These are referenced by Tailwind utility classes and by our
+ * layout components.
+ */
+
+@import "tailwindcss";
+
+/*
+ * ── Theme Tokens ────────────────────────────────────────────────
+ *
+ * We use CSS custom properties (variables) so that theme values
+ * are defined once and reused everywhere.  This is the "design
+ * system" layer — all colors, radii, and font stacks live here.
+ *
+ * The naming convention follows a surface/role hierarchy:
+ *   --color-bg-*      → background surfaces
+ *   --color-border-*   → border/separator colors
+ *   --color-text-*     → text hierarchy
+ *   --color-accent-*   → interactive / brand elements
+ *   --color-status-*   → semantic status indicators
+ */
+
+@theme {
+  --color-bg-primary: oklch(0.145 0.012 265);
+  --color-bg-secondary: oklch(0.185 0.012 265);
+  --color-bg-surface: oklch(0.215 0.014 265);
+  --color-bg-surface-hover: oklch(0.255 0.016 265);
+
+  --color-border-primary: oklch(0.30 0.016 265);
+  --color-border-secondary: oklch(0.25 0.014 265);
+
+  --color-text-primary: oklch(0.95 0.005 265);
+  --color-text-secondary: oklch(0.68 0.010 265);
+  --color-text-muted: oklch(0.50 0.010 265);
+
+  --color-accent-primary: oklch(0.62 0.18 260);
+  --color-accent-primary-hover: oklch(0.68 0.18 260);
+  --color-accent-secondary: oklch(0.55 0.14 220);
+
+  --color-status-active: oklch(0.65 0.18 155);
+  --color-status-warning: oklch(0.75 0.15 75);
+  --color-status-error: oklch(0.60 0.20 25);
+  --color-status-info: oklch(0.62 0.18 260);
+
+  --font-family-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-family-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+/*
+ * ── Base Styles ──────────────────────────────────────────────────
+ *
+ * Sets the dark background, default text color, and font across
+ * the entire application.  The antialiased rendering smooths
+ * text on macOS/retina displays.
+ */
+
+html {
+  font-family: var(--font-family-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  min-height: 100vh;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/*
+ * ── Scrollbar Theme ──────────────────────────────────────────────
+ *
+ * Custom scrollbar styling to match the dark enterprise aesthetic.
+ * Only applies to WebKit browsers (Chrome, Edge, Safari).
+ */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-primary);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}
