@@ -15,6 +15,7 @@ from app.api.dependencies import (
     agent_service,
     audit_service,
     detection_registry,
+    session_service,
     tool_inventory_service,
 )
 from app.models.api.agent_response import AgentResponse
@@ -23,6 +24,7 @@ from app.models.api.detection_rule_response import (
     DetectionRuleResponse,
     SecurityControlReferenceResponse,
 )
+from app.models.api.session_response import SessionResponse
 from app.models.api.tool_response import ToolResponse
 
 router = APIRouter(tags=["Management"])
@@ -128,6 +130,26 @@ def list_audit_events() -> list[AuditEventResponse]:
             timestamp=event.timestamp,
         )
         for event in audit_service.list_events()
+    ]
+
+
+# ── Sessions ─────────────────────────────────────────────────────────────────
+
+
+@router.get(
+    "/sessions",
+    response_model=list[SessionResponse],
+    summary="List registered sessions",
+)
+def list_sessions() -> list[SessionResponse]:
+    """Return all agent sessions registered in the platform."""
+    return [
+        SessionResponse(
+            session_id=session.session_id,
+            agent_id=session.agent_id,
+            started_at=session.started_at,
+        )
+        for session in session_service.list_sessions()
     ]
 
 

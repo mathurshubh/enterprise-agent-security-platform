@@ -5,6 +5,7 @@ from app.api.dependencies import (
     agent_service,
     audit_service,
     detection_registry,
+    session_service,
 )
 from app.auth.authorization_service import AuthorizationService
 from app.detection.engine import DetectionEngine
@@ -13,7 +14,6 @@ from app.services.detection_service import DetectionService
 from app.services.response_service import ResponseService
 from app.services.risk_service import RiskService
 from app.services.runtime_service import RuntimeService
-from app.services.session_service import SessionService
 from app.services.tool_service import ToolService
 
 
@@ -22,7 +22,6 @@ router = APIRouter()
 policy_engine = PolicyEngine()
 
 tool_service = ToolService()
-session_service = SessionService()
 
 authorization_service = AuthorizationService(
     agent_service,

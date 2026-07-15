@@ -14,6 +14,7 @@ from app.detection.sensitive_file_access_rule import SensitiveFileAccessRule
 from app.registry.tool_registry import ToolRegistry
 from app.services.agent_service import AgentService
 from app.services.audit_service import AuditService
+from app.services.session_service import SessionService
 from app.services.tool_inventory_service import ToolInventoryService
 
 
@@ -37,6 +38,8 @@ def create_default_detection_registry() -> DetectionRegistry:
 # ── Shared singletons ────────────────────────────────────────────────────────
 
 agent_service: AgentService = AgentService()
+
+session_service: SessionService = SessionService()
 
 tool_registry: ToolRegistry = ToolRegistry()
 
