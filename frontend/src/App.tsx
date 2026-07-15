@@ -38,6 +38,7 @@ import AgentsPage from './pages/Agents/AgentsPage'
 import ToolsPage from './pages/Tools/ToolsPage'
 import DetectionRulesPage from './pages/Detection/DetectionRulesPage'
 import AuditTimelinePage from './pages/Audit/AuditTimelinePage'
+import SessionsPage from './pages/Sessions/SessionsPage'
 
 export default function App() {
   return (
@@ -53,6 +54,7 @@ export default function App() {
           <Route path="/tools"      element={<ToolsPage />} />
           <Route path="/detection"  element={<DetectionRulesPage />} />
           <Route path="/audit"      element={<AuditTimelinePage />} />
+          <Route path="/sessions"   element={<SessionsPage />} />
         </Route>
       </Routes>
     </BrowserRouter>
