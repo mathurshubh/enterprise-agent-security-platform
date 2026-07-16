@@ -1,82 +1,73 @@
 /**
  * DashboardPage — Central platform visibility dashboard.
  *
- * REACT CONCEPT: "State Lifecycle" (useState)
- * ──────────────────────────────────────────────────────────────────
- * React components are state machines.  When state variables change,
- * React automatically schedules a re-render to update the DOM.
+ * Composes all domain hooks to derive live inventory counts and
+ * security activity metrics from the existing Management API.
  *
- * `useState<T>(initialValue)` returns a tuple containing:
- *   1. The current state value (read-only).
- *   2. A setter function to update the value.
- *
- * We define three states to govern our data loading lifecycle:
- *   - `info` (PlatformInfo | null): The live statistics.
- *   - `loading` (boolean): Flag indicating if an API request is active.
- *   - `error` (string | null): Holds the error message if the API fails.
- *
- * REACT CONCEPT: "Side Effects" (useEffect)
- * ──────────────────────────────────────────────────────────────────
- * By default, React components are pure functions that only render
- * UI.  Interacting with the outside world (like fetching API data)
- * is called a "side effect".
- *
- * `useEffect(callback, dependencyArray)` allows us to schedule side
- * effects.  The dependency array `[]` tells React to run this effect
- * EXACTLY ONCE when the component "mounts" (is first rendered on
- * screen).  This matches the lifecycle of `componentDidMount` in
- * class-based React.
- *
- * ADR-009 / ADR-008 COMPLIANCE:
- *   - Does NOT import Axios or formulate URL strings directly.
- *   - Communicates only with the abstract `DashboardService`.
- *   - Implements error recovery to prevent application crashes.
+ * Architecture:
+ *   DashboardPage → useAgents / useTools / useDetectionRules /
+ *                   useAuditEvents / useSessions
+ *                 → domain services
+ *                 → Management API
  */
 
-import { useState, useEffect } from 'react'
-import { getPlatformInfo } from '../../services/dashboardService'
-import type { PlatformInfo } from '../../types/platformInfo'
+import { useMemo } from 'react'
+import { useAgents } from '../../hooks/useAgents'
+import { useTools } from '../../hooks/useTools'
+import { useDetectionRules } from '../../hooks/useDetectionRules'
+import { useAuditEvents } from '../../hooks/useAuditEvents'
+import { useSessions } from '../../hooks/useSessions'
 
 export default function DashboardPage() {
-  const [info, setInfo] = useState<PlatformInfo | null>(null)
-  const [loading, setLoading] = useState<boolean>(true)
-  const [error, setError] = useState<string | null>(null)
+  // ── Domain Hooks ──────────────────────────────────────────────────
+  const { agents,  loading: loadingAgents,  error: errorAgents }  = useAgents()
+  const { tools,   loading: loadingTools,   error: errorTools }   = useTools()
+  const { rules,   loading: loadingRules,   error: errorRules }   = useDetectionRules()
+  const { events,  loading: loadingEvents,  error: errorEvents }  = useAuditEvents()
+  const { sessions, loading: loadingSessions, error: errorSessions } = useSessions()
 
-  useEffect(() => {
-    let isMounted = true
+  // ── Merged States ─────────────────────────────────────────────────
+  const loading = loadingAgents || loadingTools || loadingRules || loadingEvents || loadingSessions
+  const error   = errorAgents || errorTools || errorRules || errorEvents || errorSessions
 
-    const loadData = async () => {
-      try {
-        setLoading(true)
-        setError(null)
-        const data = await getPlatformInfo()
-        
-        // Prevent state updates if component unmounts before response finishes
-        if (isMounted) {
-          setInfo(data)
-        }
-      } catch (err: unknown) {
-        if (isMounted) {
-          console.error('Failed to load dashboard metrics:', err)
-          setError(
-            err instanceof Error 
-              ? err.message 
-              : 'An unexpected connection error occurred while querying the platform.'
-          )
-        }
-      } finally {
-        if (isMounted) {
-          setLoading(false)
-        }
-      }
-    }
+  // ── Inventory Metrics ─────────────────────────────────────────────
+  const inventoryMetrics = [
+    { label: 'Registered Agents', value: agents.length },
+    { label: 'Registered Tools',  value: tools.length },
+    { label: 'Detection Rules',   value: rules.length },
+    { label: 'Sessions',          value: sessions.length },
+    { label: 'Audit Events',      value: events.length },
+  ]
 
-    loadData()
+  // ── Platform Activity Metrics ─────────────────────────────────────
+  const healthyAgents = useMemo(
+    () => agents.filter((a) => a.status === 'ACTIVE').length,
+    [agents]
+  )
+  const highRiskAgents = useMemo(
+    () => agents.filter((a) => a.riskLevel === 'HIGH' || a.riskLevel === 'CRITICAL').length,
+    [agents]
+  )
+  const allowedDecisions = useMemo(
+    () => events.filter((e) => e.decision === 'ALLOW').length,
+    [events]
+  )
+  const deniedDecisions = useMemo(
+    () => events.filter((e) => e.decision === 'DENY').length,
+    [events]
+  )
+  const uniqueToolsUsed = useMemo(
+    () => new Set(events.map((e) => e.toolId)).size,
+    [events]
+  )
 
-    return () => {
-      isMounted = false
-    }
-  }, [])
+  const activityMetrics = [
+    { label: 'Healthy Agents',     value: healthyAgents },
+    { label: 'High Risk Agents',   value: highRiskAgents },
+    { label: 'Allowed Decisions',  value: allowedDecisions },
+    { label: 'Denied Decisions',   value: deniedDecisions },
+    { label: 'Unique Tools Used',  value: uniqueToolsUsed },
+  ]
 
   return (
     <div className="space-y-6">
@@ -106,103 +97,58 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* ── Metrics Grid ───────────────────────────────────────── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          { 
-            label: 'Active Agents', 
-            value: info?.registered_agents,
-            fallback: '—'
-          },
-          { 
-            label: 'Registered Tools', 
-            value: info?.registered_tools,
-            fallback: '—'
-          },
-          { 
-            label: 'Detection Rules', 
-            value: info?.registered_detection_rules,
-            fallback: '—'
-          },
-          { 
-            label: 'Audit Events', 
-            value: info?.audit_events,
-            fallback: '—'
-          },
-        ].map((card) => (
-          <div
-            key={card.label}
-            className="bg-bg-surface border border-border-secondary rounded-xl p-5 flex flex-col justify-between min-h-[110px]"
-          >
-            <div className="text-xs font-medium text-text-muted uppercase tracking-wide">
-              {card.label}
-            </div>
-            
-            {/* 
-              REACT CONCEPT: "Conditional Rendering" / "Loading Skeletons"
-              ──────────────────────────────────────────────────────────────
-              While the request is pending, we render an animated skeleton card
-              to prevent layout shifting.  Once data is loaded, we replace the
-              skeleton with the actual numeric values.
-            */}
-            {loading ? (
-              <div className="mt-2 h-8 w-24 bg-border-primary/40 rounded animate-pulse" />
-            ) : (
-              <div className="mt-2 text-2xl font-bold text-text-primary">
-                {card.value !== undefined ? card.value : card.fallback}
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {/* ── Platform Information Card ──────────────────────────── */}
-      <div className="bg-bg-surface border border-border-secondary rounded-xl p-6 space-y-4">
+      {/* ── Platform Inventory ─────────────────────────────────── */}
+      <div className="space-y-3">
         <h3 className="text-sm font-semibold text-text-primary">
-          Platform Identity
+          Platform Inventory
         </h3>
-        
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="space-y-1">
-            <span className="text-[10px] text-text-muted uppercase tracking-wider font-semibold">
-              Platform Name
-            </span>
-            <div className="text-xs text-text-secondary">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          {inventoryMetrics.map((card) => (
+            <div
+              key={card.label}
+              className="bg-bg-surface border border-border-secondary rounded-xl p-5 flex flex-col justify-between min-h-[110px]"
+            >
+              <div className="text-xs font-medium text-text-muted uppercase tracking-wide">
+                {card.label}
+              </div>
               {loading ? (
-                <div className="h-4 w-48 bg-border-primary/40 rounded animate-pulse" />
+                <div className="mt-2 h-8 w-24 bg-border-primary/40 rounded animate-pulse" />
               ) : (
-                info?.platform ?? 'Enterprise Agent Security Platform'
+                <div className="mt-2 text-2xl font-bold text-text-primary">
+                  {card.value}
+                </div>
               )}
             </div>
-          </div>
-
-          <div className="space-y-1">
-            <span className="text-[10px] text-text-muted uppercase tracking-wider font-semibold">
-              Software Version
-            </span>
-            <div className="text-xs text-text-secondary font-mono">
-              {loading ? (
-                <div className="h-4 w-16 bg-border-primary/40 rounded animate-pulse" />
-              ) : (
-                info?.version ?? '0.9.0'
-              )}
-            </div>
-          </div>
-
-          <div className="space-y-1">
-            <span className="text-[10px] text-text-muted uppercase tracking-wider font-semibold">
-              API Version
-            </span>
-            <div className="text-xs text-text-secondary font-mono">
-              {loading ? (
-                <div className="h-4 w-12 bg-border-primary/40 rounded animate-pulse" />
-              ) : (
-                info?.api_version ?? 'v1'
-              )}
-            </div>
-          </div>
+          ))}
         </div>
       </div>
+
+      {/* ── Platform Activity ──────────────────────────────────── */}
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold text-text-primary">
+          Platform Activity
+        </h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          {activityMetrics.map((card) => (
+            <div
+              key={card.label}
+              className="bg-bg-surface border border-border-secondary rounded-xl p-5 flex flex-col justify-between min-h-[110px]"
+            >
+              <div className="text-xs font-medium text-text-muted uppercase tracking-wide">
+                {card.label}
+              </div>
+              {loading ? (
+                <div className="mt-2 h-8 w-24 bg-border-primary/40 rounded animate-pulse" />
+              ) : (
+                <div className="mt-2 text-2xl font-bold text-text-primary">
+                  {card.value}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
     </div>
   )
 }
