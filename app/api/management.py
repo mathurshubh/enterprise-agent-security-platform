@@ -9,12 +9,13 @@ All service instances are imported from app.api.dependencies so that this
 router and the Runtime API share a single, consistent in-memory state.
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from app.api.dependencies import (
     agent_service,
     audit_service,
     detection_registry,
+    scenario_registry,
     session_service,
     tool_inventory_service,
 )
@@ -24,8 +25,11 @@ from app.models.api.detection_rule_response import (
     DetectionRuleResponse,
     SecurityControlReferenceResponse,
 )
+from app.models.api.scenario_response import ScenarioResponse
 from app.models.api.session_response import SessionResponse
 from app.models.api.tool_response import ToolResponse
+from app.models.attack_scenario import AttackScenario
+from app.registry.scenario_registry import ScenarioNotFoundError
 
 router = APIRouter(tags=["Management"])
 
@@ -151,6 +155,63 @@ def list_sessions() -> list[SessionResponse]:
         )
         for session in session_service.list_sessions()
     ]
+
+
+# ── Scenarios ────────────────────────────────────────────────────────────────
+
+
+def _scenario_to_response(scenario: AttackScenario) -> ScenarioResponse:
+    """Map an AttackScenario domain object to the Management API DTO."""
+    expected_tools: list[str] = []
+    if scenario.expected_tool_id is not None:
+        expected_tools.append(scenario.expected_tool_id)
+
+    expected_detection_rules: list[str] = []
+    if scenario.expected_detection is not None:
+        expected_detection_rules.append(scenario.expected_detection)
+
+    return ScenarioResponse(
+        scenario_id=scenario.scenario_id,
+        name=scenario.name,
+        description=scenario.description,
+        category=scenario.category.value,
+        severity=scenario.severity.value,
+        prompt=scenario.user_prompt,
+        expected_tools=expected_tools,
+        expected_detection_rules=expected_detection_rules,
+        expected_response=scenario.expected_response.value,
+        tags=list(scenario.tags),
+        # TODO: enabled currently defaults to True. Future releases should source
+        # it from persisted scenario metadata.
+        enabled=True,
+    )
+
+
+@router.get(
+    "/scenarios",
+    response_model=list[ScenarioResponse],
+    summary="List registered scenarios",
+)
+def list_scenarios() -> list[ScenarioResponse]:
+    """Return metadata for all attack scenarios registered in the platform."""
+    return [
+        _scenario_to_response(scenario)
+        for scenario in scenario_registry.list_scenarios()
+    ]
+
+
+@router.get(
+    "/scenarios/{scenario_id}",
+    response_model=ScenarioResponse,
+    summary="Get scenario by ID",
+)
+def get_scenario(scenario_id: str) -> ScenarioResponse:
+    """Return a single attack scenario by its identifier."""
+    try:
+        scenario = scenario_registry.get_scenario(scenario_id)
+    except ScenarioNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Scenario '{scenario_id}' not found")
+    return _scenario_to_response(scenario)
 
 
 # ── Platform info ─────────────────────────────────────────────────────────────
