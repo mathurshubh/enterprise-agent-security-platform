@@ -57,10 +57,10 @@ export const getAgents = async (): Promise<Agent[]> => {
       name: dto.name,
       status: statusVal,
       riskLevel: riskVal,
-      framework: 'Pending',
-      provider: 'Pending',
+      framework: null,
+      provider: null,
       owner: dto.owner,
-      lastSeen: 'N/A',
+      lastSeen: null,
       approvedTools: dto.approved_tools,
     }
   })

@@ -26,9 +26,9 @@ export interface Agent {
   name: string
   status: AgentStatus
   riskLevel: RiskTier
-  framework: string
-  provider: string
+  framework: string | null
+  provider: string | null
   owner: string
-  lastSeen: string
+  lastSeen: string | null
   approvedTools: string[]
 }

@@ -116,9 +116,9 @@ export default function AgentTable({ agents, loading }: AgentTableProps) {
                 </span>
               </td>
 
-              <td className="px-6 py-4 text-text-secondary">{agent.framework}</td>
+              <td className="px-6 py-4 text-text-secondary">{agent.framework ?? '—'}</td>
 
-              <td className="px-6 py-4 text-text-secondary">{agent.provider}</td>
+              <td className="px-6 py-4 text-text-secondary">{agent.provider ?? '—'}</td>
 
               <td className="px-6 py-4 text-text-secondary">{agent.owner}</td>
 
