@@ -489,7 +489,7 @@ class TestGetScenario:
         data = response.json()
         assert data["severity"] == "CRITICAL"
         assert data["expected_response"] == "SUSPEND_AGENT"
-        assert "DATA_EXFILTRATION_ATTEMPT" in data["expected_detection_rules"]
+        assert "DATA_EXFILTRATION" in data["expected_detection_rules"]
 
 
 # ─────────────────────────────────────────────────────────────────────────────

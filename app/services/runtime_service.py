@@ -16,7 +16,6 @@ from app.models.tool_identity import ToolIdentity
 from app.models.tool_metadata import ToolMetadata
 from app.models.tool_operational import ToolOperational
 from app.models.tool_risk_level import ToolRiskLevel
-from app.policy.policy_engine import PolicyEngine
 from app.services.agent_service import AgentService
 from app.services.detection_service import DetectionService
 from app.services.response_service import ResponseService
@@ -46,6 +45,7 @@ class RuntimeService:
         self._risk_service = risk_service
         self._response_service = response_service
         self._audit_service = audit_service or AuditService()
+        self._last_result = None
 
 
     @classmethod
@@ -53,34 +53,20 @@ class RuntimeService:
         cls,
         agent_id: str = "agent-1",
     ) -> "RuntimeService":
-        agent_service = AgentService()
-        tool_service = ToolService()
-        session_service = SessionService()
-
-        cls._register_default_agent(
+        from app.api.dependencies import (
             agent_service,
-            agent_id,
-        )
-        cls._register_default_tools(tool_service)
-
-        authorization_service = AuthorizationService(
-            agent_service,
-            tool_service,
-            PolicyEngine(),
-        )
-        from app.api.dependencies import create_default_detection_registry
-        detection_engine = DetectionEngine(
-            create_default_detection_registry().rules()
-        )
-
-        return cls(
-            authorization_service,
+            audit_service,
+            detection_registry,
             session_service,
-            detection_engine,
-            DetectionService(),
-            RiskService(),
-            ResponseService(),
-            AuditService(),
+        )
+        from app.services.runtime_bootstrap import bootstrap_runtime_service
+
+        return bootstrap_runtime_service(
+            agent_service=agent_service,
+            session_service=session_service,
+            audit_service=audit_service,
+            detection_registry=detection_registry,
+            agent_id=agent_id,
         )
 
 
@@ -231,11 +217,13 @@ class RuntimeService:
         )
         self._audit_service.record_event(audit_event)
 
-        return RuntimeResult(
+        result = RuntimeResult(
             event=recorded_event,
             findings=findings,
             risk_assessment=risk_assessment,
             response_action=response_action,
         )
+        self._last_result = result
+        return result
 
 
