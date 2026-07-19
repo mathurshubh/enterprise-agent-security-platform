@@ -8,7 +8,6 @@ from app.models.agent_runtime_result import (
 )
 from app.models.runtime_result import RuntimeResult
 from app.registry.tool_registry import ToolRegistry
-from app.services.runtime_service import RuntimeService
 from app.services.ollama_agent import OllamaAgent
 from app.providers.provider_factory import ProviderFactory
 from app.tools.directory_list_tool import DirectoryListTool
@@ -57,9 +56,8 @@ class AgentRuntimeService:
             self._runtime_service = runtime_service
             return
 
-        self._runtime_service = RuntimeService.create_default(
-            agent_id=self._AGENT_ID,
-        )
+        from app.api.dependencies import runtime_service as shared_runtime_service
+        self._runtime_service = shared_runtime_service
 
     def _register_executable_tools(self) -> None:
         self._tool_registry.register(FileReadTool(self._WORKSPACE_ROOT))

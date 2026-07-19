@@ -27,7 +27,7 @@ def test_execute_request_received():
         "session_id": "session-1",
         "agent_id": "agent-1",
         "tool_id": "file_read",
-        "decision": "DENY",
+        "decision": "ALLOW",
         "findings": [],
         "risk_score": 0,
         "risk_level": "LOW",
@@ -46,7 +46,7 @@ def test_execute_response_includes_findings():
             "/agents/agent-1/execute",
             json={
                 "session_id": session_id,
-                "tool_id": "file_read",
+                "tool_id": "file_write",
             },
         )
 
@@ -66,7 +66,7 @@ def test_execute_response_includes_findings():
         "/agents/agent-1/execute",
         json={
             "session_id": session_id,
-            "tool_id": "file_read",
+            "tool_id": "file_write",
         },
     )
 

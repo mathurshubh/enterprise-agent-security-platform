@@ -1,49 +1,11 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from app.api.dependencies import (
-    agent_service,
-    audit_service,
-    detection_registry,
-    session_service,
-)
-from app.auth.authorization_service import AuthorizationService
-from app.detection.engine import DetectionEngine
-from app.policy.policy_engine import PolicyEngine
-from app.services.detection_service import DetectionService
-from app.services.response_service import ResponseService
-from app.services.risk_service import RiskService
-from app.services.runtime_service import RuntimeService
-from app.services.tool_service import ToolService
+from app.api.dependencies import runtime_service
 
 
 router = APIRouter()
 
-policy_engine = PolicyEngine()
-
-tool_service = ToolService()
-
-authorization_service = AuthorizationService(
-    agent_service,
-    tool_service,
-    policy_engine,
-)
-
-detection_service = DetectionService()
-risk_service = RiskService()
-response_service = ResponseService()
-
-detection_engine = DetectionEngine(detection_registry.rules())
-
-runtime_service = RuntimeService(
-    authorization_service,
-    session_service,
-    detection_engine,
-    detection_service,
-    risk_service,
-    response_service,
-    audit_service,
-)
 
 
 class ExecuteRequest(BaseModel):
