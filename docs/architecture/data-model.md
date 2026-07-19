@@ -4,6 +4,8 @@
 
 This document describes the primary domain models used throughout the Enterprise Agent Security Platform.
 
+These models collectively define the deterministic contracts exchanged throughout the Runtime Security Pipeline. They represent the authoritative security state of the platform, enabling internal services to communicate using structured domain contracts rather than provider-specific objects.
+
 The models support:
 
 - Agent Governance
@@ -14,7 +16,19 @@ The models support:
 - Risk Assessment
 - Auditability
 
-The platform follows a Zero Trust model. User prompts, provider output, `ToolInvocation` objects, tool outputs, and external content are treated as untrusted input. Security decisions are represented through deterministic domain models and evaluated by platform services rather than by the LLM.
+The platform follows a Zero Trust model. User prompts, provider outputs, Tool Invocations, tool outputs, and external content are treated as untrusted input. Security decisions are represented through deterministic domain models and evaluated by platform services rather than by the AI model.
+
+---
+
+## Domain Model Principles
+
+The platform's data layer conforms to the following domain design principles:
+
+*   **Security-Relevant Information Mapping:** Models focus purely on representing state relevant to security enforcement, auditing, and threat detection.
+*   **Deterministic Evaluation State:** Domain data states are parsed and checked deterministically, ensuring decisions are reproducible and explainable.
+*   **Independence from AI Model Reasoning:** Domain structures cannot be altered by model prompts or provider reasoning outputs.
+*   **Provider-Agnostic Schema:** Data schemas are unified and independent of the selected LLM provider API models.
+*   **Service Contracts:** Domain models act as the strict contracts exchanged across service boundaries in the Runtime Security Pipeline.
 
 ---
 
@@ -44,13 +58,13 @@ The agent model is used by authorization and policy evaluation to determine whet
 
 ## Tool Governance Models
 
-Tool governance is the core of the current v0.9 architecture. Executable tools implement the `BaseTool` abstraction, while governance, capability, identity, and operational attributes are represented as `Tool Metadata`.
+Tool governance is a core pillar of the platform architecture. Executable enterprise capabilities are defined by a governance contract, while capability, identity, and operational attributes are represented as tool metadata.
 
-The `Tool Registry` owns executable `BaseTool` instances. Discovery and inventory surfaces expose metadata only, not executable tool objects.
+The Tool Registry acts as the authoritative control plane for all executable capabilities. Discovery and inventory interfaces expose metadata only, never releasing executable tool references.
 
 ### ToolIdentity
 
-`ToolIdentity` uniquely identifies an executable enterprise tool. It provides the stable `tool_id` used by `ToolInvocation`, authorization, policy evaluation, the `Tool Registry`, and runtime tool resolution.
+`ToolIdentity` uniquely identifies an executable enterprise tool. It provides the stable `tool_id` used by Tool Invocations, authorization, policy evaluation, the Tool Registry, and runtime tool resolution.
 
 ```json
 {
@@ -65,7 +79,7 @@ The `Tool Registry` owns executable `BaseTool` instances. Discovery and inventor
 
 `ToolCapability` describes what a tool is capable of doing from a security perspective. The current implementation models capability through a category and explicit access flags rather than free-form supported operation lists.
 
-These fields help future authorization, detection, and inventory workflows reason about tool behavior without exposing the executable `BaseTool`.
+These fields help future authorization, detection, and inventory workflows reason about tool behavior without exposing the executable tool implementation.
 
 ```json
 {
@@ -79,15 +93,13 @@ These fields help future authorization, detection, and inventory workflows reaso
 }
 ```
 
-These capability attributes are descriptive metadata and do not grant permission to execute a tool.
-
-Capability metadata describes what a tool is capable of doing, not what it is authorized to do.
+These capability attributes are descriptive metadata and do not grant permission to execute a tool. Capability metadata describes what a tool is capable of doing, not what it is authorized to do.
 
 ### ToolGovernance
 
 `ToolGovernance` captures deterministic security metadata used by authorization and policy evaluation. It defines the tool risk level, required permissions, ownership metadata, and whether manual approval is required.
 
-In the current implementation, authorization checks the Enterprise Agent, approved tool list, tool metadata, and resource-aware policy rules deterministically. Environment allow lists are not yet implemented.
+Authorization checks the Enterprise Agent, approved tool list, tool metadata, and resource-aware policy rules deterministically.
 
 ```json
 {
@@ -104,8 +116,6 @@ In the current implementation, authorization checks the Enterprise Agent, approv
 
 `ToolOperational` contains operational metadata for a registered tool. It describes whether the tool is enabled, how long execution may run, and whether the tool supports streaming behavior.
 
-Retry policy metadata is not currently implemented.
-
 ```json
 {
   "enabled": true,
@@ -114,15 +124,17 @@ Retry policy metadata is not currently implemented.
 }
 ```
 
-Operational metadata does not participate in authorization decisions.
-
-Operational metadata affects runtime behavior but is intentionally excluded from authorization decisions.
+Operational metadata does not participate in authorization decisions. It affects runtime execution behavior but is intentionally excluded from security evaluations.
 
 ### ToolMetadata
 
-`ToolMetadata` is the aggregate governance model for an executable enterprise tool. It combines identity, governance, capability, and operational metadata into one object that can be registered with the platform.
+`ToolMetadata` is the primary governance model for an executable enterprise tool. Rather than simply aggregating metadata fields, it serves as the:
+*   **Governance Contract:** The immutable security profile registered for the capability.
+*   **Inventory Representation:** The authoritative catalog record.
+*   **Authorization Input:** The schema parsed by policy engines to evaluate risk and permissions.
+*   **Discovery Representation:** The safe, non-executable definition returned to developers and agents.
 
-Executable `BaseTool` implementations expose `ToolMetadata` through their metadata property. `ToolMetadata` is treated as an immutable governance contract registered with the `Tool Registry`. The `Tool Registry` registers executable tools and exposes deep-copied metadata for discovery and inventory. Runtime components performing discovery or inventory should rely on `ToolMetadata`. Executable `BaseTool` instances remain internal to the runtime and are never exposed through discovery or inventory APIs.
+ToolMetadata is treated as an immutable contract registered with the Tool Registry. The registry exposes deep-copied metadata for discovery and inventory, while executable tool instances remain hidden behind the secure zone boundary.
 
 ```json
 {
@@ -163,9 +175,9 @@ Executable `BaseTool` implementations expose `ToolMetadata` through their metada
 
 ### ToolInvocation
 
-`ToolInvocation` represents structured output produced by the Enterprise Agent after the configured provider interprets a user request.
+`ToolInvocation` is the canonical representation of an agent's requested capability. It represents the structured request produced by the Enterprise Agent after the configured LLM provider adapter interprets the user prompt.
 
-The `ToolInvocation` is treated as untrusted until it passes deterministic validation, authorization, policy evaluation, detection, risk assessment, and response selection. The LLM may propose a tool call, but it does not decide whether the call is allowed or execute the tool.
+Every runtime security decision operates directly on the ToolInvocation rather than raw prompts or unstructured model outputs. It is treated as untrusted until it successfully passes through all stages of the Runtime Security Pipeline.
 
 ```json
 {
@@ -178,7 +190,7 @@ The `ToolInvocation` is treated as untrusted until it passes deterministic valid
 
 ### RuntimeResult
 
-`RuntimeResult` represents the outcome of deterministic runtime evaluation, including detection findings, risk assessment, response selection, and execution context before results are returned to the caller.
+`RuntimeResult` represents the internal runtime evaluation object. It captures the detailed, security-specific output of the Runtime Security Pipeline—including raw detection findings, consolidated risk assessments, and response recommendation metadata—prior to executing the tool or returning results to the caller.
 
 ```json
 {
@@ -209,13 +221,11 @@ The `ToolInvocation` is treated as untrusted until it passes deterministic valid
 }
 ```
 
-RuntimeResult captures the outcome of deterministic runtime evaluation before secure tool execution results are returned to the caller.
-
 ### AgentRuntimeResult
 
-`AgentRuntimeResult` is the high-level result returned to the caller after the runtime security pipeline and, when allowed, secure tool execution have completed.
+`AgentRuntimeResult` is the filtered external caller response returned after the security evaluations and (if allowed) secure tool executions are complete.
 
-It intentionally exposes a concise decision, response type, and output rather than internal executable tool objects.
+It preserves the trust boundary by exposing only the high-level decision, the response type, and the execution output payload, hiding internal findings, risk scores, and registry identifiers from untrusted clients.
 
 ```json
 {
@@ -229,12 +239,13 @@ It intentionally exposes a concise decision, response type, and output rather th
 
 ## Security Models
 
+The security models collectively represent the deterministic security state evaluated and mutated by the Runtime Security Pipeline.
+
 ### Policy
 
 Policies are evaluated deterministically at runtime rather than stored as configurable policy objects. The policy layer evaluates agent status, agent risk tier, tool risk level, protected resources, and approval requirements.
 
 Current policy behavior includes:
-
 - Deny suspended or disabled agents.
 - Deny low-risk-tier agents from using high-risk or critical tools.
 - Deny protected resource access such as `secrets.txt`.
@@ -253,7 +264,7 @@ Illustrative policy representation:
 
 ### RiskAssessment
 
-`RiskAssessment` represents the deterministic risk assessment generated from detection findings. The implementation scores findings by severity and maps the resulting score to a risk level.
+`RiskAssessment` represents the assessed risk level generated from detection findings. The implementation aggregates findings by severity weight to compute a risk score, mapping it to a risk level.
 
 ```json
 {
@@ -268,7 +279,7 @@ Illustrative policy representation:
 
 ### AuditEvent
 
-`AuditEvent` records governed tool execution decisions. Every governed execution produces audit-relevant events so the platform can answer which agent requested which tool, what decision was made, and when it occurred.
+`AuditEvent` records final, authoritative tool execution decisions. Every request processed by the pipeline produces a compliance-ready record mapping the agent, session, tool target, decision, and timestamp for SIEM ingestion.
 
 ```json
 {
@@ -283,9 +294,7 @@ Illustrative policy representation:
 
 ### DetectionFinding
 
-Detection findings are represented by the implemented `Finding` model. A finding records a detection rule result associated with a session and agent.
-
-The current detection service produces findings for excessive denials. Additional detection rules are planned as the runtime monitoring layer expands.
+`DetectionFinding` represents threat indicators flagged during execution. A finding maps a specific rule name, its severity, and description to a session context.
 
 ```json
 {
@@ -302,8 +311,6 @@ The current detection service produces findings for excessive denials. Additiona
 ### ApprovalRecord
 
 `ApprovalRecord` is a planned capability and is not implemented in the current release.
-
-The current platform can return `APPROVAL_REQUIRED` and map high-risk outcomes to response actions, but a complete approval workflow, approval persistence model, approver assignment, expiry, and approval decision lifecycle remain future work.
 
 Planned model shape:
 
@@ -325,53 +332,35 @@ Planned model shape:
 ## Enumerations
 
 ### Risk Levels
-
-Risk levels are used by `RiskAssessment`, response selection, tool governance, model governance, and agent risk tiers.
-
 - `LOW`
 - `MEDIUM`
 - `HIGH`
 - `CRITICAL`
 
 ### Authorization Decisions
-
-Authorization decisions are represented by the `Decision` enum.
-
 - `ALLOW`
 - `DENY`
 - `APPROVAL_REQUIRED`
 
 ### Agent States
-
-Agent lifecycle state is represented by `AgentStatus`.
-
 - `REGISTERED`
 - `ACTIVE`
 - `SUSPENDED`
 - `DISABLED`
 
 ### Response Types
-
-Response actions are selected deterministically from the assessed risk level.
-
 - `MONITOR`
 - `ALERT`
 - `REQUIRE_APPROVAL`
 - `SUSPEND_AGENT`
 
 ### Detection Severities
-
-Detection findings use severity values aligned with risk levels.
-
 - `LOW`
 - `MEDIUM`
 - `HIGH`
 - `CRITICAL`
 
 ### JWT Roles
-
-JWT claims support role-based identity for API security.
-
 - `ADMIN`
 - `ANALYST`
 - `AGENT`
@@ -380,49 +369,46 @@ JWT claims support role-based identity for API security.
 
 ## Data Model Relationships
 
-The current runtime flow connects the primary models as follows:
+The conceptual data relationships flow as follows:
 
 ```text
 EnterpriseAgent
-        │
-        ▼
-ToolInvocation
-        │
-        ▼
-Tool Registry
-        │
-        ▼
-Resolve ToolMetadata
-        │
-        ▼
-Resolve BaseTool
-        │
-        ▼
+       │
+       ▼
+Tool Invocation
+       │
+       ▼
+Runtime Security Pipeline
+       │
+       ▼
 RuntimeResult
-        │
-        ▼
+       │
+       ▼
+Tool Registry
+       │
+       ▼
+Secure Tool Execution
+       │
+       ▼
+AgentRuntimeResult
+       │
+       ▼
 AuditEvent
 ```
 
-The Enterprise Agent delegates natural language interpretation to the configured provider, which returns a structured `ToolInvocation`. The runtime treats that invocation as untrusted and evaluates it through deterministic authorization, policy evaluation, detection, risk assessment, and response selection.
+The Enterprise Agent interprets natural language queries and produces a Tool Invocation. The Runtime Security Pipeline parses the invocation, runs policy checks and threat rules, and outputs a RuntimeResult. 
 
-The requested `tool_id` is matched against governed `Tool Metadata` and resolved through the `Tool Registry`. Only after the security pipeline allows execution does the runtime retrieve the executable `BaseTool` and perform secure tool execution. The resulting decision and execution context are captured through runtime results and audit events.
+If approved, the pipeline queries the Tool Registry to resolve ToolMetadata and initiate Secure Tool Execution. The outcomes are returned as an AgentRuntimeResult and permanently logged as an AuditEvent.
 
 ---
 
 ## Future Models
 
-Future AI asset governance will intentionally mirror the architecture established by the Tool Registry, extending deterministic governance to foundation models while preserving the platform's Zero Trust design principles.
-
-The following models are planned capabilities and are not implemented in the current runtime architecture.
+Future AI asset governance models will extend the current metadata-driven architecture to cover additional enterprise entities without changing the deterministic runtime security model.
 
 ### ModelMetadata
 
 `ModelMetadata` is planned to describe AI model identity, provenance, provider, version, owner, risk tier, approval status, and governance attributes.
-
-This will extend the current provider-agnostic architecture into deterministic enterprise model governance.
-
-Planned model shape:
 
 ```json
 {
@@ -441,9 +427,7 @@ Planned model shape:
 
 ### ModelRegistry
 
-`ModelRegistry` is planned as a governed registry for approved models and providers. It will complement the `Tool Registry` by tracking model provenance, approval state, lifecycle status, and enterprise ownership.
-
-Planned model shape:
+`ModelRegistry` is planned as a governed registry for approved models and providers, complementary to the Tool Registry.
 
 ```json
 {
@@ -460,10 +444,6 @@ Planned model shape:
 ### AIAssetInventory
 
 `AIAssetInventory` is planned as a broader inventory of AI assets, including agents, tools, models, prompts, datasets, and related governance metadata.
-
-This future capability should extend the current Tool Governance architecture without pivoting the platform away from its primary focus on Agent Runtime Security, deterministic authorization, risk assessment, detection, response, and auditability.
-
-Planned model shape:
 
 ```json
 {
@@ -483,9 +463,6 @@ Planned model shape:
 ```
 
 ### Planned Model Status Values
-
-The repository includes a basic model governance model. This is secondary to runtime security and is not yet a full model registry.
-
 - `APPROVED`
 - `PENDING`
 - `DEPRECATED`
