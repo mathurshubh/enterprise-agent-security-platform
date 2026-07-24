@@ -162,6 +162,60 @@ Responsible for consuming deterministic behavioral assessments from the Behavior
 
 ---
 
+# Canonical Artifact Lifecycle
+
+This section defines the canonical architectural lifecycle of information flowing through the Behavioral Intelligence subsystem.
+
+The end-to-end progression of artifacts across the platform follows a strict single-responsibility chain:
+
+```text
+Telemetry Event (ADR-015)
+        ↓
+Behavioral Event (ADR-016)
+        ↓
+Behavioral Finding (ADR-017)
+        ↓
+Behavioral Risk Assessment (ADR-018)
+        ↓
+Current Behavioral Risk State (ADR-018)
+        ↓
+Behavioral Enforcement Decision (ADR-019)
+        ↓
+Current Enforcement State (ADR-019)
+        ↓
+Enforcement Outcome (ADR-020)
+        ↓
+Operational Artifacts (ADR-020)
+        ↓
+Enterprise Governance (ADR-021)
+```
+
+To maintain architectural integrity, forensic auditability, and clear trust boundaries, every artifact produced or consumed by the platform belongs to exactly one of four canonical lifecycle classes:
+
+## 1. Immutable Historical Evidence
+
+- **Examples:** Behavioral Events (ADR-016), Behavioral Findings (ADR-017), Behavioral Risk Assessments (ADR-018), Behavioral Enforcement Decisions (ADR-019).
+- **Characteristics:** Strictly append-only, immutable historical records. Once generated, these artifacts are never modified, updated in place, or deleted. They form the authoritative, auditable security record used for forensic replay and compliance verification.
+
+## 2. Current State
+
+- **Examples:** Current Behavioral Risk State (ADR-018), Current Enforcement State (ADR-019).
+- **Characteristics:** Transient, derived posture objects representing the latest effective security level or active enforcement overrides. Updates replace previous current state representations while leaving historical evidence untouched.
+
+## 3. Transient Context
+
+- **Examples:** Detection Context (ADR-017), Risk Context (ADR-018), Enforcement Context (ADR-019), Investigation Context (ADR-020), Governance Context (ADR-021).
+- **Characteristics:** Derived, ephemeral, read-only analytical workspaces assembled solely for the duration of a specific evaluation or investigation. They are never persisted to the Event Store, have no historical authority, and cause no state mutation.
+
+## 4. Operational Artifacts
+
+- **Examples:** Cases (ADR-020), Investigations (ADR-020), Manual Approvals (ADR-020), Operational Reports (ADR-020), Compliance Records (ADR-020).
+- **Characteristics:** Artifacts describing operational SOC activities, manual analyst annotations, and human governance decisions. Operational artifacts record human interventions and SOC workflows; they never edit, overwrite, or delete underlying Behavioral Intelligence security artifacts.
+
+Every architectural artifact within the Enterprise Agent Security Platform belongs to **exactly one** lifecycle category.
+
+---
+
 # Proposed Capabilities
 
 ## 1. Behavioral Intelligence
