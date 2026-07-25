@@ -387,8 +387,7 @@ The project documentation is organized as follows:
 
 ```text
 docs/
-├── adr/                 # Architecture Decision Records
-│   └── Architecture Decision Records
+├── adr/                 # Architecture Decision Records (ADR-000 to ADR-022)
 ├── ai/
 │   ├── ARCHITECTURE_PRINCIPLES.md
 │   ├── IMPLEMENTATION_WORKFLOW.md
@@ -399,7 +398,8 @@ docs/
 │   └── openapi-design.md
 ├── architecture/
 │   ├── system-architecture.md
-│   └── data-model.md
+│   ├── data-model.md
+│   └── enterprise-security-console/   # Console Architecture Specification (01 to 11)
 ├── evaluations/
 │   └── tool-selection-evaluation-v1.md
 ├── releases/
@@ -411,11 +411,12 @@ docs/
 ### Key Documents
 
 - **System Architecture:** `docs/architecture/system-architecture.md`
+- **Enterprise Security Console Architecture:** `docs/architecture/enterprise-security-console/`
 - **Data Model:** `docs/architecture/data-model.md`
 - **Threat Model:** `docs/security/threat-model.md`
 - **OpenAPI Design:** `docs/api/openapi-design.md`
 - **LLM Evaluation:** `docs/evaluations/tool-selection-evaluation-v1.md`
-- **Architecture Decision Records:** `docs/adr/` directory (defining security boundaries, deterministic pipelines, and runtime lifecycles)
+- **Architecture Decision Records:** `docs/adr/` directory (ADR-000 through ADR-022 defining security boundaries, deterministic pipelines, runtime lifecycles, and console architecture)
 
 ---
 
@@ -471,6 +472,7 @@ enterprise-agent-security-platform/
 - Provider-agnostic LLM architecture (Ollama, Gemini)
 - Scenario Registry and Framework
 - Scenario Execution Engine
+- Enterprise Security Console Architecture (ADR-009, ADR-022)
 - 243 automated tests with Ruff validation
 
 ### Upcoming

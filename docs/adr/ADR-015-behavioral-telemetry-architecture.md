@@ -15,7 +15,7 @@
 
 # Context
 
-[ADR-014: Behavioral Intelligence and Autonomous Agent Governance](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-014-behavioral-intelligence-and-autonomous-agent-governance.md) established Behavioral Intelligence as an observational subsystem operating alongside the Runtime Security Pipeline. ADR-014 introduced the strategic vision for monitoring multi-step, autonomous agent behavior over extended execution lifespans.
+[ADR-014: Behavioral Intelligence and Autonomous Agent Governance](ADR-014-behavioral-intelligence-and-autonomous-agent-governance.md) established Behavioral Intelligence as an observational subsystem operating alongside the Runtime Security Pipeline. ADR-014 introduced the strategic vision for monitoring multi-step, autonomous agent behavior over extended execution lifespans.
 
 To perform stateful behavioral analytics, detection, and risk assessment across agent sessions, the platform requires a standardized, structured, non-blocking telemetry architecture to capture runtime transitions as they occur inside the trusted platform boundary.
 
@@ -324,11 +324,11 @@ Allow LLM provider adapters to generate summary telemetry objects after model ex
 - Schema versioning strategy.
 
 ### Out of Scope (Deferred to Future ADRs)
-- **Event Persistence & Database Storage:** Owned by [ADR-016: Behavioral Event Store & Data Model](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-016-behavioral-event-store-and-data-model.md).
-- **Stateful Detection Rules:** Owned by [ADR-017: Behavioral Detection Engine](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-017-behavioral-detection-engine.md).
-- **Behavioral Risk Calculation:** Owned by [ADR-018: Behavioral Risk Engine](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-018-behavioral-risk-engine.md).
-- **Behavioral Enforcement Actions:** Owned by [ADR-019: Behavioral Enforcement](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-019-behavioral-enforcement.md).
-- **SOC Dashboards:** Owned by [ADR-020: Agent Security Operations](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-020-agent-security-operations.md).
+- **Event Persistence & Database Storage:** Owned by [ADR-016: Behavioral Event Store & Data Model](ADR-016-behavioral-event-store-and-data-model.md).
+- **Stateful Detection Rules:** Owned by [ADR-017: Behavioral Detection Engine](ADR-017-behavioral-detection-engine.md).
+- **Behavioral Risk Calculation:** Owned by [ADR-018: Behavioral Risk Engine](ADR-018-behavioral-risk-engine.md).
+- **Behavioral Enforcement Actions:** Owned by [ADR-019: Behavioral Enforcement](ADR-019-behavioral-enforcement.md).
+- **SOC Dashboards:** Owned by [ADR-020: Agent Security Operations](ADR-020-agent-security-operations.md).
 
 ---
 
@@ -358,8 +358,8 @@ Allow LLM provider adapters to generate summary telemetry objects after model ex
 
 # Related Documents
 
-- [ADR-001: Zero Trust Security Model](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-001-zero-trust-security-model.md)
-- [ADR-002: LLM as Untrusted Intent Parser](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-002-llm-untrusted-intent-parser.md)
-- [ADR-003: Runtime Security Orchestrator](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-003-runtime-security-orchestrator.md)
-- [ADR-004: Deterministic Security Pipeline](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-004-deterministic-security-pipeline.md)
-- [ADR-014: Behavioral Intelligence and Autonomous Agent Governance](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-014-behavioral-intelligence-and-autonomous-agent-governance.md)
+- [ADR-001: Zero Trust Security Model](ADR-001-zero-trust-security-model.md)
+- [ADR-002: LLM as Untrusted Intent Parser](ADR-002-llm-untrusted-intent-parser.md)
+- [ADR-003: Runtime Security Orchestrator](ADR-003-runtime-security-orchestrator.md)
+- [ADR-004: Deterministic Security Pipeline](ADR-004-deterministic-security-pipeline.md)
+- [ADR-014: Behavioral Intelligence and Autonomous Agent Governance](ADR-014-behavioral-intelligence-and-autonomous-agent-governance.md)

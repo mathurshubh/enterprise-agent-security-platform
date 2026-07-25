@@ -102,17 +102,17 @@ Formalizing the Canonical Investigation Graph as a first-class architectural con
 
 ## Dependencies
 
-- Directly derives from the Canonical Artifact Lifecycle in [ADR-014](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-014-behavioral-intelligence-and-autonomous-agent-governance.md).
-- Powers the Evidence Chain panel in Session Investigation Workspace ([07-session-investigation-workspace.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/07-session-investigation-workspace.md)).
+- Directly derives from the Canonical Artifact Lifecycle in [ADR-014](../../adr/ADR-014-behavioral-intelligence-and-autonomous-agent-governance.md).
+- Powers the Evidence Chain panel in Session Investigation Workspace ([07-session-investigation-workspace.md](07-session-investigation-workspace.md)).
 
 ---
 
 ## Relationship to Other Architecture Documents
 
-- Governs UI Component Architecture ([09-ui-component-architecture.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/09-ui-component-architecture.md)) and Data Flow ([10-data-flow.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/10-data-flow.md)).
+- Governs UI Component Architecture ([09-ui-component-architecture.md](09-ui-component-architecture.md)) and Data Flow ([10-data-flow.md](10-data-flow.md)).
 
 ---
 
 ## Future Evolution
 
-When Multi-Agent Governance ([ADR-021](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-021-multi-agent-governance.md)) is introduced, the Investigation Graph will introduce cross-agent delegation edges (`Delegation` node connecting Initiating Agent $A_I$ to Target Agent $A_T$).
+When Multi-Agent Governance ([ADR-021](../../adr/ADR-021-multi-agent-governance.md)) is introduced, the Investigation Graph will introduce cross-agent delegation edges (`Delegation` node connecting Initiating Agent $A_I$ to Target Agent $A_T$).

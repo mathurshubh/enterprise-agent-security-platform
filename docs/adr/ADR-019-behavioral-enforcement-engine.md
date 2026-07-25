@@ -15,15 +15,15 @@
 
 # Context
 
-[ADR-014: Behavioral Intelligence and Autonomous Agent Governance](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-014-behavioral-intelligence-and-autonomous-agent-governance.md) established Behavioral Intelligence as an observational subsystem operating alongside the Runtime Security Pipeline to govern multi-step autonomous agent behavior over extended execution lifespans.
+[ADR-014: Behavioral Intelligence and Autonomous Agent Governance](ADR-014-behavioral-intelligence-and-autonomous-agent-governance.md) established Behavioral Intelligence as an observational subsystem operating alongside the Runtime Security Pipeline to govern multi-step autonomous agent behavior over extended execution lifespans.
 
-[ADR-015: Behavioral Telemetry Architecture](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-015-behavioral-telemetry-architecture.md) defined non-blocking telemetry event emission.
+[ADR-015: Behavioral Telemetry Architecture](ADR-015-behavioral-telemetry-architecture.md) defined non-blocking telemetry event emission.
 
-[ADR-016: Behavioral Event Store & Data Model](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-016-behavioral-event-store-and-data-model.md) established the append-only security evidence repository.
+[ADR-016: Behavioral Event Store & Data Model](ADR-016-behavioral-event-store-and-data-model.md) established the append-only security evidence repository.
 
-[ADR-017: Behavioral Detection Engine](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-017-behavioral-detection-engine.md) defined deterministic threat pattern analysis producing immutable **Behavioral Findings**.
+[ADR-017: Behavioral Detection Engine](ADR-017-behavioral-detection-engine.md) defined deterministic threat pattern analysis producing immutable **Behavioral Findings**.
 
-[ADR-018: Behavioral Risk Engine](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-018-behavioral-risk-engine.md) defined cumulative risk scoring producing **Behavioral Risk Assessments** and active **Current Behavioral Risk State**.
+[ADR-018: Behavioral Risk Engine](ADR-018-behavioral-risk-engine.md) defined cumulative risk scoring producing **Behavioral Risk Assessments** and active **Current Behavioral Risk State**.
 
 To translate derived risk state into deterministic governance actions and policy overrides, the platform requires a dedicated decision engine—the **Behavioral Enforcement Engine**.
 
@@ -368,11 +368,11 @@ Merge risk scoring (ADR-018) and enforcement decision making (ADR-019) into a si
 - Fail-safe operational philosophy.
 
 ### Out of Scope (Deferred to Future ADRs)
-- **Telemetry Generation & Emission:** Owned by [ADR-015: Behavioral Telemetry Architecture](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-015-behavioral-telemetry-architecture.md).
-- **Event Persistence & Storage:** Owned by [ADR-016: Behavioral Event Store & Data Model](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-016-behavioral-event-store-and-data-model.md).
-- **Stateful Detection Rules:** Owned by [ADR-017: Behavioral Detection Engine](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-017-behavioral-detection-engine.md).
-- **Risk Scoring Algorithms:** Owned by [ADR-018: Behavioral Risk Engine](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-018-behavioral-risk-engine.md).
-- **SOC Governance Dashboards:** Owned by [ADR-020: Agent Security Operations](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-020-agent-security-operations.md).
+- **Telemetry Generation & Emission:** Owned by [ADR-015: Behavioral Telemetry Architecture](ADR-015-behavioral-telemetry-architecture.md).
+- **Event Persistence & Storage:** Owned by [ADR-016: Behavioral Event Store & Data Model](ADR-016-behavioral-event-store-and-data-model.md).
+- **Stateful Detection Rules:** Owned by [ADR-017: Behavioral Detection Engine](ADR-017-behavioral-detection-engine.md).
+- **Risk Scoring Algorithms:** Owned by [ADR-018: Behavioral Risk Engine](ADR-018-behavioral-risk-engine.md).
+- **SOC Governance Dashboards:** Owned by [ADR-020: Agent Security Operations](ADR-020-agent-security-operations.md).
 
 ---
 
@@ -400,11 +400,11 @@ Merge risk scoring (ADR-018) and enforcement decision making (ADR-019) into a si
 
 # Related Documents
 
-- [ADR-001: Zero Trust Security Model](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-001-zero-trust-security-model.md)
-- [ADR-002: LLM as Untrusted Intent Parser](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-002-llm-untrusted-intent-parser.md)
-- [ADR-004: Deterministic Security Pipeline](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-004-deterministic-security-pipeline.md)
-- [ADR-014: Behavioral Intelligence and Autonomous Agent Governance](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-014-behavioral-intelligence-and-autonomous-agent-governance.md)
-- [ADR-015: Behavioral Telemetry Architecture](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-015-behavioral-telemetry-architecture.md)
-- [ADR-016: Behavioral Event Store & Data Model](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-016-behavioral-event-store-and-data-model.md)
-- [ADR-017: Behavioral Detection Engine](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-017-behavioral-detection-engine.md)
-- [ADR-018: Behavioral Risk Engine](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-018-behavioral-risk-engine.md)
+- [ADR-001: Zero Trust Security Model](ADR-001-zero-trust-security-model.md)
+- [ADR-002: LLM as Untrusted Intent Parser](ADR-002-llm-untrusted-intent-parser.md)
+- [ADR-004: Deterministic Security Pipeline](ADR-004-deterministic-security-pipeline.md)
+- [ADR-014: Behavioral Intelligence and Autonomous Agent Governance](ADR-014-behavioral-intelligence-and-autonomous-agent-governance.md)
+- [ADR-015: Behavioral Telemetry Architecture](ADR-015-behavioral-telemetry-architecture.md)
+- [ADR-016: Behavioral Event Store & Data Model](ADR-016-behavioral-event-store-and-data-model.md)
+- [ADR-017: Behavioral Detection Engine](ADR-017-behavioral-detection-engine.md)
+- [ADR-018: Behavioral Risk Engine](ADR-018-behavioral-risk-engine.md)

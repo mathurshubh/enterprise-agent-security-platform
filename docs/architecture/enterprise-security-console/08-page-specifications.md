@@ -26,7 +26,7 @@ Defines purpose, target users, entity ownership, backend API bindings, UI compon
 - **Operational Mode:** MONITOR
 - **Purpose:** Work queue enabling authorized SOC analysts to review, approve, reject, or escalate agent sessions held in `REQUIRE_APPROVAL` or `HOLD_SESSION` states.
 - **Target Users:** SOC Analyst (Tier 2+), Security Administrator.
-- **Entity Ownership:** `EnforcementDecision`, `EnforcementOutcome` ([ADR-019](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-019-behavioral-enforcement-engine.md), [ADR-020](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-020-agent-security-operations.md)).
+- **Entity Ownership:** `EnforcementDecision`, `EnforcementOutcome` ([ADR-019](../../adr/ADR-019-behavioral-enforcement-engine.md), [ADR-020](../../adr/ADR-020-agent-security-operations.md)).
 - **API Bindings:** `GET /api/v1/approvals/pending`, `POST /api/v1/approvals/:id/release`, `POST /api/v1/approvals/:id/reject`.
 - **Status:** Gated by Phase 2 backend approval APIs.
 
@@ -34,7 +34,7 @@ Defines purpose, target users, entity ownership, backend API bindings, UI compon
 - **Operational Mode:** INVESTIGATE
 - **Purpose:** Inventory and search interface for all active and historical agent execution sessions.
 - **Target Users:** SOC Analyst, Security Engineer.
-- **Entity Ownership:** `Session` ([ADR-003](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-003-runtime-security-orchestrator.md)).
+- **Entity Ownership:** `Session` ([ADR-003](../../adr/ADR-003-runtime-security-orchestrator.md)).
 - **API Bindings:** `GET /api/v1/sessions`.
 - **Status:** Available in Phase 1 (promoted to primary navigation).
 
@@ -50,7 +50,7 @@ Defines purpose, target users, entity ownership, backend API bindings, UI compon
 - **Operational Mode:** INVESTIGATE
 - **Purpose:** Centralized catalog of threat detection rule firings and behavioral anomalies.
 - **Target Users:** SOC Analyst, Security Engineer.
-- **Entity Ownership:** `BehavioralFinding` ([ADR-017](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-017-behavioral-detection-engine.md)).
+- **Entity Ownership:** `BehavioralFinding` ([ADR-017](../../adr/ADR-017-behavioral-detection-engine.md)).
 - **API Bindings:** `GET /api/v1/findings`, `GET /api/v1/findings/:id`.
 - **Status:** Gated by Phase 2 backend findings API.
 
@@ -58,7 +58,7 @@ Defines purpose, target users, entity ownership, backend API bindings, UI compon
 - **Operational Mode:** INVESTIGATE
 - **Purpose:** Immutable chronological log of authoritative runtime security decisions.
 - **Target Users:** Compliance Officer, Security Analyst, Auditor.
-- **Entity Ownership:** `AuditEvent` ([ADR-004](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-004-deterministic-security-pipeline.md)).
+- **Entity Ownership:** `AuditEvent` ([ADR-004](../../adr/ADR-004-deterministic-security-pipeline.md)).
 - **API Bindings:** `GET /api/v1/audit/events`.
 - **Status:** Available in Phase 1.
 
@@ -66,7 +66,7 @@ Defines purpose, target users, entity ownership, backend API bindings, UI compon
 - **Operational Mode:** GOVERN
 - **Purpose:** Governance interface for registered Enterprise Agent identities, risk tiers, and approved tool permissions.
 - **Target Users:** Platform Administrator, Security Engineer.
-- **Entity Ownership:** `Agent` ([ADR-003](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-003-runtime-security-orchestrator.md)).
+- **Entity Ownership:** `Agent` ([ADR-003](../../adr/ADR-003-runtime-security-orchestrator.md)).
 - **API Bindings:** `GET /api/v1/agents`.
 - **Status:** Available in Phase 1.
 
@@ -74,7 +74,7 @@ Defines purpose, target users, entity ownership, backend API bindings, UI compon
 - **Operational Mode:** GOVERN
 - **Purpose:** Inventory of executable tools, parameter definitions, and capability policies.
 - **Target Users:** Security Engineer, Platform Administrator.
-- **Entity Ownership:** `Tool` ([ADR-005](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-005-tool-registry.md)).
+- **Entity Ownership:** `Tool` ([ADR-005](../../adr/ADR-005-tool-registry.md)).
 - **API Bindings:** `GET /api/v1/tools`.
 - **Status:** Available in Phase 1.
 
@@ -82,7 +82,7 @@ Defines purpose, target users, entity ownership, backend API bindings, UI compon
 - **Operational Mode:** GOVERN
 - **Purpose:** Active threat detection rules catalog with OWASP LLM Top 10 and MITRE ATLAS/ATT&CK control mappings.
 - **Target Users:** Security Engineer, Compliance Officer.
-- **Entity Ownership:** `DetectionRule` ([ADR-004](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-004-deterministic-security-pipeline.md)).
+- **Entity Ownership:** `DetectionRule` ([ADR-004](../../adr/ADR-004-deterministic-security-pipeline.md)).
 - **API Bindings:** `GET /api/v1/detection/rules`.
 - **Status:** Available in Phase 1.
 
@@ -90,7 +90,7 @@ Defines purpose, target users, entity ownership, backend API bindings, UI compon
 - **Operational Mode:** GOVERN
 - **Purpose:** Library of security validation benchmarks and prompt injection/exfiltration attack scenarios.
 - **Target Users:** Security Engineer, Red Team Specialist.
-- **Entity Ownership:** `AttackScenario` ([ADR-010](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-010-scenario-execution-architecture.md)).
+- **Entity Ownership:** `AttackScenario` ([ADR-010](../../adr/ADR-010-scenario-execution-architecture.md)).
 - **API Bindings:** `GET /api/v1/scenarios`, `GET /api/v1/scenarios/:id`.
 - **Status:** Available in Phase 1 (promoted to primary navigation).
 
@@ -98,7 +98,7 @@ Defines purpose, target users, entity ownership, backend API bindings, UI compon
 
 ## Design Rationale
 
-Explicit page specifications eliminate guesswork during frontend engineering. Defining entity ownership and API bindings per page prevents overlapping service calls and ensures strict adherence to the Information Architecture ([03-information-architecture.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/03-information-architecture.md)).
+Explicit page specifications eliminate guesswork during frontend engineering. Defining entity ownership and API bindings per page prevents overlapping service calls and ensures strict adherence to the Information Architecture ([03-information-architecture.md](03-information-architecture.md)).
 
 ---
 
@@ -110,16 +110,16 @@ Explicit page specifications eliminate guesswork during frontend engineering. De
 
 ## Dependencies
 
-- Serves as the implementation mandate for UI Component Architecture ([09-ui-component-architecture.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/09-ui-component-architecture.md)).
+- Serves as the implementation mandate for UI Component Architecture ([09-ui-component-architecture.md](09-ui-component-architecture.md)).
 
 ---
 
 ## Relationship to Other Architecture Documents
 
-- Implements Navigation Architecture ([04-navigation-architecture.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/04-navigation-architecture.md)).
+- Implements Navigation Architecture ([04-navigation-architecture.md](04-navigation-architecture.md)).
 
 ---
 
 ## Future Evolution
 
-As Multi-Agent Governance ([ADR-021](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-021-multi-agent-governance.md)) and SOC Case Management ([ADR-020](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-020-agent-security-operations.md)) mature, two additional page specifications (`/agents/topology` and `/cases`) will be added to this specification directory.
+As Multi-Agent Governance ([ADR-021](../../adr/ADR-021-multi-agent-governance.md)) and SOC Case Management ([ADR-020](../../adr/ADR-020-agent-security-operations.md)) mature, two additional page specifications (`/agents/topology` and `/cases`) will be added to this specification directory.

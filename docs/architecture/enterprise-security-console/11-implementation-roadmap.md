@@ -75,10 +75,10 @@ Phase 4: Operations (v1.0.0)       Phase 3: Investigation (v0.14.0)
 **Backend Prerequisites:** Real-time streaming (`GET /api/v1/telemetry/stream`), Incident Cases API (`/cases`), Multi-Agent Governance API (`/governance/topology`).
 
 #### Key Deliverables:
-1. **Session Forensic Replay:** Add playback controls (Play, Pause, Step, Speed) to the Session Workspace for step-by-step forensic replay ([ADR-020](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-020-agent-security-operations.md)).
+1. **Session Forensic Replay:** Add playback controls (Play, Pause, Step, Speed) to the Session Workspace for step-by-step forensic replay ([ADR-020](../../adr/ADR-020-agent-security-operations.md)).
 2. **Real-Time SSE Streaming:** Connect TanStack Query cache invalidation to Server-Sent Events stream for instant alert delivery.
-3. **Incident Case Management (`/cases`):** Implement SOC incident case management and analyst annotation tools ([ADR-020](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-020-agent-security-operations.md)).
-4. **Multi-Agent Governance Topology (`/agents/topology`):** Build interactive multi-agent delegation tree visualization ([ADR-021](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-021-multi-agent-governance.md)).
+3. **Incident Case Management (`/cases`):** Implement SOC incident case management and analyst annotation tools ([ADR-020](../../adr/ADR-020-agent-security-operations.md)).
+4. **Multi-Agent Governance Topology (`/agents/topology`):** Build interactive multi-agent delegation tree visualization ([ADR-021](../../adr/ADR-021-multi-agent-governance.md)).
 
 ---
 
@@ -96,13 +96,13 @@ Gating frontend phase execution behind corresponding backend API readiness guara
 
 ## Dependencies
 
-- Governed by [ADR-022: Enterprise Security Console Evolution](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-022-enterprise-security-console-evolution.md).
+- Governed by [ADR-022: Enterprise Security Console Evolution](../../adr/ADR-022-enterprise-security-console-evolution.md).
 
 ---
 
 ## Relationship to Other Architecture Documents
 
-- Integrates all previous architecture documents ([01](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/01-overview.md)–[10](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/10-data-flow.md)) into a structured engineering execution plan.
+- Integrates all previous architecture documents ([01](01-overview.md)–[10](10-data-flow.md)) into a structured engineering execution plan.
 
 ---
 

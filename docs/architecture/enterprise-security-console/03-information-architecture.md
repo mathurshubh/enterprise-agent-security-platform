@@ -16,7 +16,7 @@ Governs the structural organization of all pages, navigation routes, layout cont
 
 The Information Architecture is structured along two conceptual axes:
 
-1. **Horizontal Axis — Lifecycle Progression:** Mirrors the flow of artifacts through the backend security pipeline ([ADR-014](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-014-behavioral-intelligence-and-autonomous-agent-governance.md)):
+1. **Horizontal Axis — Lifecycle Progression:** Mirrors the flow of artifacts through the backend security pipeline ([ADR-014](../../adr/ADR-014-behavioral-intelligence-and-autonomous-agent-governance.md)):
    `Registry Objects → Telemetry/Events → Findings → Risk → Enforcement → Operations → Audit`
 
 2. **Vertical Axis — Scope Granularity:** Defines the depth of information displayed:
@@ -93,17 +93,17 @@ The Two-Axis IA model structures information around the security lifecycle and a
 
 ## Dependencies
 
-- Aligns with the Canonical Artifact Lifecycle in [ADR-014](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-014-behavioral-intelligence-and-autonomous-agent-governance.md).
-- Implemented via Navigation Architecture ([04-navigation-architecture.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/04-navigation-architecture.md)).
+- Aligns with the Canonical Artifact Lifecycle in [ADR-014](../../adr/ADR-014-behavioral-intelligence-and-autonomous-agent-governance.md).
+- Implemented via Navigation Architecture ([04-navigation-architecture.md](04-navigation-architecture.md)).
 
 ---
 
 ## Relationship to Other Architecture Documents
 
-- Provides the structural foundation for Page Specifications ([08-page-specifications.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/08-page-specifications.md)) and Investigation Graph ([06-investigation-graph.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/06-investigation-graph.md)).
+- Provides the structural foundation for Page Specifications ([08-page-specifications.md](08-page-specifications.md)) and Investigation Graph ([06-investigation-graph.md](06-investigation-graph.md)).
 
 ---
 
 ## Future Evolution
 
-When Multi-Agent Governance ([ADR-021](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-021-multi-agent-governance.md)) is implemented, the vertical scope axis will expand upward to include **Agent Group / Mesh Level** topology scope.
+When Multi-Agent Governance ([ADR-021](../../adr/ADR-021-multi-agent-governance.md)) is implemented, the vertical scope axis will expand upward to include **Agent Group / Mesh Level** topology scope.

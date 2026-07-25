@@ -46,8 +46,8 @@ The Command Center is structured into two distinct operational zones:
 
 The **Action Required Queue** is a prioritized, severity-sorted operational work list rendering items requiring explicit analyst intervention:
 
-1. **Held Agent Sessions:** Sessions placed in `REQUIRE_APPROVAL` or `HOLD_SESSION` states by the Behavioral Enforcement Engine ([ADR-019](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-019-behavioral-enforcement-engine.md)).
-2. **Critical/High Behavioral Findings:** Unacknowledged threat detection findings emitted by the Behavioral Detection Engine ([ADR-017](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-017-behavioral-detection-engine.md)).
+1. **Held Agent Sessions:** Sessions placed in `REQUIRE_APPROVAL` or `HOLD_SESSION` states by the Behavioral Enforcement Engine ([ADR-019](../../adr/ADR-019-behavioral-enforcement-engine.md)).
+2. **Critical/High Behavioral Findings:** Unacknowledged threat detection findings emitted by the Behavioral Detection Engine ([ADR-017](../../adr/ADR-017-behavioral-detection-engine.md)).
 3. **Suspended Agent Review:** Enterprise Agents whose identities have been suspended (`SUSPEND_AGENT`).
 
 ### Card Anatomy:
@@ -91,8 +91,8 @@ Replacing static dashboards with a **Work-Oriented Landing** shifts the console 
 
 ## Relationship to Other Architecture Documents
 
-- Implements Navigation Architecture ([04-navigation-architecture.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/04-navigation-architecture.md)).
-- Operational actions defined in Page Specifications ([08-page-specifications.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/08-page-specifications.md)).
+- Implements Navigation Architecture ([04-navigation-architecture.md](04-navigation-architecture.md)).
+- Operational actions defined in Page Specifications ([08-page-specifications.md](08-page-specifications.md)).
 
 ---
 
