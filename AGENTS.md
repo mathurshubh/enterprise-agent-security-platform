@@ -97,7 +97,7 @@ Never move security-critical decisions into prompts unless explicitly requested.
 
 Prefer architecture consistency over introducing new abstractions.
 
-For service responsibilities, runtime orchestration, and trust boundaries, refer to the authoritative [docs/ai/ARCHITECTURE_PRINCIPLES.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/ai/ARCHITECTURE_PRINCIPLES.md).
+For service responsibilities, runtime orchestration, and trust boundaries, refer to the authoritative [docs/ai/ARCHITECTURE_PRINCIPLES.md](docs/ai/ARCHITECTURE_PRINCIPLES.md).
 
 Current architectural principles:
 
@@ -328,7 +328,7 @@ A few well-implemented security capabilities are more valuable than many partial
 
 # Architecture Review Checklist
 
-Before completing a change, verify all checklist criteria in the authoritative [docs/ai/REVIEW_CHECKLIST.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/ai/REVIEW_CHECKLIST.md) are met.
+Before completing a change, verify all checklist criteria in the authoritative [docs/ai/REVIEW_CHECKLIST.md](docs/ai/REVIEW_CHECKLIST.md) are met.
 
 
 ## Additional AI Documentation

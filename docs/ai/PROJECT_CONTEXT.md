@@ -31,10 +31,11 @@ Implemented:
 - Detection Engine
 - Prompt Injection Detection
 - Attack Scenario Framework
+- Enterprise Security Console Architecture (ADR-009, ADR-022)
 - Provider Abstraction
 - Ollama
 - Gemini
-- 158 automated tests
+- 243 automated tests
 
 ---
 

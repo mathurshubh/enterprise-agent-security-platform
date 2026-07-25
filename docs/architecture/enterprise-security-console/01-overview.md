@@ -4,7 +4,7 @@
 
 The **Enterprise Security Console** is the operational control surface for the Enterprise Agent Security Platform. It enables enterprise security teams to observe, investigate, govern, and audit autonomous AI agents operating under Zero Trust security controls.
 
-The console is **not** an AI agent. It is a deterministic, read-only (with targeted, audited operator write commands) visualization and operations layer that sits entirely outside the Runtime Security Boundary defined in [ADR-003](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-003-runtime-security-orchestrator.md) and [ADR-008](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-008-enterprise-management-api.md).
+The console is **not** an AI agent. It is a deterministic, read-only (with targeted, audited operator write commands) visualization and operations layer that sits entirely outside the Runtime Security Boundary defined in [ADR-003](../../adr/ADR-003-runtime-security-orchestrator.md) and [ADR-008](../../adr/ADR-008-enterprise-management-api.md).
 
 ---
 
@@ -18,7 +18,7 @@ This specification governs the architectural evolution of the platform's user in
 - Four backend-gated implementation phases.
 
 Out of scope:
-- Client-side policy evaluation or risk scoring (strictly backend-enforced per [ADR-002](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-002-llm-untrusted-intent-parser.md)).
+- Client-side policy evaluation or risk scoring (strictly backend-enforced per [ADR-002](../../adr/ADR-002-llm-untrusted-intent-parser.md)).
 - Direct tool execution or LLM provider orchestration.
 - Replacement of enterprise SIEM, SOAR, or IAM platforms.
 
@@ -69,19 +69,19 @@ Security operations require answering operational questions in priority order. B
 
 ## Dependencies
 
-- **Backend Management API** ([ADR-008](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-008-enterprise-management-api.md)): Source of truth for platform state.
-- **Behavioral Intelligence Suite** ([ADR-014](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-014-behavioral-intelligence-and-autonomous-agent-governance.md) – [ADR-021](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-021-multi-agent-governance.md)): Source of telemetry, findings, risk assessments, and enforcement decisions.
+- **Backend Management API** ([ADR-008](../../adr/ADR-008-enterprise-management-api.md)): Source of truth for platform state.
+- **Behavioral Intelligence Suite** ([ADR-014](../../adr/ADR-014-behavioral-intelligence-and-autonomous-agent-governance.md) – [ADR-021](../../adr/ADR-021-multi-agent-governance.md)): Source of telemetry, findings, risk assessments, and enforcement decisions.
 
 ---
 
 ## Relationship to Other Architecture Documents
 
-- Implements the UI capabilities outlined in [ADR-009](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-009-enterprise-security-console.md) and [ADR-020](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-020-agent-security-operations.md).
-- Formally authorized by [ADR-022](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-022-enterprise-security-console-evolution.md).
-- Detailed design principles defined in [02-design-principles.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/02-design-principles.md).
+- Implements the UI capabilities outlined in [ADR-009](../../adr/ADR-009-enterprise-security-console.md) and [ADR-020](../../adr/ADR-020-agent-security-operations.md).
+- Formally authorized by [ADR-022](../../adr/ADR-022-enterprise-security-console-evolution.md).
+- Detailed design principles defined in [02-design-principles.md](02-design-principles.md).
 
 ---
 
 ## Future Evolution
 
-As backend multi-agent governance ([ADR-021](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-021-multi-agent-governance.md)) matures, the console will incorporate agent topology graph views and inter-agent trust relationship inspection under the **GOVERN** operational mode without altering the foundational overview architecture.
+As backend multi-agent governance ([ADR-021](../../adr/ADR-021-multi-agent-governance.md)) matures, the console will incorporate agent topology graph views and inter-agent trust relationship inspection under the **GOVERN** operational mode without altering the foundational overview architecture.

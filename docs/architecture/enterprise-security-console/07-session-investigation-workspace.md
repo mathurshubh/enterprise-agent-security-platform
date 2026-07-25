@@ -66,10 +66,10 @@ The workspace replaces static session tables with a coordinated, multi-panel for
 - Interactive line graph plotting cumulative session risk score (0–100) over elapsed session time, annotating score jump points with triggering finding names.
 
 ### 6. Panel E: Policy & Authorization Trace
-- Step-by-step evaluation trace showing which resource-aware policy rules ([ADR-006](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-006-resource-aware-authorization.md)) matched or denied the invocation.
+- Step-by-step evaluation trace showing which resource-aware policy rules ([ADR-006](../../adr/ADR-006-resource-aware-authorization.md)) matched or denied the invocation.
 
 ### 7. Panel F: Enforcement Log
-- Audit log of all containment actions applied to the session by the Behavioral Enforcement Engine ([ADR-019](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-019-behavioral-enforcement-engine.md)).
+- Audit log of all containment actions applied to the session by the Behavioral Enforcement Engine ([ADR-019](../../adr/ADR-019-behavioral-enforcement-engine.md)).
 
 ---
 
@@ -116,11 +116,11 @@ The Session Investigation Workspace provides a **coordinated multi-panel environ
 
 ## Relationship to Other Architecture Documents
 
-- Implements Principle 5 (Temporal First) and Principle 6 (Session-Centric Investigation) from [02-design-principles.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/02-design-principles.md).
-- Visualizes Investigation Graph links ([06-investigation-graph.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/06-investigation-graph.md)).
+- Implements Principle 5 (Temporal First) and Principle 6 (Session-Centric Investigation) from [02-design-principles.md](02-design-principles.md).
+- Visualizes Investigation Graph links ([06-investigation-graph.md](06-investigation-graph.md)).
 
 ---
 
 ## Future Evolution
 
-In Phase 4 (Enterprise Operations), the workspace will integrate **Analyst Annotation** panels and **Playback Controls** (Play, Pause, Step-Forward, Step-Backward) for full forensic session replay ([ADR-020](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-020-agent-security-operations.md)).
+In Phase 4 (Enterprise Operations), the workspace will integrate **Analyst Annotation** panels and **Playback Controls** (Play, Pause, Step-Forward, Step-Backward) for full forensic session replay ([ADR-020](../../adr/ADR-020-agent-security-operations.md)).

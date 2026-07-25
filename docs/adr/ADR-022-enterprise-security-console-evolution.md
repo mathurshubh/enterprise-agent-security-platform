@@ -10,11 +10,11 @@
 
 # Context
 
-[ADR-008: Enterprise Management API](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-008-enterprise-management-api.md) established the read-only management plane exposing platform state outside the Runtime Security Boundary.
+[ADR-008: Enterprise Management API](ADR-008-enterprise-management-api.md) established the read-only management plane exposing platform state outside the Runtime Security Boundary.
 
-[ADR-009: Enterprise Security Console](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-009-enterprise-security-console.md) established the baseline React/Vite/Tailwind frontend technology stack and single-page application (SPA) shell. While ADR-009 defined the technology stack, the user interface architecture required evolution to support operational security workflows.
+[ADR-009: Enterprise Security Console](ADR-009-enterprise-security-console.md) established the baseline React/Vite/Tailwind frontend technology stack and single-page application (SPA) shell. While ADR-009 defined the technology stack, the user interface architecture required evolution to support operational security workflows.
 
-[ADR-014](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-014-behavioral-intelligence-and-autonomous-agent-governance.md) through [ADR-021](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-021-multi-agent-governance.md) established the comprehensive Behavioral Intelligence architecture, including non-blocking telemetry, append-only event persistence, stateful threat detection, cumulative risk scoring, dynamic enforcement overrides, AgentSecOps incident workflows, and multi-agent governance.
+[ADR-014](ADR-014-behavioral-intelligence-and-autonomous-agent-governance.md) through [ADR-021](ADR-021-multi-agent-governance.md) established the comprehensive Behavioral Intelligence architecture, including non-blocking telemetry, append-only event persistence, stateful threat detection, cumulative risk scoring, dynamic enforcement overrides, AgentSecOps incident workflows, and multi-agent governance.
 
 The original frontend implementation (v0.9.0–v0.11.0) represented **platform inventory** (listing agents, tools, rules, events, scenarios) rather than **platform operations**. While sufficient for basic platform metadata inspection, a static inventory layout cannot support enterprise security operations, real-time alert triage, human-in-the-loop approval workflows, or forensic session replay.
 
@@ -41,12 +41,12 @@ All future frontend capabilities, page additions, component designs, and state m
 
 The architectural evolution is governed by seven core decision drivers:
 
-1. **Preserve Zero Trust Boundaries:** Maintain complete isolation between the untrusted browser client and the deterministic runtime security pipeline ([ADR-001](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-001-zero-trust-security-model.md)).
-2. **Preserve Deterministic Security:** Ensure all authorization, threat detection, risk scoring, and containment decisions remain backend-owned ([ADR-002](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-002-llm-untrusted-intent-parser.md), [ADR-004](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-004-deterministic-security-pipeline.md)).
-3. **Backend Remains Source of Truth:** Prohibit client-side calculation or fabrication of security state ([ADR-008](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-008-enterprise-management-api.md)).
-4. **Align Frontend with Behavioral Intelligence:** Map the user interface directly to the Canonical Artifact Lifecycle established in [ADR-014](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-014-behavioral-intelligence-and-autonomous-agent-governance.md).
-5. **Support Enterprise Security Operations:** Enable SOC analysts to triage alerts, review held sessions, and conduct evidence-first investigations ([ADR-020](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-020-agent-security-operations.md)).
-6. **Maintain Incremental Delivery:** Ensure all frontend changes are strictly additive with zero URL breakage ([AGENTS.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/AGENTS.md)).
+1. **Preserve Zero Trust Boundaries:** Maintain complete isolation between the untrusted browser client and the deterministic runtime security pipeline ([ADR-001](ADR-001-zero-trust-security-model.md)).
+2. **Preserve Deterministic Security:** Ensure all authorization, threat detection, risk scoring, and containment decisions remain backend-owned ([ADR-002](ADR-002-llm-untrusted-intent-parser.md), [ADR-004](ADR-004-deterministic-security-pipeline.md)).
+3. **Backend Remains Source of Truth:** Prohibit client-side calculation or fabrication of security state ([ADR-008](ADR-008-enterprise-management-api.md)).
+4. **Align Frontend with Behavioral Intelligence:** Map the user interface directly to the Canonical Artifact Lifecycle established in [ADR-014](ADR-014-behavioral-intelligence-and-autonomous-agent-governance.md).
+5. **Support Enterprise Security Operations:** Enable SOC analysts to triage alerts, review held sessions, and conduct evidence-first investigations ([ADR-020](ADR-020-agent-security-operations.md)).
+6. **Maintain Incremental Delivery:** Ensure all frontend changes are strictly additive with zero URL breakage ([AGENTS.md](../../AGENTS.md)).
 7. **Ensure Long-Term Stability:** Establish a navigation and information architecture capable of absorbing future capabilities through v1.0.0 without structural rewrites.
 
 ---
@@ -57,7 +57,7 @@ The legacy frontend architecture suffered from five operational deficits because
 
 1. **Operational Blindness:** Security analysts had no centralized work surface indicating which active sessions or behavioral threats required immediate intervention.
 2. **Investigation Fragmentation:** Security artifacts (events, findings, risk scores, enforcement decisions) were displayed in disconnected tables without causal hyperlinking, forcing analysts to manually correlate string IDs.
-3. **Approval Deadlock:** The Behavioral Enforcement Engine ([ADR-019](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-019-behavioral-enforcement-engine.md)) can hold agent sessions pending human review (`REQUIRE_APPROVAL`), but the UI lacked an interactive approval workflow for reviewing and releasing held sessions.
+3. **Approval Deadlock:** The Behavioral Enforcement Engine ([ADR-019](ADR-019-behavioral-enforcement-engine.md)) can hold agent sessions pending human review (`REQUIRE_APPROVAL`), but the UI lacked an interactive approval workflow for reviewing and releasing held sessions.
 4. **Temporal Blindness:** Static tabular layouts hid the chronological evolution of multi-step agent behavior, making temporal risk accumulation invisible.
 5. **Governance Opacity:** Analysts could not visually trace whether a containment action correctly followed policy threshold rules.
 
@@ -97,7 +97,7 @@ This architectural decision intentionally excludes the following non-goals:
 - **Does NOT redesign backend architecture:** Preserves all backend service boundaries, API contracts, and domain models.
 - **Does NOT move security decisions into the frontend:** Authorization, policy evaluation, detection, risk scoring, and response selection remain 100% backend-enforced.
 - **Does NOT introduce speculative APIs:** All specified frontend data contracts correspond strictly to existing or proposed backend ADR specifications (ADR-014–ADR-021).
-- **Does NOT replace the frontend technology stack:** Retains the React 19, TypeScript, Vite, Tailwind CSS v4, and React Router v7 stack established in [ADR-009](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-009-enterprise-security-console.md).
+- **Does NOT replace the frontend technology stack:** Retains the React 19, TypeScript, Vite, Tailwind CSS v4, and React Router v7 stack established in [ADR-009](ADR-009-enterprise-security-console.md).
 - **Does NOT redefine trust boundaries:** The client application remains completely outside the Runtime Security Boundary.
 
 ---
@@ -119,17 +119,17 @@ This evolution directly supports and extends previous Architecture Decision Reco
 
 The documentation package under `docs/architecture/enterprise-security-console/` serves as the **normative implementation reference** for this ADR:
 
-- [01-overview.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/01-overview.md) — Console Purpose, Personas, and Operational Questions.
-- [02-design-principles.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/02-design-principles.md) — The 10 Permanent Governing Design Principles.
-- [03-information-architecture.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/03-information-architecture.md) — Two-Axis IA Model.
-- [04-navigation-architecture.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/04-navigation-architecture.md) — Navigation Hierarchy and Route Structure.
-- [05-operational-model.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/05-operational-model.md) — Command Center & Action Required Queue.
-- [06-investigation-graph.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/06-investigation-graph.md) — Canonical Investigation Graph Contract.
-- [07-session-investigation-workspace.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/07-session-investigation-workspace.md) — Session Workspace Layout & Panels.
-- [08-page-specifications.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/08-page-specifications.md) — Detailed 9-Page Specifications.
-- [09-ui-component-architecture.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/09-ui-component-architecture.md) — Reusable Components & Untrusted Content Isolation.
-- [10-data-flow.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/10-data-flow.md) — Data Flow, TanStack Query, and Audited Writes.
-- [11-implementation-roadmap.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/11-implementation-roadmap.md) — Four-Phase Backend-Gated Delivery Plan.
+- [01-overview.md](../architecture/enterprise-security-console/01-overview.md) — Console Purpose, Personas, and Operational Questions.
+- [02-design-principles.md](../architecture/enterprise-security-console/02-design-principles.md) — The 10 Permanent Governing Design Principles.
+- [03-information-architecture.md](../architecture/enterprise-security-console/03-information-architecture.md) — Two-Axis IA Model.
+- [04-navigation-architecture.md](../architecture/enterprise-security-console/04-navigation-architecture.md) — Navigation Hierarchy and Route Structure.
+- [05-operational-model.md](../architecture/enterprise-security-console/05-operational-model.md) — Command Center & Action Required Queue.
+- [06-investigation-graph.md](../architecture/enterprise-security-console/06-investigation-graph.md) — Canonical Investigation Graph Contract.
+- [07-session-investigation-workspace.md](../architecture/enterprise-security-console/07-session-investigation-workspace.md) — Session Workspace Layout & Panels.
+- [08-page-specifications.md](../architecture/enterprise-security-console/08-page-specifications.md) — Detailed 9-Page Specifications.
+- [09-ui-component-architecture.md](../architecture/enterprise-security-console/09-ui-component-architecture.md) — Reusable Components & Untrusted Content Isolation.
+- [10-data-flow.md](../architecture/enterprise-security-console/10-data-flow.md) — Data Flow, TanStack Query, and Audited Writes.
+- [11-implementation-roadmap.md](../architecture/enterprise-security-console/11-implementation-roadmap.md) — Four-Phase Backend-Gated Delivery Plan.
 
 If implementation guidance in the specification files conflicts with this ADR, **this ADR takes precedence**.
 

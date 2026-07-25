@@ -15,11 +15,11 @@
 
 # Context
 
-[ADR-014: Behavioral Intelligence and Autonomous Agent Governance](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-014-behavioral-intelligence-and-autonomous-agent-governance.md) established Behavioral Intelligence as an observational subsystem operating alongside the Runtime Security Pipeline to govern multi-step autonomous agent behavior over extended execution lifespans.
+[ADR-014: Behavioral Intelligence and Autonomous Agent Governance](ADR-014-behavioral-intelligence-and-autonomous-agent-governance.md) established Behavioral Intelligence as an observational subsystem operating alongside the Runtime Security Pipeline to govern multi-step autonomous agent behavior over extended execution lifespans.
 
-[ADR-015](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-015-behavioral-telemetry-architecture.md) through [ADR-019](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-019-behavioral-enforcement-engine.md) defined non-blocking telemetry, append-only persistence, deterministic threat detection, cumulative risk scoring, and automated enforcement overrides for individual Enterprise Agents.
+[ADR-015](ADR-015-behavioral-telemetry-architecture.md) through [ADR-019](ADR-019-behavioral-enforcement-engine.md) defined non-blocking telemetry, append-only persistence, deterministic threat detection, cumulative risk scoring, and automated enforcement overrides for individual Enterprise Agents.
 
-[ADR-020: Agent Security Operations](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-020-agent-security-operations.md) established the operational control plane for SOC visibility, investigation replay, and human-in-the-loop approvals.
+[ADR-020: Agent Security Operations](ADR-020-agent-security-operations.md) established the operational control plane for SOC visibility, investigation replay, and human-in-the-loop approvals.
 
 As enterprise AI deployments scale from single-turn assistants to complex networks of collaborating autonomous agents (agent groups, delegation chains, subagent orchestration), security boundaries must extend across inter-agent interactions—establishing **Multi-Agent Governance**.
 
@@ -357,12 +357,12 @@ Deploy an LLM ("trust evaluator agent") to inspect inter-agent messages and deci
 
 ### Out of Scope
 - **Agent Task Orchestration & Planning:** Owned by external third-party agent frameworks.
-- **Telemetry Emission:** Owned by [ADR-015: Behavioral Telemetry Architecture](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-015-behavioral-telemetry-architecture.md).
-- **Event Persistence:** Owned by [ADR-016: Behavioral Event Store & Data Model](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-016-behavioral-event-store-and-data-model.md).
-- **Detection Rules:** Owned by [ADR-017: Behavioral Detection Engine](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-017-behavioral-detection-engine.md).
-- **Risk Scoring:** Owned by [ADR-018: Behavioral Risk Engine](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-018-behavioral-risk-engine.md).
-- **Single-Agent Enforcement:** Owned by [ADR-019: Behavioral Enforcement Engine](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-019-behavioral-enforcement-engine.md).
-- **SOC Operations:** Owned by [ADR-020: Agent Security Operations](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-020-agent-security-operations.md).
+- **Telemetry Emission:** Owned by [ADR-015: Behavioral Telemetry Architecture](ADR-015-behavioral-telemetry-architecture.md).
+- **Event Persistence:** Owned by [ADR-016: Behavioral Event Store & Data Model](ADR-016-behavioral-event-store-and-data-model.md).
+- **Detection Rules:** Owned by [ADR-017: Behavioral Detection Engine](ADR-017-behavioral-detection-engine.md).
+- **Risk Scoring:** Owned by [ADR-018: Behavioral Risk Engine](ADR-018-behavioral-risk-engine.md).
+- **Single-Agent Enforcement:** Owned by [ADR-019: Behavioral Enforcement Engine](ADR-019-behavioral-enforcement-engine.md).
+- **SOC Operations:** Owned by [ADR-020: Agent Security Operations](ADR-020-agent-security-operations.md).
 
 ---
 
@@ -390,13 +390,13 @@ Deploy an LLM ("trust evaluator agent") to inspect inter-agent messages and deci
 
 # Related Documents
 
-- [ADR-001: Zero Trust Security Model](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-001-zero-trust-security-model.md)
-- [ADR-002: LLM as Untrusted Intent Parser](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-002-llm-untrusted-intent-parser.md)
-- [ADR-004: Deterministic Security Pipeline](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-004-deterministic-security-pipeline.md)
-- [ADR-014: Behavioral Intelligence and Autonomous Agent Governance](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-014-behavioral-intelligence-and-autonomous-agent-governance.md)
-- [ADR-015: Behavioral Telemetry Architecture](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-015-behavioral-telemetry-architecture.md)
-- [ADR-016: Behavioral Event Store & Data Model](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-016-behavioral-event-store-and-data-model.md)
-- [ADR-017: Behavioral Detection Engine](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-017-behavioral-detection-engine.md)
-- [ADR-018: Behavioral Risk Engine](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-018-behavioral-risk-engine.md)
-- [ADR-019: Behavioral Enforcement Engine](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-019-behavioral-enforcement-engine.md)
-- [ADR-020: Agent Security Operations (AgentSecOps)](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-020-agent-security-operations.md)
+- [ADR-001: Zero Trust Security Model](ADR-001-zero-trust-security-model.md)
+- [ADR-002: LLM as Untrusted Intent Parser](ADR-002-llm-untrusted-intent-parser.md)
+- [ADR-004: Deterministic Security Pipeline](ADR-004-deterministic-security-pipeline.md)
+- [ADR-014: Behavioral Intelligence and Autonomous Agent Governance](ADR-014-behavioral-intelligence-and-autonomous-agent-governance.md)
+- [ADR-015: Behavioral Telemetry Architecture](ADR-015-behavioral-telemetry-architecture.md)
+- [ADR-016: Behavioral Event Store & Data Model](ADR-016-behavioral-event-store-and-data-model.md)
+- [ADR-017: Behavioral Detection Engine](ADR-017-behavioral-detection-engine.md)
+- [ADR-018: Behavioral Risk Engine](ADR-018-behavioral-risk-engine.md)
+- [ADR-019: Behavioral Enforcement Engine](ADR-019-behavioral-enforcement-engine.md)
+- [ADR-020: Agent Security Operations (AgentSecOps)](ADR-020-agent-security-operations.md)

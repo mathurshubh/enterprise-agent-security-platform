@@ -132,7 +132,7 @@ Defensive DTO mapping in the service layer prevents malformed backend responses 
 
 ## Relationship to Other Architecture Documents
 
-- Implements Principle 1 (Backend Is Truth), Principle 4 (Audited Operator Writes), and Principle 10 (Graceful Degradation) from [02-design-principles.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/02-design-principles.md).
+- Implements Principle 1 (Backend Is Truth), Principle 4 (Audited Operator Writes), and Principle 10 (Graceful Degradation) from [02-design-principles.md](02-design-principles.md).
 
 ---
 

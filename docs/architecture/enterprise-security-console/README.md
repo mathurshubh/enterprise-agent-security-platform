@@ -22,17 +22,17 @@ Governs all user interface architecture, components (`src/components/`), layout 
 
 | Index | Document | Description |
 |---|---|---|
-| **01** | [01-overview.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/01-overview.md) | Platform purpose, core users, operational questions, non-goals, and vision. |
-| **02** | [02-design-principles.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/02-design-principles.md) | The 10 immutable architectural principles governing every frontend decision. |
-| **03** | [03-information-architecture.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/03-information-architecture.md) | Two-axis IA model (Lifecycle Progression × Scope Granularity). |
-| **04** | [04-navigation-architecture.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/04-navigation-architecture.md) | 3-mode primary navigation (MONITOR, INVESTIGATE, GOVERN) and migration path. |
-| **05** | [05-operational-model.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/05-operational-model.md) | Work-oriented Command Center (Action Queue + Operational Awareness). |
-| **06** | [06-investigation-graph.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/06-investigation-graph.md) | The Canonical Investigation Graph as a first-class architectural contract. |
-| **07** | [07-session-investigation-workspace.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/07-session-investigation-workspace.md) | The central multi-panel forensic investigation environment. |
-| **08** | [08-page-specifications.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/08-page-specifications.md) | Detailed specifications for all 9 canonical console pages. |
-| **09** | [09-ui-component-architecture.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/09-ui-component-architecture.md) | Reusable architectural components and visual isolation of untrusted content. |
-| **10** | [10-data-flow.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/10-data-flow.md) | Client data pipeline, TanStack Query caching, SSE streaming, and audited operator writes. |
-| **11** | [11-implementation-roadmap.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/11-implementation-roadmap.md) | Four backend-gated implementation phases (v0.12.0 → v1.0.0). |
+| **01** | [01-overview.md](01-overview.md) | Platform purpose, core users, operational questions, non-goals, and vision. |
+| **02** | [02-design-principles.md](02-design-principles.md) | The 10 immutable architectural principles governing every frontend decision. |
+| **03** | [03-information-architecture.md](03-information-architecture.md) | Two-axis IA model (Lifecycle Progression × Scope Granularity). |
+| **04** | [04-navigation-architecture.md](04-navigation-architecture.md) | 3-mode primary navigation (MONITOR, INVESTIGATE, GOVERN) and migration path. |
+| **05** | [05-operational-model.md](05-operational-model.md) | Work-oriented Command Center (Action Queue + Operational Awareness). |
+| **06** | [06-investigation-graph.md](06-investigation-graph.md) | The Canonical Investigation Graph as a first-class architectural contract. |
+| **07** | [07-session-investigation-workspace.md](07-session-investigation-workspace.md) | The central multi-panel forensic investigation environment. |
+| **08** | [08-page-specifications.md](08-page-specifications.md) | Detailed specifications for all 9 canonical console pages. |
+| **09** | [09-ui-component-architecture.md](09-ui-component-architecture.md) | Reusable architectural components and visual isolation of untrusted content. |
+| **10** | [10-data-flow.md](10-data-flow.md) | Client data pipeline, TanStack Query caching, SSE streaming, and audited operator writes. |
+| **11** | [11-implementation-roadmap.md](11-implementation-roadmap.md) | Four backend-gated implementation phases (v0.12.0 → v1.0.0). |
 
 ---
 
@@ -50,14 +50,14 @@ Structuring the architecture specification into eleven distinct, specialized doc
 
 ## Dependencies
 
-- Serves as the primary specification container for [ADR-022: Enterprise Security Console Evolution](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-022-enterprise-security-console-evolution.md).
+- Serves as the primary specification container for [ADR-022: Enterprise Security Console Evolution](../../adr/ADR-022-enterprise-security-console-evolution.md).
 
 ---
 
 ## Relationship to Other Architecture Documents
 
-- Implements requirements from [ADR-001](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-001-zero-trust-security-model.md) through [ADR-021](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-021-multi-agent-governance.md).
-- Formally authorized by [ADR-022](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/adr/ADR-022-enterprise-security-console-evolution.md).
+- Implements requirements from [ADR-001](../../adr/ADR-001-zero-trust-security-model.md) through [ADR-021](../../adr/ADR-021-multi-agent-governance.md).
+- Formally authorized by [ADR-022](../../adr/ADR-022-enterprise-security-console-evolution.md).
 
 ---
 

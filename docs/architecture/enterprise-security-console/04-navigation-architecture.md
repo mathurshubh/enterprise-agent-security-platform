@@ -108,8 +108,8 @@ Restricting top-level navigation to 3 sections and 9 routes prevents navigation 
 
 ## Relationship to Other Architecture Documents
 
-- Implements Information Architecture ([03-information-architecture.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/03-information-architecture.md)).
-- Operational behavior specified in Operational Model ([05-operational-model.md](file:///Users/shubhankarmathur/projects/enterprise-agent-security-platform/docs/architecture/enterprise-security-console/05-operational-model.md)).
+- Implements Information Architecture ([03-information-architecture.md](03-information-architecture.md)).
+- Operational behavior specified in Operational Model ([05-operational-model.md](05-operational-model.md)).
 
 ---
 

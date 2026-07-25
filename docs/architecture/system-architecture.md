@@ -203,7 +203,7 @@ The platform enforces a clear separation between stateful operational logs and c
 ## 15. Future Architecture
 Planned updates to the platform include:
 *   **Agent Gateway:** Standardized API ingress routing and rate limiting.
-*   **Management Console:** A React-based interface for policy configuration, finding dashboards, and approval queues.
+*   **Enterprise Security Console:** An enterprise security operations console (ADR-009, ADR-022) for work triage, forensic session investigation, and policy governance.
 *   **Security Agent:** An advisory assistant reviewing findings and recommending policy adjustments.
 *   **Risk-Adaptive Authorization:** Dynamically restricting permissions based on aggregate agent threat scores.
 *   **Multi-Agent Governance:** Future releases will support centralized governance of multiple cooperating AI agents, preserving deterministic authorization, policy checks, and runtime threat detection across multi-agent collaborations.
