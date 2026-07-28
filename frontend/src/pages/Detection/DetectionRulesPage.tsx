@@ -1,96 +1,60 @@
 /**
- * DetectionRulesPage — Enterprise Threat Detection Registry.
+ * DetectionRulesPage — Detection Rules (/detection).
  *
- * REACT CONCEPT: "Custom Hook Consumption & Component Composition"
- * ──────────────────────────────────────────────────────────────────
- * Consumes useDetectionRules hook and wires it with the presentational
- * DetectionRuleTable component.
+ * Operational Mode: GOVERN
+ *
+ * Active threat detection rules catalog with OWASP LLM Top 10
+ * and MITRE ATLAS/ATT&CK control mappings.
+ *
+ * Refactored to use shared <MetricCard>, <PageHeader>, and <ErrorState>
+ * components extracted as part of the application shell PR.
+ *
+ * ADR-022 / 08-page-specifications.md: Page 9 — Detection Rules.
  */
 
 import { useState } from 'react'
 import { useDetectionRules } from '../../hooks/useDetectionRules'
 import DetectionRuleTable from './components/DetectionRuleTable'
+import PageHeader from '../../components/ui/PageHeader'
+import MetricCard from '../../components/common/MetricCard'
+import ErrorState from '../../components/common/ErrorState'
 
 export default function DetectionRulesPage() {
   const { rules, loading, error } = useDetectionRules()
   const [search, setSearch] = useState<string>('')
 
-  // ── Metrics Calculations ─────────────────────────────────────────
-  const totalRules = rules.length
-  
-  const categoriesCount = new Set(
-    rules.map((r) => r.category)
-  ).size
+  // ── Derived Metrics ────────────────────────────────────────────────
+  const totalRules          = rules.length
+  const categoriesCount     = new Set(rules.map((r) => r.category)).size
+  const totalControlsMapped = rules.reduce((sum, r) => sum + r.controls.length, 0)
 
-  const totalControlsMapped = rules.reduce(
-    (sum, rule) => sum + rule.controls.length,
-    0
+  // ── Client-side search filtering ───────────────────────────────────
+  const query = search.trim().toLowerCase()
+  const filteredRules = rules.filter((rule) =>
+    rule.name.toLowerCase().includes(query) ||
+    rule.category.toLowerCase().includes(query) ||
+    rule.description.toLowerCase().includes(query)
   )
-
-  const rulesStatus = 'Not Available'
-
-  // ── Client Search Filtering ──────────────────────────────────────
-  const filteredRules = rules.filter((rule) => {
-    const query = search.trim().toLowerCase()
-    return (
-      rule.name.toLowerCase().includes(query) ||
-      rule.category.toLowerCase().includes(query) ||
-      rule.description.toLowerCase().includes(query)
-    )
-  })
 
   return (
     <div className="space-y-6">
 
-      {/* ── Page Title ─────────────────────────────────────────── */}
-      <div>
-        <h2 className="text-xl font-bold text-text-primary">
-          Detection Rules
-        </h2>
-        <p className="mt-1 text-sm text-text-secondary">
-          Audit active security detection rules and their standard industry framework mappings.
-        </p>
-      </div>
+      <PageHeader
+        title="Detection Rules"
+        description="Active security detection rules and their industry framework mappings (OWASP LLM Top 10, MITRE ATLAS, MITRE ATT&CK)."
+      />
 
-      {/* ── Operator Error Indicator ───────────────────────────── */}
-      {error && (
-        <div className="bg-status-error/10 border border-status-error/30 rounded-xl p-4">
-          <div className="text-xs font-semibold text-status-error uppercase tracking-wider">
-            Connection Failure
-          </div>
-          <p className="text-xs text-text-secondary mt-1 leading-relaxed">
-            {error}
-          </p>
-        </div>
-      )}
+      {error && <ErrorState message={error} />}
 
-      {/* ── Summary Cards Grid ─────────────────────────────────── */}
+      {/* ── Summary Metrics ───────────────────────────────────────── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          { label: 'Total Rules', value: totalRules },
-          { label: 'Categories',  value: categoriesCount },
-          { label: 'Controls',    value: totalControlsMapped },
-          { label: 'Status',      value: rulesStatus },
-        ].map((card) => (
-          <div
-            key={card.label}
-            className="bg-bg-surface border border-border-secondary rounded-xl p-5 flex flex-col justify-between min-h-[110px]"
-          >
-            <div className="text-xs font-medium text-text-muted uppercase tracking-wide">
-              {card.label}
-            </div>
-            {loading ? (
-              <div className="mt-2 h-8 w-16 bg-border-primary/40 rounded animate-pulse" />
-            ) : (
-              <div className="mt-2 text-2xl font-bold text-text-primary">
-                {card.value}
-              </div>
-            )}
-          </div>
-        ))}
+        <MetricCard label="Total Rules"  value={totalRules}          loading={loading} />
+        <MetricCard label="Categories"   value={categoriesCount}     loading={loading} />
+        <MetricCard label="Controls"     value={totalControlsMapped} loading={loading} />
+        <MetricCard label="Status"       value="Not Available"       loading={loading} />
       </div>
 
-      {/* ── Search Bar ─────────────────────────────────────────── */}
+      {/* ── Search ───────────────────────────────────────────────── */}
       <div className="flex items-center gap-4">
         <div className="relative flex-1 max-w-md">
           <input
@@ -105,10 +69,11 @@ export default function DetectionRulesPage() {
         </div>
       </div>
 
-      {/* ── Rule Table / Loading / Empty Container ────────────── */}
+      {/* ── Table ────────────────────────────────────────────────── */}
       <div className="bg-bg-surface border border-border-secondary rounded-xl overflow-hidden">
         <DetectionRuleTable rules={filteredRules} loading={loading} />
       </div>
+
     </div>
   )
 }

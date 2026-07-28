@@ -1,71 +1,41 @@
 /**
- * AppLayout — Application shell that wraps every page.
+ * AppLayout — Application shell wrapping every console page.
  *
- * REACT CONCEPT: "Layout" with "Outlet"
- * ──────────────────────────────────────────────────────────────────
- * In React Router, a "layout route" is a parent route that renders
- * shared UI (sidebar, header) around its child routes.  The child
- * route's component is injected at the <Outlet /> position.
+ * Composes Sidebar + Header + main content Outlet.
+ * The sidebar is fixed at w-60 (240px); the main area fills the remainder.
  *
- * This is conceptually similar to template inheritance in Jinja2:
- *   - The layout is the base template.
- *   - <Outlet /> is the {% block content %} placeholder.
- *   - Each page fills in the content block.
+ * Page title resolution delegates to resolvePageTitle() from the shared
+ * navigation config (src/config/navigation.ts), ensuring the Header title
+ * always matches the sidebar label — eliminating drift between the two.
  *
- * REACT CONCEPT: "useLocation" hook
- * ──────────────────────────────────────────────────────────────────
- * Hooks are functions that let components "hook into" React features
- * like state, context, or — in this case — the current URL.
+ * Breadcrumbs: Intentionally deferred. Breadcrumbs are meaningful only in
+ * the multi-panel Session Investigation Workspace (/sessions/:id) introduced
+ * in Phase 3 (v0.14.0). Top-level routes have no nesting depth that
+ * warrants breadcrumbs. This deferral is documented in the Phase 1 PR.
  *
- * `useLocation()` returns the current browser URL.  We use it to
- * derive the page title for the Header.  This is a read-only
- * operation — the layout never modifies routing state.
- *
- * ADR-009 COMPLIANCE:
- *   - The layout composes Sidebar + Header + Outlet.
- *   - It is purely structural — no business logic.
- *   - The sidebar is fixed-width (15rem / 240px).
- *   - The main content area fills the remaining viewport.
+ * ADR-009 / ADR-022 compliance:
+ *   - Purely structural — no business logic, no API calls.
+ *   - All 9 canonical routes are covered via resolvePageTitle.
  */
 
 import { Outlet, useLocation } from 'react-router-dom'
 import Sidebar from '../components/layout/Sidebar'
 import Header from '../components/layout/Header'
-
-/**
- * Maps URL paths to human-readable page titles.
- *
- * TYPESCRIPT CONCEPT: "Record<K, V>"
- * ──────────────────────────────────────────────────────────────────
- * Record<string, string> is a TypeScript utility type meaning
- * "an object where both keys and values are strings".  It's like
- * Dict[str, str] in Python's typing module.
- */
-const pageTitles: Record<string, string> = {
-  '/':          'Dashboard',
-  '/agents':    'Agents',
-  '/tools':     'Tools',
-  '/detection': 'Detection Rules',
-  '/audit':     'Audit Timeline',
-}
+import { resolvePageTitle } from '../config/navigation'
 
 export default function AppLayout() {
   const location = useLocation()
-  const title = pageTitles[location.pathname] ?? 'Enterprise Security Console'
+  const title = resolvePageTitle(location.pathname)
 
   return (
     <div className="flex min-h-screen">
       <Sidebar />
 
-      {/* Main area is offset by the sidebar width (w-60 = 15rem) */}
-      <div className="flex flex-col flex-1 ml-60">
+      {/* Main area offset by sidebar width (w-60 = 15rem) */}
+      <div className="flex flex-col flex-1 ml-60 min-h-screen">
         <Header title={title} />
 
-        {/*
-          <Outlet /> is where React Router injects the child route's
-          page component.  When the URL is "/agents", the AgentsPage
-          component renders here.
-        */}
+        {/* Page content — Outlet injects the matched child route component */}
         <main className="flex-1 p-6 overflow-y-auto">
           <Outlet />
         </main>

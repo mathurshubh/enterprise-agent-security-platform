@@ -1,82 +1,56 @@
 /**
- * SessionsPage — Enterprise Chronological Sessions Management.
+ * SessionsPage — Sessions list (/sessions).
  *
- * REACT CONCEPT: "Custom Hook Consumption & Component Composition"
- * ──────────────────────────────────────────────────────────────────
- * Consumes useSessions hook and wires it with the presentational SessionTable.
+ * Operational Mode: INVESTIGATE
+ *
+ * Promoted from orphaned route to primary sidebar navigation in Phase 1
+ * per ADR-022 / 11-implementation-roadmap.md.
+ *
+ * Refactored to use shared <MetricCard>, <PageHeader>, and <ErrorState>
+ * components extracted as part of the application shell PR.
+ *
+ * ADR-022 / 08-page-specifications.md: Page 3 — Sessions List.
  */
 
 import { useState } from 'react'
 import { useSessions } from '../../hooks/useSessions'
 import SessionTable from './components/SessionTable'
+import PageHeader from '../../components/ui/PageHeader'
+import MetricCard from '../../components/common/MetricCard'
+import ErrorState from '../../components/common/ErrorState'
 
 export default function SessionsPage() {
   const { sessions, loading, error } = useSessions()
   const [search, setSearch] = useState<string>('')
 
-  // ── Metrics Calculations ─────────────────────────────────────────
+  // ── Derived Metrics ────────────────────────────────────────────────
   const totalSessions = sessions.length
-  const uniqueAgents = new Set(sessions.map((s) => s.agentId)).size
+  const uniqueAgents  = new Set(sessions.map((s) => s.agentId)).size
 
-  // ── Client Search Filtering ──────────────────────────────────────
+  // ── Client-side search filtering ───────────────────────────────────
   const query = search.trim().toLowerCase()
-  const filteredSessions = sessions.filter((session) => {
-    return (
-      session.id.toLowerCase().includes(query) ||
-      session.agentId.toLowerCase().includes(query)
-    )
-  })
+  const filteredSessions = sessions.filter((session) =>
+    session.id.toLowerCase().includes(query) ||
+    session.agentId.toLowerCase().includes(query)
+  )
 
   return (
     <div className="space-y-6">
 
-      {/* ── Page Title ─────────────────────────────────────────── */}
-      <div>
-        <h2 className="text-xl font-bold text-text-primary">
-          Sessions
-        </h2>
-        <p className="mt-1 text-sm text-text-secondary">
-          Active agent execution sessions registered within the platform runtime.
-        </p>
-      </div>
+      <PageHeader
+        title="Sessions"
+        description="Active and historical agent execution sessions registered within the platform runtime."
+      />
 
-      {/* ── Operator Error Indicator ───────────────────────────── */}
-      {error && (
-        <div className="bg-status-error/10 border border-status-error/30 rounded-xl p-4">
-          <div className="text-xs font-semibold text-status-error uppercase tracking-wider">
-            Connection Failure
-          </div>
-          <p className="text-xs text-text-secondary mt-1 leading-relaxed">
-            {error}
-          </p>
-        </div>
-      )}
+      {error && <ErrorState message={error} />}
 
-      {/* ── Summary Cards Grid ─────────────────────────────────── */}
+      {/* ── Summary Metrics ───────────────────────────────────────── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl">
-        {[
-          { label: 'Total Sessions', value: totalSessions },
-          { label: 'Unique Agents',  value: uniqueAgents },
-        ].map((card) => (
-          <div
-            key={card.label}
-            className="bg-bg-surface border border-border-secondary rounded-xl p-5 flex flex-col justify-between min-h-[110px]"
-          >
-            <div className="text-xs font-medium text-text-muted uppercase tracking-wide">
-              {card.label}
-            </div>
-            {loading ? (
-              <div className="mt-2 h-8 w-16 bg-border-primary/40 rounded animate-pulse" />
-            ) : (
-              <div className="mt-2 text-2xl font-bold text-text-primary">
-                {card.value}
-              </div>
-            )}
-          </div>
-        ))}
+        <MetricCard label="Total Sessions" value={totalSessions} loading={loading} />
+        <MetricCard label="Unique Agents"  value={uniqueAgents}  loading={loading} />
       </div>
 
-      {/* ── Search Bar ─────────────────────────────────────────── */}
+      {/* ── Search ───────────────────────────────────────────────── */}
       <div className="flex items-center gap-4">
         <div className="relative flex-1 max-w-md">
           <input
@@ -91,10 +65,11 @@ export default function SessionsPage() {
         </div>
       </div>
 
-      {/* ── Table Container ────────────────────────────────────── */}
+      {/* ── Table ────────────────────────────────────────────────── */}
       <div className="bg-bg-surface border border-border-secondary rounded-xl overflow-hidden">
         <SessionTable sessions={filteredSessions} loading={loading} />
       </div>
+
     </div>
   )
 }

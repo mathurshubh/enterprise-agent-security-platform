@@ -1,44 +1,41 @@
 /**
  * App — Root component and route configuration.
  *
- * REACT CONCEPT: "Component Tree"
- * ──────────────────────────────────────────────────────────────────
- * Every React application is a tree of components.  The root
- * component (App) sits at the top and defines the overall
- * structure.  Here, App configures the router which then decides
- * which page component to render based on the current URL.
+ * Implements the 9 canonical routes defined in ADR-022 and
+ * docs/architecture/enterprise-security-console/04-navigation-architecture.md.
  *
- * Think of it like a FastAPI application where `app = FastAPI()`
- * is the root and `app.include_router(...)` registers routes.
+ * Route sections:
+ *   MONITOR    — / (Command Center), /approvals (Approval Queue)
+ *   INVESTIGATE — /sessions, /findings, /audit
+ *   GOVERN     — /agents, /tools, /detection, /scenarios
  *
- * REACT ROUTER CONCEPT: "BrowserRouter" and "Routes"
- * ──────────────────────────────────────────────────────────────────
- * BrowserRouter enables client-side URL handling using the browser's
- * History API (no full page reloads).
+ * Migration from v0.11.0:
+ *   - All existing paths preserved (zero URL breakage).
+ *   - /sessions and /scenarios promoted to primary sidebar navigation.
+ *   - /approvals and /findings added as new Phase 2-gated placeholder routes.
  *
- * Routes / Route define the URL-to-component mapping:
- *   path="/"         → DashboardPage
- *   path="/agents"   → AgentsPage
- *   etc.
- *
- * The layout route (path="/") wraps all children in AppLayout,
- * which provides the sidebar + header.  This is equivalent to
- * template inheritance in server-side frameworks.
- *
- * ADR-009 COMPLIANCE:
- *   - Routes map 1:1 to ADR-009 Initial Pages.
- *   - No runtime execution routes exist.
- *   - No authentication guards are implemented yet.
+ * ADR-022 compliance:
+ *   - Routes map 1:1 to canonical navigation architecture.
+ *   - No client-side security logic.
+ *   - No authentication guards implemented yet.
  */
 
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import AppLayout from './layouts/AppLayout'
+
+// MONITOR
 import DashboardPage from './pages/Dashboard/DashboardPage'
+import ApprovalQueuePage from './pages/Approvals/ApprovalQueuePage'
+
+// INVESTIGATE
+import SessionsPage from './pages/Sessions/SessionsPage'
+import FindingsPage from './pages/Findings/FindingsPage'
+import AuditTimelinePage from './pages/Audit/AuditTimelinePage'
+
+// GOVERN
 import AgentsPage from './pages/Agents/AgentsPage'
 import ToolsPage from './pages/Tools/ToolsPage'
 import DetectionRulesPage from './pages/Detection/DetectionRulesPage'
-import AuditTimelinePage from './pages/Audit/AuditTimelinePage'
-import SessionsPage from './pages/Sessions/SessionsPage'
 import ScenariosPage from './pages/Scenarios/ScenariosPage'
 
 export default function App() {
@@ -50,13 +47,22 @@ export default function App() {
           contains an <Outlet /> where child routes are injected.
         */}
         <Route element={<AppLayout />}>
+
+          {/* MONITOR */}
           <Route index              element={<DashboardPage />} />
+          <Route path="/approvals"  element={<ApprovalQueuePage />} />
+
+          {/* INVESTIGATE */}
+          <Route path="/sessions"   element={<SessionsPage />} />
+          <Route path="/findings"   element={<FindingsPage />} />
+          <Route path="/audit"      element={<AuditTimelinePage />} />
+
+          {/* GOVERN */}
           <Route path="/agents"     element={<AgentsPage />} />
           <Route path="/tools"      element={<ToolsPage />} />
           <Route path="/detection"  element={<DetectionRulesPage />} />
-          <Route path="/audit"      element={<AuditTimelinePage />} />
-          <Route path="/sessions"   element={<SessionsPage />} />
           <Route path="/scenarios"  element={<ScenariosPage />} />
+
         </Route>
       </Routes>
     </BrowserRouter>

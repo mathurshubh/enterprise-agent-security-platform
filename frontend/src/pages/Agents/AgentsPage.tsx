@@ -1,97 +1,65 @@
 /**
- * AgentsPage — Enterprise Agent Governance Console.
+ * AgentsPage — Agent Registry (/agents).
  *
- * REACT CONCEPT: "Custom Hook Consumption & Component Composition"
- * ──────────────────────────────────────────────────────────────────
- * Consumes useAgents hook and wires it with the presentational AgentTable.
+ * Operational Mode: GOVERN
+ *
+ * Governance interface for registered Enterprise Agent identities,
+ * risk tiers, and approved tool permissions.
+ *
+ * Refactored to use shared <MetricCard>, <PageHeader>, and <ErrorState>
+ * components extracted as part of the application shell PR.
+ *
+ * ADR-022 / 08-page-specifications.md: Page 7 — Agent Registry.
  */
 
 import { useState } from 'react'
 import { useAgents } from '../../hooks/useAgents'
 import AgentTable from './components/AgentTable'
+import PageHeader from '../../components/ui/PageHeader'
+import MetricCard from '../../components/common/MetricCard'
+import ErrorState from '../../components/common/ErrorState'
 
 export default function AgentsPage() {
   const { agents, loading, error } = useAgents()
   const [search, setSearch] = useState<string>('')
 
-  // ── Metrics Calculations ─────────────────────────────────────────
-  const totalAgents = agents.length
-  
-  const healthyAgents = agents.filter(
-    (a) => a.status === 'ACTIVE'
-  ).length
-
+  // ── Derived Metrics ────────────────────────────────────────────────
+  const totalAgents   = agents.length
+  const healthyAgents = agents.filter((a) => a.status === 'ACTIVE').length
   const highRiskAgents = agents.filter(
     (a) => a.riskLevel === 'HIGH' || a.riskLevel === 'CRITICAL'
   ).length
-
   const offlineAgents = agents.filter(
     (a) => a.status === 'DISABLED' || a.status === 'SUSPENDED'
   ).length
 
-  // ── Client Search Filtering ──────────────────────────────────────
-  const filteredAgents = agents.filter((agent) => {
-    // Trims whitespace and normalizes query to lower case
-    const query = search.trim().toLowerCase()
-    return (
-      agent.name.toLowerCase().includes(query) ||
-      agent.id.toLowerCase().includes(query) ||
-      agent.owner.toLowerCase().includes(query)
-    )
-  })
+  // ── Client-side search filtering ───────────────────────────────────
+  const query = search.trim().toLowerCase()
+  const filteredAgents = agents.filter((agent) =>
+    agent.name.toLowerCase().includes(query) ||
+    agent.id.toLowerCase().includes(query) ||
+    agent.owner.toLowerCase().includes(query)
+  )
 
   return (
     <div className="space-y-6">
 
-      {/* ── Page Title ─────────────────────────────────────────── */}
-      <div>
-        <h2 className="text-xl font-bold text-text-primary">
-          Agent Inventory
-        </h2>
-        <p className="mt-1 text-sm text-text-secondary">
-          Audit and govern autonomous AI agent instances registered in the enterprise environment.
-        </p>
-      </div>
+      <PageHeader
+        title="Agent Registry"
+        description="Audit and govern autonomous AI agent instances registered in the enterprise environment."
+      />
 
-      {/* ── Operator Error Indicator ───────────────────────────── */}
-      {error && (
-        <div className="bg-status-error/10 border border-status-error/30 rounded-xl p-4">
-          <div className="text-xs font-semibold text-status-error uppercase tracking-wider">
-            Connection Failure
-          </div>
-          <p className="text-xs text-text-secondary mt-1 leading-relaxed">
-            {error}
-          </p>
-        </div>
-      )}
+      {error && <ErrorState message={error} />}
 
-      {/* ── Summary Cards Grid ─────────────────────────────────── */}
+      {/* ── Summary Metrics ───────────────────────────────────────── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          { label: 'Total Agents',     value: totalAgents },
-          { label: 'Healthy Agents',   value: healthyAgents },
-          { label: 'High Risk Agents', value: highRiskAgents },
-          { label: 'Offline Agents',   value: offlineAgents },
-        ].map((card) => (
-          <div
-            key={card.label}
-            className="bg-bg-surface border border-border-secondary rounded-xl p-5 flex flex-col justify-between min-h-[110px]"
-          >
-            <div className="text-xs font-medium text-text-muted uppercase tracking-wide">
-              {card.label}
-            </div>
-            {loading ? (
-              <div className="mt-2 h-8 w-16 bg-border-primary/40 rounded animate-pulse" />
-            ) : (
-              <div className="mt-2 text-2xl font-bold text-text-primary">
-                {card.value}
-              </div>
-            )}
-          </div>
-        ))}
+        <MetricCard label="Total Agents"     value={totalAgents}   loading={loading} />
+        <MetricCard label="Healthy Agents"   value={healthyAgents}  loading={loading} />
+        <MetricCard label="High Risk Agents" value={highRiskAgents} loading={loading} />
+        <MetricCard label="Offline Agents"   value={offlineAgents}  loading={loading} />
       </div>
 
-      {/* ── Search Bar ─────────────────────────────────────────── */}
+      {/* ── Search ───────────────────────────────────────────────── */}
       <div className="flex items-center gap-4">
         <div className="relative flex-1 max-w-md">
           <input
@@ -106,10 +74,11 @@ export default function AgentsPage() {
         </div>
       </div>
 
-      {/* ── Agent Table / Loading / Empty Container ────────────── */}
+      {/* ── Table ────────────────────────────────────────────────── */}
       <div className="bg-bg-surface border border-border-secondary rounded-xl overflow-hidden">
         <AgentTable agents={filteredAgents} loading={loading} />
       </div>
+
     </div>
   )
 }

@@ -1,116 +1,68 @@
 /**
- * ScenariosPage — Scenarios library management page.
+ * ScenariosPage — Scenario Library (/scenarios).
  *
- * REACT CONCEPT: "State Derivation & Performance" (useMemo)
- * ──────────────────────────────────────────────────────────────────
- * Wraps calculated inventory counts (Benign, Attack, and Critical scenarios)
- * to avoid CPU recalculation cycles.
+ * Operational Mode: GOVERN
  *
- * Hoists normalized search query definitions outside array loop iterators.
+ * Promoted from orphaned route to primary sidebar navigation in Phase 1
+ * per ADR-022 / 11-implementation-roadmap.md.
+ *
+ * Library of security validation benchmarks and prompt injection /
+ * data exfiltration attack scenarios per ADR-010.
+ *
+ * Refactored to use shared <MetricCard>, <PageHeader>, and <ErrorState>
+ * components extracted as part of the application shell PR.
+ *
+ * ADR-022 / 08-page-specifications.md: Page 10 — Scenario Library.
  */
 
 import { useState, useMemo } from 'react'
 import { useScenarios } from '../../hooks/useScenarios'
 import ScenarioTable from './components/ScenarioTable'
+import PageHeader from '../../components/ui/PageHeader'
+import MetricCard from '../../components/common/MetricCard'
+import ErrorState from '../../components/common/ErrorState'
 
 export default function ScenariosPage() {
   const { scenarios, loading, error } = useScenarios()
   const [search, setSearch] = useState<string>('')
 
-  // ── Metrics Calculations ─────────────────────────────────────────
-  const totalScenarios = scenarios.length
+  // ── Derived Metrics ────────────────────────────────────────────────
+  const totalScenarios    = scenarios.length
+  const benignScenarios   = useMemo(() => scenarios.filter((s) => s.category === 'BENIGN').length, [scenarios])
+  const attackScenarios   = useMemo(() => scenarios.filter((s) => s.category !== 'BENIGN').length, [scenarios])
+  const criticalScenarios = useMemo(() => scenarios.filter((s) => s.severity === 'CRITICAL').length, [scenarios])
 
-  const benignScenarios = useMemo(
-    () => scenarios.filter((s) => s.category === 'BENIGN').length,
-    [scenarios]
-  )
-
-  const attackScenarios = useMemo(
-    () => scenarios.filter((s) => s.category !== 'BENIGN').length,
-    [scenarios]
-  )
-
-  const criticalScenarios = useMemo(
-    () => scenarios.filter((s) => s.severity === 'CRITICAL').length,
-    [scenarios]
-  )
-
-  // ── Client Search Filtering ──────────────────────────────────────
+  // ── Client-side search filtering ───────────────────────────────────
   const query = search.trim().toLowerCase()
-  const filteredScenarios = scenarios.filter((scenario) => {
-    return (
-      scenario.name.toLowerCase().includes(query) ||
-      scenario.id.toLowerCase().includes(query) ||
-      scenario.description.toLowerCase().includes(query)
-    )
-  })
-
-  // ── Metrics Cards Configuration ──────────────────────────────────
-  const summaryCards = [
-    { label: 'Total Scenarios',    value: totalScenarios },
-    { label: 'Benign Scenarios',   value: benignScenarios },
-    { label: 'Attack Scenarios',   value: attackScenarios },
-    { label: 'Critical Scenarios', value: criticalScenarios },
-  ]
+  const filteredScenarios = scenarios.filter((scenario) =>
+    scenario.name.toLowerCase().includes(query) ||
+    scenario.id.toLowerCase().includes(query) ||
+    scenario.description.toLowerCase().includes(query)
+  )
 
   return (
     <div className="space-y-6">
 
-      {/* ── Page Title ─────────────────────────────────────────── */}
-      <div>
-        <h2 className="text-xl font-bold text-text-primary">
-          Scenario Library
-        </h2>
-        <p className="mt-1 text-sm text-text-secondary">
-          Configure and inspect simulated security scenarios for policy validation.
-        </p>
-      </div>
+      <PageHeader
+        title="Scenario Library"
+        description="Security validation benchmarks and attack scenarios for policy and detection rule verification."
+      />
 
-      {/* ── Error Indicator ────────────────────────────────────── */}
-      {error && (
-        <div className="bg-status-error/10 border border-status-error/30 rounded-xl p-4 flex flex-col gap-1.5">
-          <div className="text-xs font-semibold text-status-error uppercase tracking-wider">
-            Connection Error
-          </div>
-          <p className="text-xs text-text-secondary leading-relaxed">
-            {error}
-          </p>
-          <div className="text-[10px] text-text-muted mt-1">
-            Ensure the Enterprise Agent Security Platform backend service is running and accessible at the management port.
-          </div>
-        </div>
-      )}
+      {error && <ErrorState message={error} />}
 
-      {/* ── Metrics Cards Grid ─────────────────────────────────── */}
+      {/* ── Summary Metrics ───────────────────────────────────────── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {summaryCards.map((card) => (
-          <div
-            key={card.label}
-            className="bg-bg-surface border border-border-secondary rounded-xl p-5 flex flex-col justify-between min-h-[110px]"
-          >
-            <div className="text-xs font-medium text-text-muted uppercase tracking-wide">
-              {card.label}
-            </div>
-            {loading ? (
-              <div className="mt-2 h-8 w-24 bg-border-primary/40 rounded animate-pulse" />
-            ) : (
-              <div className="mt-2 text-2xl font-bold text-text-primary">
-                {card.value}
-              </div>
-            )}
-          </div>
-        ))}
+        <MetricCard label="Total Scenarios"    value={totalScenarios}    loading={loading} />
+        <MetricCard label="Benign Scenarios"   value={benignScenarios}   loading={loading} />
+        <MetricCard label="Attack Scenarios"   value={attackScenarios}   loading={loading} />
+        <MetricCard label="Critical Scenarios" value={criticalScenarios} loading={loading} />
       </div>
 
-      {/* ── Search Input & Presentational Table ─────────────────── */}
+      {/* ── Search + Table ────────────────────────────────────────── */}
       <div className="bg-bg-surface border border-border-secondary rounded-xl overflow-hidden">
-        
-        {/* Search header banner */}
         <div className="p-4 border-b border-border-secondary">
           <div className="max-w-md">
-            <label htmlFor="scenario-search" className="sr-only">
-              Search scenarios
-            </label>
+            <label htmlFor="scenario-search" className="sr-only">Search scenarios</label>
             <input
               id="scenario-search"
               type="text"
@@ -121,12 +73,7 @@ export default function ScenariosPage() {
             />
           </div>
         </div>
-
-        <ScenarioTable
-          scenarios={filteredScenarios}
-          loading={loading}
-        />
-
+        <ScenarioTable scenarios={filteredScenarios} loading={loading} />
       </div>
 
     </div>
