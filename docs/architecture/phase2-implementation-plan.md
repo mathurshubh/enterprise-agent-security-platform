@@ -9,7 +9,16 @@ Phase 2 transforms the platform from an application shell into an operational **
 
 ---
 
-## 1. Implementation Principles & Architectural Constraints
+## 1. Development History & PR Number Alignment
+
+- **PR #66**: Phase 2 Implementation Planning (Merged)
+- **PR #67**: Development Workflow & Local Development Documentation (Merged)
+- **PR #68**: Architecture Baseline & Governance (Merged — Architecture Frozen)
+- **PR #69+**: Implementation Phase (PR #69 through PR #76)
+
+---
+
+## 2. Implementation Principles & Architectural Constraints
 
 1. **Backend is the Source of Truth**: All security evaluations, telemetry records, detection rule firings, risk scores, and enforcement actions originate from deterministic Python backend services.
 2. **LLM as Untrusted Intent Parser**: The LLM converts natural language into structured `ToolInvocation` objects. No security logic, policy evaluation, or risk assessment occurs inside LLM prompts or client-side code.
@@ -17,12 +26,12 @@ Phase 2 transforms the platform from an application shell into an operational **
 4. **Zero Trust & Least Privilege**: Access to tools and capabilities is denied by default unless permitted by explicit policy. Unsafe parameter patterns trigger immediate session holding (`HOLD_SESSION`).
 5. **Append-Only Behavioral Telemetry**: The `BehavioralEventStore` is append-only and records immutable runtime facts (`ToolInvocationStarted`, `PolicyEvaluated`, `ToolExecutionCompleted`). It **never** stores derived entities (`Findings`, `RiskAssessments`, `EnforcementDecisions`, `Approvals`).
 6. **No Frontend Security Logic**: Frontend components render backend state and invoke REST endpoints. No authorization or security decisioning occurs in React components.
-7. **Small Reviewable PRs**: Implementation proceeds incrementally across 8 reviewable PRs (PR #66 to PR #73).
+7. **Small Reviewable PRs**: Implementation proceeds incrementally across reviewable PRs (PR #69 to PR #76).
 8. **Documentation Evolves with Implementation**: Code and documentation are updated in lockstep within each PR.
 
 ---
 
-## 2. Capability Pipeline
+## 3. Capability Pipeline
 
 The platform capability pipeline operates strictly in the following sequence:
 
@@ -70,45 +79,45 @@ The platform capability pipeline operates strictly in the following sequence:
 
 ---
 
-## 3. Dependency Matrix (Backend Services → Frontend Enablement)
+## 4. Dependency Matrix (Backend Services → Frontend Enablement)
 
 This matrix establishes the strict dependency rules governing frontend enablement. A frontend capability cannot be built until its enabling backend service and REST API are fully implemented and verified.
 
 | Backend Capability | Management API Endpoint | Enabled Frontend Surface | Target PR |
 |---|---|---|---|
-| **Consolidated Tool Registry** | `GET /api/v1/tools` | Tool Registry (`/tools`) | **PR #66** |
-| **Scenario Execution Engine** | `GET /api/v1/scenarios` | Scenario Library (`/scenarios`) | **PR #66** |
-| **Frontend Server State Infra** | Client REST Client (`apiClient.ts`) | TanStack Query Caching & Shell | **PR #67** |
-| **Behavioral Event Store** | `GET /api/v1/telemetry/events` | Audit Trail (`/audit`) | **PR #68** |
-| **Behavioral Detection Engine** | `GET /api/v1/findings`, `GET /api/v1/findings/{id}` | Findings Console (`/findings`) | **PR #69** |
-| **Dynamic Behavioral Risk Engine**| `GET /api/v1/risk/state/{session_id}` | Dynamic Risk Badges on Console Pages | **PR #70** |
-| **Behavioral Enforcement Engine** | `GET /api/v1/approvals/pending`, `POST release/reject` | Approval Queue (`/approvals`) & Zone 1 | **PR #71** |
-| **Session Events Stream** | `GET /api/v1/sessions/{id}/events` | Session Detail & Timeline Replay (`/sessions/:id`) | **PR #72** |
-| **Integrated Platform Core** | All REST Management API Endpoints | Enterprise Security Console `v0.13.0` | **PR #73** |
+| **Consolidated Tool Registry** | `GET /api/v1/tools` | Tool Registry (`/tools`) | **PR #69** |
+| **Scenario Execution Engine** | `GET /api/v1/scenarios` | Scenario Library (`/scenarios`) | **PR #69** |
+| **Frontend Server State Infra** | Client REST Client (`apiClient.ts`) | TanStack Query Caching & Shell | **PR #70** |
+| **Behavioral Event Store** | `GET /api/v1/telemetry/events` | Audit Trail (`/audit`) | **PR #71** |
+| **Behavioral Detection Engine** | `GET /api/v1/findings`, `GET /api/v1/findings/{id}` | Findings Console (`/findings`) | **PR #72** |
+| **Dynamic Behavioral Risk Engine**| `GET /api/v1/risk/state/{session_id}` | Dynamic Risk Badges on Console Pages | **PR #73** |
+| **Behavioral Enforcement Engine** | `GET /api/v1/approvals/pending`, `POST release/reject` | Approval Queue (`/approvals`) & Zone 1 | **PR #74** |
+| **Session Events Stream** | `GET /api/v1/sessions/{id}/events` | Session Detail & Timeline Replay (`/sessions/:id`) | **PR #75** |
+| **Integrated Platform Core** | All REST Management API Endpoints | Enterprise Security Console `v0.13.0` | **PR #76** |
 
 ---
 
-## 4. ADR Implementation Tracker (v0.13.0)
+## 5. ADR Implementation Tracker (v0.13.0)
 
 | ADR | Title | Current Status | Target PR | Dependencies | Blocking Issues | Documentation Status |
 |---|---|---|---|---|---|---|
-| **ADR-014** | Behavioral Intelligence & Autonomous Agent Governance | Proposed | PR #73 | PRs #66–#72 | None | Up to date |
-| **ADR-015** | Behavioral Telemetry Architecture | Proposed | PR #68 | PR #66 | None | Up to date |
-| **ADR-016** | Behavioral Event Store and Data Model | Proposed | PR #68 | PR #68 | None | Up to date |
-| **ADR-017** | Behavioral Detection Engine | Proposed | PR #69 | PR #68 | None | Up to date |
-| **ADR-018** | Behavioral Risk Engine | Proposed | PR #70 | PR #69 | None | Up to date |
-| **ADR-019** | Behavioral Enforcement Engine | Proposed | PR #71 | PR #70 | None | Up to date |
-| **ADR-020** | Agent Security Operations | Proposed | PR #71, PR #72 | PR #70 | None | Up to date |
-| **ADR-021** | Multi-Agent Governance | Proposed | Phase 3 | PR #73 | None | Up to date |
-| **ADR-022** | Enterprise Security Console Evolution | Implemented (Phase 1) | PR #73 | PRs #66–#72 | None | Up to date |
+| **ADR-014** | Behavioral Intelligence & Autonomous Agent Governance | Proposed | PR #76 | PRs #69–#75 | None | Up to date |
+| **ADR-015** | Behavioral Telemetry Architecture | Proposed | PR #71 | PR #69 | None | Up to date |
+| **ADR-016** | Behavioral Event Store and Data Model | Proposed | PR #71 | PR #71 | None | Up to date |
+| **ADR-017** | Behavioral Detection Engine | Proposed | PR #72 | PR #71 | None | Up to date |
+| **ADR-018** | Behavioral Risk Engine | Proposed | PR #73 | PR #72 | None | Up to date |
+| **ADR-019** | Behavioral Enforcement Engine | Proposed | PR #74 | PR #73 | None | Up to date |
+| **ADR-020** | Agent Security Operations | Proposed | PR #74, PR #75 | PR #73 | None | Up to date |
+| **ADR-021** | Multi-Agent Governance | Proposed | Phase 3 | PR #76 | None | Up to date |
+| **ADR-022** | Enterprise Security Console Evolution | Implemented (Phase 1) | PR #76 | PRs #69–#75 | None | Up to date |
 
 ---
 
-## 5. Detailed PR-by-PR Implementation Checklists
+## 6. Detailed PR-by-PR Implementation Checklists
 
 ---
 
-### PR #66: Core Runtime Cleanup & Registry Synchronization
+### PR #69: Core Runtime Cleanup & Registry Synchronization
 
 #### Implementation Order
 1. Refactor `ToolRegistry` (`app/registry/tool_registry.py`) to delegate metadata lookup to `ToolService`.
@@ -132,7 +141,7 @@ This matrix establishes the strict dependency rules governing frontend enablemen
 
 ---
 
-### PR #67: Enterprise Frontend Infrastructure & Server State Management
+### PR #70: Enterprise Frontend Infrastructure & Server State Management
 
 #### Implementation Order
 1. Install `@tanstack/react-query` in `frontend/`.
@@ -158,7 +167,7 @@ This matrix establishes the strict dependency rules governing frontend enablemen
 
 ---
 
-### PR #68: Behavioral Telemetry Pipeline & Event Store (Vertical Slice 1)
+### PR #71: Behavioral Telemetry Pipeline & Event Store (Vertical Slice 1)
 
 #### Implementation Order
 1. Implement `BehavioralEvent` model (`app/models/behavioral_event.py`).
@@ -184,7 +193,7 @@ This matrix establishes the strict dependency rules governing frontend enablemen
 
 ---
 
-### PR #69: Session-Scoped Detection Engine & Behavioral Findings (Vertical Slice 2)
+### PR #72: Session-Scoped Detection Engine & Behavioral Findings (Vertical Slice 2)
 
 #### Implementation Order
 1. Implement `Finding` model (`app/models/finding.py`) and `FindingRepository`.
@@ -210,7 +219,7 @@ This matrix establishes the strict dependency rules governing frontend enablemen
 
 ---
 
-### PR #70: Dynamic Behavioral Risk Assessment (Vertical Slice 3)
+### PR #73: Dynamic Behavioral Risk Assessment (Vertical Slice 3)
 
 #### Implementation Order
 1. Implement `RiskState` model (`app/models/risk_state.py`) and `RiskRepository`.
@@ -235,7 +244,7 @@ This matrix establishes the strict dependency rules governing frontend enablemen
 
 ---
 
-### PR #71: Behavioral Enforcement Engine & Pending Approval Queue (Vertical Slice 4)
+### PR #74: Behavioral Enforcement Engine & Pending Approval Queue (Vertical Slice 4)
 
 #### Implementation Order
 1. Implement `EnforcementEngineService` (`app/services/enforcement_service.py`) evaluating policy actions (`ALLOW`, `DENY`, `HOLD_SESSION`, `REQUIRE_APPROVAL`).
@@ -265,7 +274,7 @@ This matrix establishes the strict dependency rules governing frontend enablemen
 
 ---
 
-### PR #72: Single-Panel Session Timeline & Forensic Replay (Vertical Slice 5)
+### PR #75: Single-Panel Session Timeline & Forensic Replay (Vertical Slice 5)
 
 #### Implementation Order
 1. Add Management API endpoint `GET /api/v1/sessions/{id}/events`.
@@ -288,7 +297,7 @@ This matrix establishes the strict dependency rules governing frontend enablemen
 
 ---
 
-### PR #73: Phase 2 E2E System Integration Verification & Release v0.13.0
+### PR #76: Phase 2 E2E System Integration Verification & Release v0.13.0
 
 #### Implementation Order
 1. Build end-to-end integration test (`tests/integration/test_phase2_e2e.py`) verifying full lifecycle: Agent execution → Telemetry → Detection → Finding → Risk update → Session hold → Approval queue → Release action → Resume.
@@ -310,7 +319,7 @@ This matrix establishes the strict dependency rules governing frontend enablemen
 
 ---
 
-## 6. Release Plan: Platform Version v0.13.0
+## 7. Release Plan: Platform Version v0.13.0
 
 ### Scope
 Delivers the complete Behavioral Intelligence engine (Telemetry Pipeline, Event Store, Stateful Detection Engine, Dynamic Risk Engine, Behavioral Enforcement Engine, Pending Approval Queue) and the operational Enterprise Security Console (`/audit`, `/findings`, `/approvals`, `/sessions/:id`, Command Center Zone 1).
@@ -322,15 +331,15 @@ Delivers the complete Behavioral Intelligence engine (Telemetry Pipeline, Event 
 - **Documentation Quality**: All ADR headers updated; OpenAPI specifications synchronized; release notes committed.
 
 ### Merge Requirements
-All 8 PRs (PR #66 to PR #73) merged sequentially into `main` after passing all automated CI checks and code review.
+All PRs (PR #69 through PR #76) merged sequentially into `main` after passing all automated CI checks and code review.
 
 ---
 
-## 7. Final Implementation Readiness Validation
+## 8. Final Implementation Readiness Validation
 
 The Review Board has conducted a final sanity check of this implementation plan:
 
-- **Sequencing**: Validated. PR #66 consolidates registry models; PR #67 hardens frontend infrastructure; PRs #68–#72 deliver 5 clean vertical slices in pipeline order; PR #73 verifies system integration.
+- **Sequencing**: Validated. PR #69 consolidates registry models; PR #70 hardens frontend infrastructure; PRs #71–#75 deliver 5 clean vertical slices in pipeline order; PR #76 verifies system integration.
 - **Implementation Tasks**: Complete. All domain services, repository classes, REST endpoints, and React components are explicitly assigned to target PRs.
 - **Documentation**: Complete. All ADRs, API docs, and architecture guides are mapped.
 - **Testing**: Complete. Every PR specifies backend `pytest` and frontend Vitest test coverage expectations.
