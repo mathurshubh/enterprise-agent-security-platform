@@ -14,7 +14,7 @@ This document maps every capability introduced in Phase 2 across its full archit
 - **Frontend Surface**: Tool Registry (`/tools`), Scenario Library (`/scenarios`)
 - **Data Model**: `ToolDefinition` (Pydantic), `Tool` (TypeScript `src/types/tool.ts`), `Scenario` (`expected_decision`)
 - **Tests**: `tests/registry/test_tool_registry.py`, `tests/services/test_scenario_runner_service.py`
-- **Target PR**: **PR #66**
+- **Target PR**: **PR #69**
 
 ---
 
@@ -25,7 +25,7 @@ This document maps every capability introduced in Phase 2 across its full archit
 - **Frontend Surface**: Application Shell (`AppLayout.tsx`, `App.tsx`)
 - **Data Model**: TanStack Query Cache Keys, Feature Flags Schema (`src/config/featureFlags.ts`), Permission Context Stub (`PermissionGuard.tsx`)
 - **Tests**: Vitest tests (`src/components/common/__tests__/`)
-- **Target PR**: **PR #67**
+- **Target PR**: **PR #70**
 
 ---
 
@@ -36,7 +36,7 @@ This document maps every capability introduced in Phase 2 across its full archit
 - **Frontend Surface**: Audit Trail (`/audit`)
 - **Data Model**: `BehavioralEvent` (Pydantic & TypeScript `src/types/auditEvent.ts`)
 - **Tests**: `tests/services/test_telemetry_service.py`, `tests/services/test_event_store_service.py`
-- **Target PR**: **PR #68**
+- **Target PR**: **PR #71**
 
 ---
 
@@ -47,7 +47,7 @@ This document maps every capability introduced in Phase 2 across its full archit
 - **Frontend Surface**: Findings & Threat Console (`/findings`)
 - **Data Model**: `Finding` (Pydantic & TypeScript `src/types/finding.ts`), `DetectionRule`
 - **Tests**: `tests/detection/test_detection_engine.py`, `tests/services/test_detection_service.py`
-- **Target PR**: **PR #69**
+- **Target PR**: **PR #72**
 
 ---
 
@@ -58,7 +58,7 @@ This document maps every capability introduced in Phase 2 across its full archit
 - **Frontend Surface**: Agents Page (`/agents`), Sessions Page (`/sessions`), Command Center Metric Cards (`/`)
 - **Data Model**: `RiskState` (Pydantic & TypeScript `src/types/riskState.ts`)
 - **Tests**: `tests/services/test_risk_service.py`
-- **Target PR**: **PR #70**
+- **Target PR**: **PR #73**
 
 ---
 
@@ -69,7 +69,7 @@ This document maps every capability introduced in Phase 2 across its full archit
 - **Frontend Surface**: Approval Queue (`/approvals`), Command Center Zone 1 (`/`)
 - **Data Model**: `PendingApproval` (Pydantic & TypeScript `src/types/approval.ts`)
 - **Tests**: `tests/services/test_enforcement_service.py`, `tests/api/test_management_api.py`
-- **Target PR**: **PR #71**
+- **Target PR**: **PR #74**
 
 ---
 
@@ -80,7 +80,7 @@ This document maps every capability introduced in Phase 2 across its full archit
 - **Frontend Surface**: Session Detail Page (`/sessions/:id`), Session Timeline Component
 - **Data Model**: `SessionDetail` (TypeScript `src/types/sessionDetail.ts`)
 - **Tests**: `tests/services/test_session_service.py`, Vitest `SessionTimeline.test.tsx`
-- **Target PR**: **PR #72**
+- **Target PR**: **PR #75**
 
 ---
 
@@ -91,4 +91,4 @@ This document maps every capability introduced in Phase 2 across its full archit
 - **Frontend Surface**: Entire Enterprise Security Console (`v0.13.0`)
 - **Data Model**: Complete Platform Domain Graph
 - **Tests**: `tests/integration/test_phase2_e2e.py`, full `pytest` suite, `ruff check`, `npm run build`, Vitest suite
-- **Target PR**: **PR #73**
+- **Target PR**: **PR #76**
