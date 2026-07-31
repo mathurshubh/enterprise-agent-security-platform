@@ -3,6 +3,7 @@ from app.auth.authorization_service import AuthorizationService
 from app.detection.context import DetectionContext
 from app.detection.engine import DetectionEngine
 from app.models.agent import Agent, AgentStatus, RiskTier
+from app.models.runtime_context import RuntimeContext
 from app.models.runtime_result import RuntimeResult
 from app.models.risk_assessment import (
     RiskAssessment,
@@ -16,6 +17,7 @@ from app.models.tool_identity import ToolIdentity
 from app.models.tool_metadata import ToolMetadata
 from app.models.tool_operational import ToolOperational
 from app.models.tool_risk_level import ToolRiskLevel
+from app.registry.tool_registry import ToolRegistry
 from app.services.agent_service import AgentService
 from app.services.detection_service import DetectionService
 from app.services.response_service import ResponseService
@@ -37,6 +39,7 @@ class RuntimeService:
         risk_service: RiskService,
         response_service: ResponseService,
         audit_service: AuditService | None = None,
+        tool_registry: ToolRegistry | None = None,
     ) -> None:
         self._authorization_service = authorization_service
         self._session_service = session_service
@@ -45,8 +48,8 @@ class RuntimeService:
         self._risk_service = risk_service
         self._response_service = response_service
         self._audit_service = audit_service or AuditService()
+        self._tool_registry = tool_registry
         self._last_result = None
-
 
     @classmethod
     def create_default(
@@ -58,6 +61,7 @@ class RuntimeService:
             audit_service,
             detection_registry,
             session_service,
+            tool_registry,
         )
         from app.services.runtime_bootstrap import bootstrap_runtime_service
 
@@ -67,8 +71,8 @@ class RuntimeService:
             audit_service=audit_service,
             detection_registry=detection_registry,
             agent_id=agent_id,
+            tool_registry=tool_registry,
         )
-
 
     @staticmethod
     def _register_default_agent(
@@ -149,12 +153,22 @@ class RuntimeService:
         user_prompt: str = "",
         model_output: str = "",
         tool_output: str = "",
+        context: RuntimeContext | None = None,
     ) -> RuntimeResult:
         decision = self._authorization_service.authorize(
             agent_id,
             tool_id,
             resource,
         )
+
+        if context is None:
+            context = RuntimeContext(
+                session_id=session_id,
+                request_id=f"req-{uuid.uuid4()}",
+                user_id="default-user",
+                principal="default-principal",
+                authenticated_agent=agent_id,
+            )
 
         event = SessionEvent(
             session_id=session_id,
@@ -225,5 +239,3 @@ class RuntimeService:
         )
         self._last_result = result
         return result
-
-

@@ -8,6 +8,7 @@ from app.models.agent_runtime_result import (
 )
 from app.models.runtime_result import RuntimeResult
 from app.registry.tool_registry import ToolRegistry
+from app.runtime.tool_executor import DefaultToolExecutor
 from app.services.ollama_agent import OllamaAgent
 from app.providers.provider_factory import ProviderFactory
 from app.tools.directory_list_tool import DirectoryListTool
@@ -38,6 +39,7 @@ class AgentRuntimeService:
         agent: EnterpriseAgent | None = None,
         runtime_service: RuntimeExecutor | None = None,
         tool_registry: ToolRegistry | None = None,
+        executor: DefaultToolExecutor | None = None,
     ) -> None:
         if agent is None:
             provider = ProviderFactory.create()
@@ -46,6 +48,7 @@ class AgentRuntimeService:
             self._agent = agent
 
         self._tool_registry = tool_registry or ToolRegistry()
+        self._executor = executor or DefaultToolExecutor()
 
         if tool_registry is None:
             self._register_executable_tools()
@@ -95,13 +98,11 @@ class AgentRuntimeService:
                 output=None,
             )
 
-        tool = self._tool_registry.get(invocation.tool_id)
-        output = tool.execute(invocation.parameters)
+        descriptor = self._tool_registry.resolve(invocation.tool_id)
+        output = self._executor.execute_descriptor(descriptor, invocation.parameters)
 
         return AgentRuntimeResult(
             decision=decision.value,
             response_type=response_type,
             output=output,
         )
-
-

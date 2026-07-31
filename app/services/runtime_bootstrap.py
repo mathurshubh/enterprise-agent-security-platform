@@ -6,6 +6,7 @@ from app.models.tool_identity import ToolIdentity
 from app.models.tool_metadata import ToolMetadata
 from app.models.tool_operational import ToolOperational
 from app.models.tool_risk_level import ToolRiskLevel
+from app.registry.tool_registry import ToolRegistry
 from app.services.agent_service import AgentService
 from app.services.tool_service import ToolService
 from app.auth.authorization_service import AuthorizationService
@@ -94,11 +95,13 @@ def bootstrap_runtime_service(
     audit_service: AuditService,
     detection_registry: DetectionRegistry,
     agent_id: str = "agent-1",
+    tool_registry: ToolRegistry | None = None,
 ) -> RuntimeService:
     """Canonical bootstrapping implementation for RuntimeService and dependencies."""
     register_default_agent(agent_service, agent_id)
 
-    tool_service = ToolService()
+    registry = tool_registry or ToolRegistry()
+    tool_service = ToolService(tool_registry=registry)
     register_default_tools(tool_service)
 
     policy_engine = PolicyEngine()
@@ -118,4 +121,5 @@ def bootstrap_runtime_service(
         risk_service=RiskService(),
         response_service=ResponseService(),
         audit_service=audit_service,
+        tool_registry=registry,
     )
