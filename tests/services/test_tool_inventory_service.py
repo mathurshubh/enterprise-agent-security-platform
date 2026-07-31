@@ -140,10 +140,10 @@ def test_list_registered_tools_does_not_modify_registry_contents():
 
     service.list_registered_tools()
 
-    assert registry.list_tools() == [
+    assert registry.list_tools() == (
         first_tool,
         second_tool,
-    ]
+    )
 
 
 def test_list_registered_tools_reflects_later_registry_registrations():
