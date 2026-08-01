@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.tool_metadata import ToolMetadata

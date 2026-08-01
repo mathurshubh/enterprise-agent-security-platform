@@ -1,9 +1,9 @@
 from app.detection.category import DetectionCategory
+from app.detection.data_exfiltration_rule import DataExfiltrationRule
 from app.detection.metadata import RuleMetadata
 from app.detection.prompt_injection_rule import PromptInjectionRule
-from app.detection.sensitive_file_access_rule import SensitiveFileAccessRule
-from app.detection.data_exfiltration_rule import DataExfiltrationRule
 from app.detection.security_standard import SecurityControlReference, SecurityFramework
+from app.detection.sensitive_file_access_rule import SensitiveFileAccessRule
 
 
 def test_security_control_reference_instantiation():

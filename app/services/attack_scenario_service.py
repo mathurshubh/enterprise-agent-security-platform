@@ -6,7 +6,6 @@ from pydantic import ValidationError
 from app.models.attack_scenario import AttackScenario, ScenarioCategory
 from app.registry.scenario_registry import ScenarioRegistry
 
-
 DEFAULT_SCENARIO_PATH = (
     Path(__file__).resolve().parents[1]
     / "scenarios"

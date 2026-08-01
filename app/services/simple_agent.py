@@ -1,8 +1,8 @@
+from app.agents.enterprise_agent import EnterpriseAgent
 from app.models.tool_invocation import (
     ToolInvocation,
 )
 
-from app.agents.enterprise_agent import EnterpriseAgent
 
 class SimpleAgent(EnterpriseAgent):
 

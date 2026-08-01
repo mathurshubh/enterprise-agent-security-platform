@@ -14,9 +14,9 @@ from app.detection.sensitive_file_access_rule import SensitiveFileAccessRule
 from app.registry.scenario_registry import ScenarioRegistry
 from app.registry.tool_registry import ToolRegistry
 from app.services.agent_service import AgentService
-from app.services.runtime_bootstrap import bootstrap_runtime_service
 from app.services.attack_scenario_service import AttackScenarioService
 from app.services.audit_service import AuditService
+from app.services.runtime_bootstrap import bootstrap_runtime_service
 from app.services.runtime_service import RuntimeService
 from app.services.session_service import SessionService
 from app.services.tool_inventory_service import ToolInventoryService

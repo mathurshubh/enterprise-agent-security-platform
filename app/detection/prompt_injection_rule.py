@@ -40,7 +40,10 @@ class PromptInjectionRule(DetectionRule):
     def metadata(
         self,
     ) -> RuleMetadata:
-        from app.detection.security_standard import SecurityControlReference, SecurityFramework
+        from app.detection.security_standard import (
+            SecurityControlReference,
+            SecurityFramework,
+        )
 
         return RuleMetadata(
             name=self.rule_name,
@@ -110,12 +113,5 @@ class PromptInjectionRule(DetectionRule):
         context: DetectionContext,
         indicator: str,
     ) -> str:
-        raw_id = "|".join(
-            (
-                self.rule_name,
-                context.session_id,
-                context.agent_id,
-                indicator,
-            )
-        )
+        raw_id = f"{self.rule_name}|{context.session_id}|{context.agent_id}|{indicator}"
         return str(uuid5(NAMESPACE_URL, raw_id))

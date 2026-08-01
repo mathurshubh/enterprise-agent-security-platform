@@ -2,9 +2,8 @@ import pytest
 
 from app.detection.category import DetectionCategory
 from app.detection.prompt_injection_rule import PromptInjectionRule
-from app.detection.sensitive_file_access_rule import SensitiveFileAccessRule
 from app.detection.registry import DetectionRegistry
-
+from app.detection.sensitive_file_access_rule import SensitiveFileAccessRule
 
 
 def test_detection_registry_workflow():

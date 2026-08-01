@@ -2,15 +2,15 @@ import uuid
 from typing import Protocol
 
 from app.agents.enterprise_agent import EnterpriseAgent
-from app.models.audit_event import Decision
 from app.models.agent_runtime_result import (
     AgentRuntimeResult,
 )
+from app.models.audit_event import Decision
 from app.models.runtime_result import RuntimeResult
+from app.providers.provider_factory import ProviderFactory
 from app.registry.tool_registry import ToolRegistry
 from app.runtime.tool_executor import DefaultToolExecutor
 from app.services.ollama_agent import OllamaAgent
-from app.providers.provider_factory import ProviderFactory
 from app.tools.directory_list_tool import DirectoryListTool
 from app.tools.file_read_tool import FileReadTool
 

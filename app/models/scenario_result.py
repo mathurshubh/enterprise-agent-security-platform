@@ -1,4 +1,5 @@
 import warnings
+
 from pydantic import BaseModel
 
 from app.models.risk_assessment import RiskLevel

@@ -1,7 +1,7 @@
 from uuid import UUID
 
-from pydantic import ValidationError
 import pytest
+from pydantic import ValidationError
 
 from app.detection.context import DetectionContext
 from app.detection.prompt_injection_rule import PromptInjectionRule

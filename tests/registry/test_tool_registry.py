@@ -1,13 +1,14 @@
 import threading
+
 import pytest
 
 from app.models.tool_capability import ToolCapability
+from app.models.tool_descriptor import ToolDescriptor
 from app.models.tool_governance import ToolGovernance
 from app.models.tool_identity import ToolIdentity
 from app.models.tool_metadata import ToolMetadata
 from app.models.tool_operational import ToolOperational
 from app.models.tool_risk_level import ToolRiskLevel
-from app.models.tool_descriptor import ToolDescriptor
 from app.registry.tool_registry import (
     DuplicateToolRegistrationError,
     ToolMetadataValidationError,
@@ -342,7 +343,7 @@ def test_concurrent_tool_registrations_thread_safety():
         try:
             tool = ExampleTool(f"thread_tool_{i}")
             registry.register(tool)
-        except Exception as e:
+        except (DuplicateToolRegistrationError, ToolMetadataValidationError) as e:
             errors.append(e)
 
     for i in range(20):

@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+
 from app.detection.category import DetectionCategory
 from app.detection.security_standard import SecurityControlReference
 

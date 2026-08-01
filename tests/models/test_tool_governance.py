@@ -1,5 +1,5 @@
-from app.models.tool_risk_level import ToolRiskLevel
 from app.models.tool_governance import ToolGovernance
+from app.models.tool_risk_level import ToolRiskLevel
 
 
 def test_tool_governance_defaults() -> None:

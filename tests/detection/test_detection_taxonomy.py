@@ -1,7 +1,7 @@
 from app.detection.category import DetectionCategory
+from app.detection.data_exfiltration_rule import DataExfiltrationRule
 from app.detection.prompt_injection_rule import PromptInjectionRule
 from app.detection.sensitive_file_access_rule import SensitiveFileAccessRule
-from app.detection.data_exfiltration_rule import DataExfiltrationRule
 
 
 def test_rule_categories_and_metadata():

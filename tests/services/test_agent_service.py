@@ -1,4 +1,5 @@
 import pytest
+
 from app.models.agent import (
     Agent,
     AgentStatus,

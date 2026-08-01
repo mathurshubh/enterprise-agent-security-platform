@@ -1,14 +1,15 @@
 from typing import Protocol
+
 import pytest
 from pydantic import ValidationError
 
 from app.models.runtime_context import RuntimeContext, ToolInvocationContext
+from app.registry.tool_registry import ToolRegistry
 from app.runtime.contracts import (
     ToolExecutorProtocol,
     ToolFactoryProtocol,
     ToolRegistryProtocol,
 )
-from app.registry.tool_registry import ToolRegistry
 
 
 def test_runtime_context_instantiation_and_fields():

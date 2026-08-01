@@ -3,6 +3,7 @@ from app.models.tool_invocation import ToolInvocation
 from app.providers.ollama_provider import OllamaProvider
 from app.providers.provider_adapter import ProviderAdapter
 
+
 class OllamaAgent(EnterpriseAgent):
     SYSTEM_PROMPT = """
 You are a deterministic tool selection engine.
