@@ -1,26 +1,38 @@
 /**
- * useDetectionRules — Custom hook for managing active rule state.
+ * useDetectionRules — Detection rule inventory data hook.
  *
- * REACT CONCEPT: "Custom Hooks & Composition"
- * ──────────────────────────────────────────────────────────────────
- * Wraps the generic useApiResource hook, supplying Rules-specific
- * error messages, logs, and renaming domain data.
+ * Fetches the configured detection rule catalog from the Management API
+ * using TanStack Query. Migrated from the manual useApiResource pattern (PR #70).
+ *
+ * TanStack Query provides automatic caching, background refetch, and
+ * deduplication of concurrent requests across page components.
+ *
+ * Return API:
+ *   Preserves the existing { rules, loading, error } shape so all page
+ *   components require zero changes.
+ *
+ * QueryKey:
+ *   queryKeys.detectionRules.all → ['detectionRules']
+ *   Defined in src/api/queryKeys.ts to avoid scattered string literals.
+ *
+ * ADR-022: No authorization logic in hooks.
  */
 
+import { useQuery } from '@tanstack/react-query'
 import { getDetectionRules } from '../services/detectionRuleService'
-import { useApiResource } from './useApiResource'
+import { queryKeys } from '../api/queryKeys'
 import type { DetectionRule } from '../types/detectionRule'
+import type { ApiError } from '../types/api'
 
 export function useDetectionRules() {
-  const { data, loading, error } = useApiResource<DetectionRule>(
-    getDetectionRules,
-    'Unable to retrieve detection rules from the Management API. Please verify that the backend service is running and reachable.',
-    'Failed to query active detection rules:'
-  )
+  const { data, isLoading, error } = useQuery<DetectionRule[], ApiError>({
+    queryKey: queryKeys.detectionRules.all,
+    queryFn: getDetectionRules,
+  })
 
   return {
-    rules: data,
-    loading,
-    error,
+    rules: data ?? [],
+    loading: isLoading,
+    error: error?.message ?? null,
   }
 }

@@ -1,29 +1,43 @@
 /**
- * useAgents — Custom hook for managing agent inventory state.
+ * useAgents — Agent inventory data hook.
  *
- * REACT CONCEPT: "Custom Hooks & Composition"
- * ──────────────────────────────────────────────────────────────────
- * Wraps the generic useApiResource hook, supplying Agents-specific
- * error messages, logs, and renaming domain data.
+ * Fetches the registered agent inventory from the Management API using
+ * TanStack Query. Migrated from the manual useApiResource pattern (PR #70).
  *
- * TODO: Once we migrate to a feature-based frontend architecture,
- * this hook should move to `features/agents/hooks/useAgents.ts`.
+ * TanStack Query provides:
+ *   - Automatic background refetch when data goes stale (30s staleTime).
+ *   - In-memory cache shared across all components that call this hook.
+ *     Multiple components on the same page receive the same data with
+ *     zero duplicate network requests.
+ *   - Single retry on transient failure, then surfaces the error.
+ *
+ * Return API:
+ *   Preserves the existing { agents, loading, error } shape so all page
+ *   components require zero changes.
+ *
+ * QueryKey:
+ *   queryKeys.agents.all → ['agents']
+ *   Defined in src/api/queryKeys.ts to avoid scattered string literals.
+ *
+ * ADR-022: No authorization logic in hooks. The hook fetches and returns
+ * data only; security enforcement is on the backend.
  */
 
+import { useQuery } from '@tanstack/react-query'
 import { getAgents } from '../services/agentService'
-import { useApiResource } from './useApiResource'
+import { queryKeys } from '../api/queryKeys'
 import type { Agent } from '../types/agent'
+import type { ApiError } from '../types/api'
 
 export function useAgents() {
-  const { data, loading, error } = useApiResource<Agent>(
-    getAgents,
-    'Unable to retrieve agents from the Management API. Please verify that the backend service is running and reachable.',
-    'Failed to query registered agents:'
-  )
+  const { data, isLoading, error } = useQuery<Agent[], ApiError>({
+    queryKey: queryKeys.agents.all,
+    queryFn: getAgents,
+  })
 
   return {
-    agents: data,
-    loading,
-    error,
+    agents: data ?? [],
+    loading: isLoading,
+    error: error?.message ?? null,
   }
 }

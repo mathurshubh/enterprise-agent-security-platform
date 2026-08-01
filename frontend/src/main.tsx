@@ -1,29 +1,32 @@
 /**
  * main.tsx — Application entry point.
  *
- * REACT CONCEPT: "Entry Point" and "StrictMode"
- * ──────────────────────────────────────────────────────────────────
- * This is the JavaScript equivalent of `if __name__ == "__main__":`
- * in Python.  It's the first code that runs when the browser loads
- * the application.
+ * Bootstraps the React application with all required top-level providers:
+ *   1. QueryProvider  — TanStack Query server-state cache (PR #70)
+ *   2. StrictMode     — Development-mode double-render safety checks
  *
- * `createRoot` tells React which DOM element to render into.  The
- * `<div id="root">` in index.html is that element.
+ * Provider ordering is intentional. QueryProvider wraps App so that any
+ * component in the tree (including future context providers) may call
+ * TanStack Query hooks without provider ordering issues.
  *
- * `StrictMode` is a development-only wrapper that helps catch bugs
- * by intentionally double-rendering components and flagging unsafe
- * patterns.  It has zero effect in production builds.
+ * ADR-009 / ADR-022 Compliance:
+ *   - No authentication state or security logic is initialized here.
+ *   - No authorization context is established at the entry point.
+ *   - The backend remains the sole security enforcement point.
  */
 
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
+import QueryProvider from './providers/QueryProvider'
 
 /* Import the global stylesheet (Tailwind + theme tokens) */
 import './styles/index.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <QueryProvider>
+      <App />
+    </QueryProvider>
   </StrictMode>,
 )
