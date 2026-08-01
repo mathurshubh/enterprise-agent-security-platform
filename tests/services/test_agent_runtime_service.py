@@ -3,10 +3,10 @@ from collections.abc import Mapping
 import pytest
 
 from app.agents.enterprise_agent import EnterpriseAgent
-from app.models.audit_event import Decision
 from app.models.agent_runtime_result import (
     AgentRuntimeResult,
 )
+from app.models.audit_event import Decision
 from app.models.response_action import (
     ResponseAction,
     ResponseType,

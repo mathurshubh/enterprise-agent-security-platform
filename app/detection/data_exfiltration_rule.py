@@ -51,7 +51,10 @@ class DataExfiltrationRule(DetectionRule):
 
     @property
     def metadata(self) -> RuleMetadata:
-        from app.detection.security_standard import SecurityControlReference, SecurityFramework
+        from app.detection.security_standard import (
+            SecurityControlReference,
+            SecurityFramework,
+        )
 
         return RuleMetadata(
             name=self.rule_name,
@@ -111,13 +114,5 @@ class DataExfiltrationRule(DetectionRule):
         action: str,
         indicator: str,
     ) -> str:
-        raw_id = "|".join(
-            (
-                self.rule_name,
-                context.session_id,
-                context.agent_id,
-                action,
-                indicator,
-            )
-        )
+        raw_id = f"{self.rule_name}|{context.session_id}|{context.agent_id}|{action}|{indicator}"
         return str(uuid5(NAMESPACE_URL, raw_id))

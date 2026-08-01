@@ -2,12 +2,12 @@ import pytest
 
 from app.models.runtime_context import RuntimeContext
 from app.models.tool_capability import ToolCapability
+from app.models.tool_descriptor import ToolDescriptor
 from app.models.tool_governance import ToolGovernance
 from app.models.tool_identity import ToolIdentity
 from app.models.tool_metadata import ToolMetadata
 from app.models.tool_operational import ToolOperational
 from app.models.tool_risk_level import ToolRiskLevel
-from app.models.tool_descriptor import ToolDescriptor
 from app.runtime.tool_executor import (
     DefaultToolExecutor,
     ToolDisabledError,

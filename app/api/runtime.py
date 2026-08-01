@@ -3,7 +3,6 @@ from pydantic import BaseModel
 
 from app.api.dependencies import runtime_service
 
-
 router = APIRouter()
 
 

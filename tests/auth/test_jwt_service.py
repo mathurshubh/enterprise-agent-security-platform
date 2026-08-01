@@ -3,7 +3,6 @@ import pytest
 from app.auth.jwt_service import JWTService
 from app.models.jwt_claims import Role
 
-
 TEST_SECRET = "test-secret-key-at-least-32-bytes-long"
 
 

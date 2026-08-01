@@ -4,7 +4,6 @@ from tests.services.test_runtime_service import (
 )
 
 
-
 def test_normal_runtime_scenario():
     service, _ = create_runtime_service(["file_read"])
 

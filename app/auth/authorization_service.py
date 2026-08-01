@@ -1,4 +1,5 @@
 from app.models.audit_event import Decision
+from app.policy.policy_engine import PolicyEngine
 from app.services.agent_service import (
     AgentNotFoundError,
     AgentService,
@@ -7,7 +8,6 @@ from app.services.tool_service import (
     ToolNotFoundError,
     ToolService,
 )
-from app.policy.policy_engine import PolicyEngine
 
 
 class AuthorizationService:

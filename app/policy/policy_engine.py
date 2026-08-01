@@ -1,3 +1,5 @@
+from typing import ClassVar
+
 from app.models.agent import Agent, AgentStatus, RiskTier
 from app.models.audit_event import Decision
 from app.models.tool import Tool
@@ -5,7 +7,7 @@ from app.models.tool_risk_level import ToolRiskLevel
 
 
 class PolicyEngine:
-    PROTECTED_RESOURCES = {
+    PROTECTED_RESOURCES: ClassVar[set[str]] = {
         "secrets.txt",
     }
 

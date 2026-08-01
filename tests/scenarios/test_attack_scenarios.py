@@ -1,12 +1,10 @@
 import pytest
 from pydantic import ValidationError
 
-from app.models.attack_scenario import AttackScenario
-from app.models.attack_scenario import ScenarioCategory
+from app.models.attack_scenario import AttackScenario, ScenarioCategory
 from app.models.finding import Severity
 from app.models.response_action import ResponseType
 from app.models.risk_assessment import RiskLevel
-
 
 
 def test_attack_scenario_asset_creation():

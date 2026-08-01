@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
-from typing import Any
 from collections.abc import Mapping
+from typing import Any
 
 from app.models.tool_metadata import ToolMetadata
 

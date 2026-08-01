@@ -1,5 +1,4 @@
 from app.providers.ollama_provider import OllamaProvider
-
 from app.services.ollama_service import OllamaService
 
 

@@ -2,8 +2,8 @@
 
 import pytest
 
-from app.models.session import Session
 from app.models.audit_event import Decision
+from app.models.session import Session
 from app.models.session_event import SessionEvent
 from app.services.session_service import (
     SessionAlreadyExistsError,

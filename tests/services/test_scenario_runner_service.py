@@ -1,14 +1,15 @@
-from datetime import datetime
+from datetime import UTC, datetime
+
+from app.models.agent_runtime_result import AgentRuntimeResult
 from app.models.attack_scenario import AttackScenario
 from app.models.execution_mode import ExecutionMode
 from app.models.execution_status import ExecutionStatus
-from app.models.scenario_execution import ScenarioExecution
-from app.models.scenario_execution_result import ScenarioExecutionResult
 from app.models.response_action import ResponseType
 from app.models.risk_assessment import RiskLevel
+from app.models.scenario_execution import ScenarioExecution
+from app.models.scenario_execution_result import ScenarioExecutionResult
 from app.services.agent_runtime_service import AgentRuntimeService
 from app.services.scenario_runner_service import ScenarioRunnerService
-from app.models.agent_runtime_result import AgentRuntimeResult
 from tests.services.test_runtime_service import (
     create_runtime_service,
 )
@@ -52,7 +53,7 @@ def test_execution_models_instantiation():
         session_id="session-123",
         execution_mode=ExecutionMode.TOOL_SEQUENCE,
         status=ExecutionStatus.COMPLETED,
-        started_at=datetime.utcnow(),
+        started_at=datetime.now(UTC),
         result=result,
     )
     assert execution.execution_id == "exec-123"

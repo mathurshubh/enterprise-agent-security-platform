@@ -1,6 +1,7 @@
 """RuntimeContext — Immutable execution context carrying execution identity only."""
 
 from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
 
 

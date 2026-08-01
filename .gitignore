@@ -1,9 +1,11 @@
 # Python
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
 
 # Virtual Environment
 .venv/
+venv/
 
 # macOS
 .DS_Store
@@ -11,12 +13,19 @@ __pycache__/
 # Pytest
 .pytest_cache/
 
+# Ruff
+.ruff_cache/
+
+# Mypy
+.mypy_cache/
+
 # Coverage
 .coverage
 htmlcov/
 
 # IDE
 .vscode/
+.idea/
 
 # Environment
 .env

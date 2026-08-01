@@ -1,7 +1,7 @@
 """Authoritative Tool Registry managing tool registration, resolution, versioning, and lifecycle descriptors."""
 
-from collections.abc import Callable
 import threading
+from collections.abc import Callable
 from typing import Any
 
 from app.models.tool_descriptor import ToolDescriptor
@@ -102,7 +102,7 @@ class ToolRegistry:
         if not tool_id or not tool_id.strip():
             raise ValueError("tool_id cannot be empty")
         if not callable(factory):
-            raise ValueError("factory must be a callable")
+            raise TypeError("factory must be a callable")
 
         if metadata is None:
             # Instantiate a sample tool to extract metadata if none provided

@@ -6,6 +6,8 @@ from app.models.execution_mode import ExecutionMode
 from app.models.execution_status import ExecutionStatus
 from app.models.scenario_execution import ScenarioExecution
 from app.models.scenario_execution_result import ScenarioExecutionResult
+from app.registry.tool_registry import ToolNotRegisteredError
+from app.runtime.tool_executor import ToolDisabledError, ToolExecutionError
 from app.services.agent_runtime_service import AgentRuntimeService
 from app.services.runtime_service import RuntimeService
 
@@ -107,8 +109,7 @@ class ScenarioRunnerService:
                     )
 
             # D. Assert Detections / Findings
-            if scenario.expected_detection is not None:
-                if scenario.expected_detection not in observed_findings:
+            if scenario.expected_detection is not None and scenario.expected_detection not in observed_findings:
                     mismatches.append(
                         f"detection: expected {scenario.expected_detection} in findings, "
                         f"observed findings: {observed_findings}"
@@ -144,7 +145,27 @@ class ScenarioRunnerService:
                 result=result,
             )
 
-        except Exception as e:
+        except (
+            ValueError,
+            # PROMPT mode — AgentRuntimeService._tool_registry.resolve():
+            ToolNotRegisteredError,
+            # PROMPT mode — AgentRuntimeService._executor.execute_descriptor():
+            ToolExecutionError,
+            ToolDisabledError,
+        ) as e:
+            # Orchestration fault-isolation boundary: converts any recognized
+            # runtime execution failure into ScenarioExecution(status=FAILED)
+            # so the caller always receives a result object rather than a raised
+            # exception. Only exception types that can actually propagate from
+            # the execution path above are listed here.
+            #
+            # Excluded (unreachable from this path):
+            #   AgentNotFoundError, ToolNotFoundError — caught inside
+            #     AuthorizationService.authorize(), returned as Decision.DENY.
+            #   ToolVersionMismatchError — only raised by resolve(version=...) calls;
+            #     all resolve() calls in this path use no version argument.
+            #   ToolMetadataValidationError, DuplicateToolRegistrationError — only
+            #     raised during tool registration, not during execution.
             finished_at = datetime.now(timezone.utc)
             return ScenarioExecution(
                 execution_id=execution_id,
