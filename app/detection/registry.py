@@ -29,3 +29,7 @@ class DetectionRegistry:
 
     def metadata(self) -> list[RuleMetadata]:
         return [rule.metadata for rule in self._rules.values()]
+
+    def list_rule_names(self) -> set[str]:
+        """Return a set of all registered single-event detection rule names."""
+        return {rule.metadata.name for rule in self._rules.values()}

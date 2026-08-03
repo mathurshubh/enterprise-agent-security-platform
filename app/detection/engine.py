@@ -24,3 +24,8 @@ class DetectionEngine:
             findings.extend(rule.evaluate(context))
 
         return findings
+
+    def list_rule_names(self) -> set[str]:
+        """Return a set of all rule names configured in this detection engine."""
+        return {rule.metadata.name for rule in self._rules}
+

@@ -38,3 +38,7 @@ class DetectionService:
             )
 
         return findings
+
+    def registered_rule_names(self) -> set[str]:
+        """Return a set of all session behavioral detection rule names."""
+        return {"EXCESSIVE_DENIALS"}
