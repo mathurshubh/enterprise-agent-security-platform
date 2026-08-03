@@ -28,9 +28,9 @@
   severity: "MEDIUM"
   enabled: true
   tool_sequence:
-    - "file_read"
-    - "file_read"
-    - "file_read"
+    - "unauthorized_tool"
+    - "unauthorized_tool"
+    - "unauthorized_tool"
   expected_findings:
     - "EXCESSIVE_DENIALS"
   expected_risk: "MEDIUM"
