@@ -52,6 +52,18 @@ class RuntimeService:
         self._tool_registry = tool_registry
         self._last_result = None
 
+    @property
+    def tool_registry(self) -> ToolRegistry | None:
+        return self._tool_registry
+
+    @property
+    def detection_engine(self) -> DetectionEngine:
+        return self._detection_engine
+
+    @property
+    def detection_service(self) -> DetectionService:
+        return self._detection_service
+
     @classmethod
     def create_default(
         cls,

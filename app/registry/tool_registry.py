@@ -211,6 +211,11 @@ class ToolRegistry:
                 result.extend(versions_map.values())
             return tuple(result)
 
+    def list_tool_ids(self) -> set[str]:
+        """Return a set of all registered tool IDs."""
+        with self._lock:
+            return set(self._descriptors.keys())
+
     def list_tools(self) -> tuple[BaseTool, ...]:
         """Return an immutable tuple of executable BaseTool instances."""
         with self._lock:

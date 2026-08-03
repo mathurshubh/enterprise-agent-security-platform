@@ -38,8 +38,17 @@ def register_default_agent(agent_service: AgentService, agent_id: str = "agent-1
         )
 
 
-def register_default_tools(tool_service: ToolService) -> None:
-    """Register default filesystem security tools metadata."""
+from pathlib import Path
+
+from app.tools.directory_list_tool import DirectoryListTool
+from app.tools.file_read_tool import FileReadTool
+
+
+def register_default_tools(
+    tool_service: ToolService,
+    tool_registry: ToolRegistry | None = None,
+) -> None:
+    """Register default filesystem security tools metadata and executable tool instances."""
     try:
         tool_service.get_tool("file_read")
     except ToolNotFoundError:
@@ -88,6 +97,13 @@ def register_default_tools(tool_service: ToolService) -> None:
             )
         )
 
+    if tool_registry is not None:
+        workspace_root = Path("demo_workspace")
+        if not tool_registry.exists("file_read"):
+            tool_registry.register(FileReadTool(workspace_root))
+        if not tool_registry.exists("directory_list"):
+            tool_registry.register(DirectoryListTool(workspace_root))
+
 
 def bootstrap_runtime_service(
     agent_service: AgentService,
@@ -102,7 +118,7 @@ def bootstrap_runtime_service(
 
     registry = tool_registry or ToolRegistry()
     tool_service = ToolService(tool_registry=registry)
-    register_default_tools(tool_service)
+    register_default_tools(tool_service, registry)
 
     policy_engine = PolicyEngine()
     authorization_service = AuthorizationService(
@@ -123,3 +139,4 @@ def bootstrap_runtime_service(
         audit_service=audit_service,
         tool_registry=registry,
     )
+
