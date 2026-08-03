@@ -7,14 +7,15 @@
  * to keep rendering declarative.
  */
 
+import { useState } from 'react'
 import type { Scenario, ScenarioSeverity } from '../../../types/scenario'
+import ScenarioDetailPanel from './ScenarioDetailPanel'
 
 interface ScenarioTableProps {
   scenarios: Scenario[]
   loading: boolean
 }
 
-// ── Badge Style Configurations ─────────────────────────────────────
 const SEVERITY_CONFIG: Record<ScenarioSeverity, string> = {
   LOW: 'bg-status-active/10 text-status-active border-status-active/20',
   MEDIUM: 'bg-status-warning/10 text-status-warning border-status-warning/20',
@@ -30,6 +31,12 @@ const RESPONSE_CONFIG: Record<string, string> = {
 }
 
 export default function ScenarioTable({ scenarios, loading }: ScenarioTableProps) {
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+
+  const toggleExpand = (id: string) => {
+    setExpandedId((prev) => (prev === id ? null : id))
+  }
+
   if (loading) {
     return (
       <div className="divide-y divide-border-secondary animate-pulse">
@@ -82,54 +89,71 @@ export default function ScenarioTable({ scenarios, loading }: ScenarioTableProps
           </tr>
         </thead>
         <tbody className="divide-y divide-border-secondary text-xs">
-          {scenarios.map((scenario) => (
-            <tr key={scenario.id} className="hover:bg-bg-surface-hover/30 transition-colors">
-              
-              <td className="px-6 py-4">
-                <div className="font-semibold text-text-primary">{scenario.name}</div>
-                <div className="text-[10px] text-text-muted mt-0.5 font-mono">{scenario.id}</div>
-                {scenario.description && (
-                  <p className="text-[11px] text-text-secondary mt-1 max-w-md">
-                    {scenario.description}
-                  </p>
-                )}
-              </td>
+          {scenarios.map((scenario) => {
+            const isExpanded = expandedId === scenario.id
+            return (
+              <tr key={scenario.id} className="group">
+                <td colSpan={5} className="p-0">
+                  <div
+                    onClick={() => toggleExpand(scenario.id)}
+                    className="grid grid-cols-5 gap-4 px-6 py-4 items-center cursor-pointer hover:bg-bg-surface-hover/30 transition-colors"
+                  >
+                    <div>
+                      <div className="font-semibold text-text-primary flex items-center gap-1.5">
+                        <span className="text-[10px] text-text-muted transition-transform group-hover:text-text-primary">
+                          {isExpanded ? '▼' : '▶'}
+                        </span>
+                        {scenario.name}
+                      </div>
+                      <div className="text-[10px] text-text-muted mt-0.5 font-mono ml-4">
+                        {scenario.id}
+                      </div>
+                      {scenario.description && (
+                        <p className="text-[11px] text-text-secondary mt-1 max-w-md ml-4">
+                          {scenario.description}
+                        </p>
+                      )}
+                    </div>
 
-              <td className="px-6 py-4 text-text-secondary font-medium">
-                {scenario.category}
-              </td>
+                    <div className="text-text-secondary font-medium">
+                      {scenario.category}
+                    </div>
 
-              <td className="px-6 py-4">
-                <span className={`px-2 py-0.5 rounded border text-[10px] uppercase font-medium ${SEVERITY_CONFIG[scenario.severity]}`}>
-                  {scenario.severity}
-                </span>
-              </td>
-
-              <td className="px-6 py-4">
-                {scenario.expectedDetectionRules.length === 0 ? (
-                  <span className="text-text-muted italic">None (Allowed)</span>
-                ) : (
-                  <div className="flex flex-wrap gap-1">
-                    {scenario.expectedDetectionRules.map((rule) => (
-                      <span
-                        key={rule}
-                        className="px-1.5 py-0.5 rounded bg-bg-surface border border-border-primary text-[10px] text-text-secondary font-mono"
-                      >
-                        {rule}
+                    <div>
+                      <span className={`px-2 py-0.5 rounded border text-[10px] uppercase font-medium ${SEVERITY_CONFIG[scenario.severity]}`}>
+                        {scenario.severity}
                       </span>
-                    ))}
+                    </div>
+
+                    <div>
+                      {scenario.expectedDetectionRules.length === 0 ? (
+                        <span className="text-text-muted italic">None (Allowed)</span>
+                      ) : (
+                        <div className="flex flex-wrap gap-1">
+                          {scenario.expectedDetectionRules.map((rule) => (
+                            <span
+                              key={rule}
+                              className="px-1.5 py-0.5 rounded bg-bg-surface border border-border-primary text-[10px] text-text-secondary font-mono"
+                            >
+                              {rule}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div>
+                      <span className={`px-2 py-0.5 rounded border text-[10px] uppercase font-medium ${RESPONSE_CONFIG[scenario.expectedResponse] || 'border-border-primary text-text-secondary'}`}>
+                        {scenario.expectedResponse}
+                      </span>
+                    </div>
                   </div>
-                )}
-              </td>
 
-              <td className="px-6 py-4">
-                <span className={`px-2 py-0.5 rounded border text-[10px] uppercase font-medium ${RESPONSE_CONFIG[scenario.expectedResponse] || 'border-border-primary text-text-secondary'}`}>
-                  {scenario.expectedResponse}
-                </span>
-              </td>
-
-            </tr>
-          ))}
+                  {isExpanded && <ScenarioDetailPanel scenario={scenario} />}
+                </td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>

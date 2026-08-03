@@ -1,16 +1,12 @@
-import json
 from pathlib import Path
 
+import yaml
 from pydantic import ValidationError
 
 from app.models.attack_scenario import AttackScenario, ScenarioCategory
 from app.registry.scenario_registry import ScenarioRegistry
 
-DEFAULT_SCENARIO_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "scenarios"
-    / "attack_scenarios.json"
-)
+DEFAULT_SCENARIO_PATH = Path(__file__).resolve().parents[1] / "scenarios"
 
 
 class ScenarioLoadError(Exception):
@@ -27,42 +23,64 @@ class AttackScenarioService:
     def load_scenarios(
         self,
     ) -> list[AttackScenario]:
-        try:
-            raw_scenarios = json.loads(
-                self._scenario_path.read_text(encoding="utf-8")
-            )
-        except OSError as exc:
-            raise ScenarioLoadError(
-                f"Unable to read scenario file '{self._scenario_path}'"
-            ) from exc
-        except json.JSONDecodeError as exc:
-            raise ScenarioLoadError(
-                f"Scenario file '{self._scenario_path}' is not valid JSON"
-            ) from exc
+        target_files: list[Path] = []
 
-        if not isinstance(raw_scenarios, list):
+        if self._scenario_path.is_dir():
+            target_files = sorted(
+                list(self._scenario_path.glob("*.yaml"))
+                + list(self._scenario_path.glob("*.yml"))
+            )
+        elif self._scenario_path.is_file():
+            target_files = [self._scenario_path]
+        else:
             raise ScenarioLoadError(
-                "Scenario file must contain a JSON list"
+                f"Scenario path '{self._scenario_path}' does not exist"
             )
 
         scenarios: list[AttackScenario] = []
         scenario_ids: set[str] = set()
 
-        for raw_scenario in raw_scenarios:
+        for file_path in target_files:
             try:
-                scenario = AttackScenario.model_validate(raw_scenario)
-            except ValidationError as exc:
+                content = file_path.read_text(encoding="utf-8")
+                raw_scenarios = yaml.safe_load(content)
+            except OSError as exc:
                 raise ScenarioLoadError(
-                    "Scenario file contains an invalid scenario"
+                    f"Unable to read scenario file '{file_path}'"
+                ) from exc
+            except yaml.YAMLError as exc:
+                raise ScenarioLoadError(
+                    f"Scenario file '{file_path}' is not valid YAML"
                 ) from exc
 
-            if scenario.scenario_id in scenario_ids:
+            if raw_scenarios is None:
+                continue
+
+            if not isinstance(raw_scenarios, list):
                 raise ScenarioLoadError(
-                    f"Duplicate scenario_id '{scenario.scenario_id}'"
+                    f"Scenario file '{file_path}' must contain a YAML list"
                 )
 
-            scenario_ids.add(scenario.scenario_id)
-            scenarios.append(scenario)
+            for raw_scenario in raw_scenarios:
+                if not isinstance(raw_scenario, dict):
+                    raise ScenarioLoadError(
+                        f"Scenario entry in '{file_path}' must be a mapping"
+                    )
+
+                try:
+                    scenario = AttackScenario.model_validate(raw_scenario)
+                except ValidationError as exc:
+                    raise ScenarioLoadError(
+                        f"Scenario file '{file_path}' contains an invalid scenario"
+                    ) from exc
+
+                if scenario.scenario_id in scenario_ids:
+                    raise ScenarioLoadError(
+                        f"Duplicate scenario_id '{scenario.scenario_id}'"
+                    )
+
+                scenario_ids.add(scenario.scenario_id)
+                scenarios.append(scenario)
 
         return sorted(
             scenarios,
