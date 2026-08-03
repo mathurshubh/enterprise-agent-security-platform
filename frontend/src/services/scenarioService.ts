@@ -7,10 +7,9 @@
  * endpoints exposed by the backend scenario router.
  *
  * Routing Note:
- *   Calls pass absolute URL path `/api/scenarios` to intentionally target the
- *   canonical `/api` scenario router, bypassing the `/api/v1` base URL configured
- *   on apiClient for management plane endpoints. This compatibility decision
- *   preserves single-mount endpoint canonicality backend-side.
+ *   Endpoints are defined in ApiRoutes.scenarios and resolved against apiClient's
+ *   baseURL (/api). The scenario validation pipeline lives under /scenarios/* outside
+ *   the /v1 management namespace.
  *
  * DTO Mapping & Normalization:
  *   - Verifies response data is valid.
@@ -19,6 +18,7 @@
  */
 
 import apiClient from '../api/apiClient'
+import { ApiRoutes } from '../api/routes'
 import type {
   Scenario,
   ScenarioCategory,
@@ -66,7 +66,7 @@ interface ScenarioExecutionResponse {
  * Fetch all registered scenarios from the Scenario API.
  */
 export const getScenarios = async (): Promise<Scenario[]> => {
-  const response = await apiClient.get<ScenarioResponse[]>('/api/scenarios')
+  const response = await apiClient.get<ScenarioResponse[]>(ApiRoutes.scenarios.list)
 
   if (!Array.isArray(response.data)) {
     console.error('Invalid response format returned by scenarios API, expected array:', response.data)
@@ -102,7 +102,7 @@ export const executeScenario = async (
   scenarioId: string
 ): Promise<ScenarioExecutionResult> => {
   const response = await apiClient.post<ScenarioExecutionResponse>(
-    `/api/scenarios/${encodeURIComponent(scenarioId)}/execute`
+    ApiRoutes.scenarios.execute(scenarioId)
   )
 
   const dto = response.data

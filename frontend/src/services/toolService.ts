@@ -11,6 +11,7 @@
  */
 
 import apiClient from '../api/apiClient'
+import { ApiRoutes } from '../api/routes'
 import type { Tool } from '../types/tool'
 
 /**
@@ -27,7 +28,7 @@ interface ToolResponse {
  * Fetch all registered tools from the Management API.
  */
 export const getTools = async (): Promise<Tool[]> => {
-  const response = await apiClient.get<ToolResponse[]>('/tools')
+  const response = await apiClient.get<ToolResponse[]>(ApiRoutes.management.tools)
   
   // Safe DTO validation check
   if (!Array.isArray(response.data)) {

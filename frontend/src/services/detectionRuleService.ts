@@ -14,6 +14,7 @@
  */
 
 import apiClient from '../api/apiClient'
+import { ApiRoutes } from '../api/routes'
 import type { DetectionRule, DetectionCategory, SecurityControlReference } from '../types/detectionRule'
 
 interface SecurityControlResponse {
@@ -53,7 +54,7 @@ const mapSecurityControl = (dto: SecurityControlResponse): SecurityControlRefere
  * Fetch all active detection rules from the Management API.
  */
 export const getDetectionRules = async (): Promise<DetectionRule[]> => {
-  const response = await apiClient.get<DetectionRuleResponse[]>('/detection/rules')
+  const response = await apiClient.get<DetectionRuleResponse[]>(ApiRoutes.management.detectionRules)
   
   // Safe DTO validation check
   if (!Array.isArray(response.data)) {
