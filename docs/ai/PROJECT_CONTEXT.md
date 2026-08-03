@@ -17,7 +17,7 @@ Core principles:
 - Provider Agnostic
 - LLM as Untrusted Intent Parser
 
-Current release:
+Release Status:
 
 v1.0 Development
 
@@ -35,7 +35,10 @@ Implemented:
 - Provider Abstraction
 - Ollama
 - Gemini
-- 243 automated tests
+- Runtime Capability Discovery
+- CapabilityService
+- PlatformCapabilities
+- 281 passing automated tests
 
 ---
 

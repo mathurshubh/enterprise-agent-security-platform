@@ -68,27 +68,27 @@ useQuery({ queryKey: queryKeys.findings.bySession(sessionId), ... })
 queryClient.invalidateQueries({ queryKey: queryKeys.approvals.pending })
 ```
 
-**Registry coverage** (current + planned):
+**Registry coverage**:
 
 | Domain | Keys |
 |---|---|
 | `agents` | `all`, `byId` |
 | `tools` | `all`, `byId` |
-| `sessions` | `all`, `byId`, `events` (PR #72) |
+| `sessions` | `all`, `byId`, `events` (reserved; no backend session event endpoint) |
 | `auditEvents` | `all` |
 | `detectionRules` | `all`, `byId` |
 | `scenarios` | `all`, `byId` |
-| `findings` | `all`, `byId`, `bySession`, `byAgent` (PR #69) |
-| `risk` | `bySession`, `byAgent` (PR #70 vertical slice) |
-| `approvals` | `pending`, `byId` (PR #71) |
-| `dashboard` | `summary` (Phase 2+) |
+| `findings` | `all`, `byId`, `bySession`, `byAgent` (gated; no backend endpoint) |
+| `risk` | `bySession`, `byAgent` (reserved; no backend endpoint) |
+| `approvals` | `pending`, `byId` (gated; no backend endpoint) |
+| `dashboard` | `summary` (computed client-side from domain hooks) |
 
 ### API Client (`src/api/apiClient.ts`)
 
 The shared Axios instance provides:
 
-- **Base URL**: `/api/v1` (Management API only; never targets Runtime API endpoints)
-- **Request interceptor**: JWT `Authorization` header injection stub (Phase 3 — ADR-009)
+- **Base URL**: `/api` (route versioning is owned by `ApiRoutes`)
+- **Request interceptor**: JWT `Authorization` header injection stub; requests are sent unauthenticated by default
 - **Response interceptor**: Normalizes all HTTP and network errors into `ApiError` shape before reaching hooks
 
 ```typescript
@@ -102,7 +102,7 @@ interface ApiError {
 
 ---
 
-## Error Isolation Architecture (PR #70)
+## Error Isolation Architecture
 
 ### React Error Boundary (`src/components/common/ErrorBoundary.tsx`)
 
@@ -128,15 +128,15 @@ Error Boundary does **not** catch: async errors, event handlers, or server error
 
 ## Feature Flag Framework (`src/config/featureFlags.ts`)
 
-Static boolean constants gate Phase 2+ capabilities on backend API availability.
+Static boolean constants gate UI capabilities on backend API availability.
 
-| Flag | Default | Activates In |
+| Flag | Default | Scope |
 |---|---|---|
-| `BEHAVIORAL_TELEMETRY_ENABLED` | `false` | PR #68 |
-| `FINDINGS_ENABLED` | `false` | PR #69 |
-| `RISK_ENGINE_ENABLED` | `false` | PR #70 vertical slice |
-| `ENFORCEMENT_ENGINE_ENABLED` | `false` | PR #71 |
-| `SESSION_TIMELINE_ENABLED` | `false` | PR #72 |
+| `BEHAVIORAL_TELEMETRY_ENABLED` | `false` | No telemetry endpoint is implemented |
+| `FINDINGS_ENABLED` | `false` | `/findings` remains a gated route shell |
+| `RISK_ENGINE_ENABLED` | `false` | No risk state endpoint is implemented |
+| `ENFORCEMENT_ENGINE_ENABLED` | `false` | `/approvals` remains a gated route shell |
+| `SESSION_TIMELINE_ENABLED` | `false` | No session timeline endpoint is implemented |
 
 **Security invariant**: Feature flags control UI presentation only. They are **not** authorization controls. The backend enforces authorization for every request independently of these flags.
 
@@ -152,9 +152,7 @@ A structural placeholder wrapping UI elements that will require authorization in
 </PermissionGuard>
 ```
 
-**Current behavior (PR #70)**: Renders children unconditionally. No authorization logic is applied.
-
-**Phase 3 behavior (ADR-009)**: Will evaluate JWT claims against the required permission and render children or a fallback accordingly.
+**Initial behavior**: Renders children unconditionally. No authorization logic is applied.
 
 **Security invariant**: The guard controls UI presentation only. Backend endpoints enforce authorization for every API call independently.
 
@@ -190,21 +188,15 @@ Layout components (`AppLayout`, `Sidebar`, `Header`) are **eagerly loaded** beca
 - `<NavIcon>`: Sidebar navigation icon component.
 
 ### Tier 2: Shared Domain Widgets (`src/components/common/`)
-- `<ErrorBoundary>`: Page-level crash isolation (PR #70).
-- `<PermissionGuard>`: Authorization enforcement stub for Phase 3 (PR #70).
+- `<ErrorBoundary>`: Page-level crash isolation.
+- `<PermissionGuard>`: Authorization presentation stub.
 - `<LoadingState>`: Centered spinner with optional fullscreen mode for Suspense fallback.
 - `<ErrorState>`: Structured API error display with connection troubleshooting context.
 - `<EmptyState>`: Empty collection state with optional title, description, and CTA action.
 - `<MetricCard>`: Metric card with label, value, and loading skeleton.
-- `<GatedPlaceholderPage>`: Reusable Phase 2-gated placeholder for routes awaiting backend APIs.
+- `<GatedPlaceholderPage>`: Reusable gated placeholder for routes awaiting backend APIs.
 
-### Tier 3: Domain Components (`src/components/domain/`) — Phase 2+
-- `<FindingCard>`: Compact card rendering a Behavioral Finding with severity badge, rule name, and timestamp.
-- `<RiskIndicator>`: Visual risk score gauge (0–100) and risk tier badge.
-- `<EnforcementBadge>`: Color-coded badge for canonical enforcement actions.
-- `<ApprovalActionPanel>`: Audited form panel for approval queue release/rejection.
-
-### Tier 4: Presentational Tables (`src/pages/*/components/`)
+### Tier 3: Presentational Tables (`src/pages/*/components/`)
 - Domain-specific table components (`AgentTable`, `ToolTable`, `DetectionRuleTable`, `AuditTable`, `SessionTable`, `ScenarioTable`) rendering structured tabular data with skeleton loading states and empty state fallbacks.
 
 ---
@@ -239,10 +231,10 @@ Per Principle 9 ([02-design-principles.md](02-design-principles.md)), raw conten
 | `auditEvent.ts` | Audit event trail records | Implemented |
 | `detectionRule.ts` | Detection rule catalog | Implemented |
 | `scenario.ts` | Attack simulation scenarios | Implemented |
-| `finding.ts` | Detection findings | Typed (PR #69 implements) |
-| `approval.ts` | Pending approval tickets | Typed (PR #71 implements) |
-| `dashboard.ts` | Command Center summary metrics | Typed (Phase 2+ implements) |
-| `api.ts` | `ApiError`, `PaginatedResponse<T>` | Implemented (PR #70) |
+| `finding.ts` | Detection findings | Typed for gated route shell |
+| `approval.ts` | Pending approval tickets | Typed for gated route shell |
+| `dashboard.ts` | Command Center summary metrics | Typed for client-side summary |
+| `api.ts` | `ApiError`, `PaginatedResponse<T>` | Implemented |
 
 ---
 

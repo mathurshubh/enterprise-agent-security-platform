@@ -73,7 +73,7 @@ The Runtime API represents the deterministic security boundary of the platform.
 Example:
 
 ```text
-POST /runtime/execute
+POST /agents/{agent_id}/execute
 ```
 
 Only RuntimeService may authorize tool execution.
@@ -112,6 +112,9 @@ The Management API will reuse the platform's JWT authentication mechanism while 
 Authentication is enforced at the HTTP boundary before requests reach application services.
 
 Management API authorization governs access to platform metadata and operational visibility only. It never authorizes runtime tool execution.
+
+### Implementation Notes
+While JWT services are implemented in the codebase, the FastAPI management router does not enforce JWT validation at the HTTP boundary in this release.
 
 ---
 
@@ -270,9 +273,9 @@ This abstraction allows internal implementations to evolve without breaking exte
 ---
 
 
-# Initial Management Endpoints
+# Management Endpoints
 
-The first version of the Enterprise Management API is expected to expose endpoints similar to:
+The Enterprise Management API exposes:
 
 ```text
 GET /api/v1/agents
@@ -281,18 +284,14 @@ GET /api/v1/tools
 
 GET /api/v1/detection/rules
 
-GET /api/v1/findings
-
 GET /api/v1/audit/events
 
-GET /api/v1/dashboard
+GET /api/v1/sessions
 
-GET /api/v1/scenarios
+GET /api/v1/info
 ```
 
-These endpoints are illustrative rather than normative.
-
-The API specification will define the exact contracts.
+Scenario registry and scenario execution endpoints are exposed separately under `/api/scenarios`.
 
 ---
 

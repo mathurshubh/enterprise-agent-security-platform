@@ -6,6 +6,9 @@
 
 This document formally establishes the **Phase 2 Architecture Baseline & Governance Specification** for version `v0.13.0` of the Enterprise Agent Security Platform.
 
+> [!NOTE]
+> Historical planning document retained for architectural history.
+
 Following extensive architectural design reviews, threat modeling, data contract definitions, and capability roadmap planning, the Phase 2 Architecture Baseline is approved and becomes the governing architectural reference for all subsequent implementation work. This baseline specification serves as the authoritative standard against which all future implementation pull requests, code changes, and architectural proposals will be evaluated.
 
 Implementation officially begins in **PR #69**. Repository-wide architecture planning concludes with PR #68; future code reviews will focus exclusively on individual vertical slice implementation conformance.

@@ -1,14 +1,18 @@
 # OpenAPI Design Contract
 
 ## Overview
-This document defines the authoritative API contract for the Enterprise Agent Security Platform. The design targets the **OpenAPI Specification 3.1**.
+This document defines the API design contract for the Enterprise Agent Security Platform. The design targets the **OpenAPI Specification 3.1**.
 
-**Base Path:** `/api/v1`
+### Implemented API Roots
+
+- Runtime API: `/agents/{agent_id}/execute`
+- Scenario API: `/api/scenarios`
+- Management API: `/api/v1`
 
 ---
 
 ## Architectural Intent
-The platform exposes governance APIs rather than direct tool execution APIs. Clients interact with Enterprise Agents through deterministic runtime evaluation, preserving the Runtime Security Pipeline as the primary trust boundary. Direct or unauthenticated tool execution is prohibited.
+The platform exposes a deterministic Runtime API for tool invocation evaluation, a Scenario API for security benchmark execution, and a read-only Enterprise Management API for platform observability. Clients do not execute enterprise tools directly; execution is allowed only after the Runtime Security Pipeline returns an `ALLOW` decision.
 
 ---
 
@@ -16,84 +20,90 @@ The platform exposes governance APIs rather than direct tool execution APIs. Cli
 The platform's APIs conform to the following engineering design principles:
 *   **RESTful Resource-Oriented APIs:** Operations are modeled as stateless requests targeting identified resource collections.
 *   **Stateless Execution:** Request processing does not depend on local server session state. All session attributes are passed in headers or payloads.
-*   **JWT Bearer Authentication:** Secure token validation encapsulates caller identity and role attributes.
+*   **Deterministic Runtime Evaluation:** Runtime execution requests are evaluated by `RuntimeService`, not by LLM prompts or client-side logic.
 *   **Deterministic Security Policies:** All authorization and threat mitigation rules are evaluated deterministically prior to executing actions.
 *   **Provider-Agnostic Design:** APIs remain decoupled from specific AI vendor data formats, using standardized tool request schemas.
-*   **Consistent JSON Schemas:** Error formats, payload envelopes, and resource records follow consistent schemas.
-*   **Auditability by Design:** Every request creates request tracking headers and triggers append-only audit event logging.
+*   **Consistent JSON Schemas:** Implemented endpoints return direct JSON domain DTOs.
+*   **Auditability by Design:** Runtime execution records append-only audit events after the final security decision.
 
 ---
 
 ## API Security Model
-API clients never execute enterprise tools directly. The Runtime Security Pipeline acts as the single trust boundary intercepting all client calls. Every incoming request flows through this security pipeline:
+API clients never execute enterprise tools directly. Runtime execution requests flow through this security pipeline:
 
 ```text
-Client Request → Authentication (JWT) → Authorization (RBAC) → Policy Evaluation → Threat Detection Engine → Risk Assessment → Response Override → SIEM Audit Log → Secure Tool Execution
+Client Request → RuntimeService → Authorization → Policy Evaluation → Detection → Risk Assessment → Response Override → Audit Event → Secure Tool Execution if ALLOW
 ```
 
 ---
 
 ## Request Lifecycle
-The API request lifecycle transitions through the following logical path:
+The API request lifecycle transitions through the following architectural path:
 
 ```text
-  Client
-    │
-    ▼
+Client
+  │
+  ▼
 [HTTP Request]
-    │
-    ▼
-[Authentication]            (Token checked; identity resolved)
-    │
-    ▼
-[Runtime Security Pipeline] (Deterministic access and threat checks)
-    │
-    ▼
-[Tool Invocation]           (The validated request target payload)
-    │
-    ▼
-[Secure Tool Execution]     (Tool executes inside secure zone)
-    │
-    ▼
-[AgentRuntimeResult]        (Filtered result envelope constructed)
-    │
-    ▼
+  │
+  ▼
+[Runtime Security Pipeline]
+  │
+  ▼
+[Runtime Result]
+  │
+  ▼
 [HTTP Response]
 ```
 
 ---
 
 ## Standard Request Headers
-All API calls targeting secure endpoints should supply the following standard request headers:
-*   `Authorization` (String): Bearer token header (`Bearer <access_token>`).
+API calls should supply the following standard request headers:
 *   `Content-Type` (String): Payload format representation (`application/json`).
 *   `Accept` (String): Expected response payload format (`application/json`).
-*   `X-Request-ID` (String, UUID): Client-supplied or server-generated request correlation identifier.
-*   `X-Correlation-ID` (String, UUID): Client-supplied session identifier tracing multi-step agent actions.
 
 ---
 
 ## Request Tracing & Correlation
-Every API request requires or generates `X-Request-ID` and `X-Correlation-ID` headers to support observability and audit correlation. These correlation identifiers are logged across the entire Runtime Security Pipeline and captured in SIEM audit records.
+
+### Architecture
+
+Requests propagate a unique tracking context (such as a session or request identifier) to correlate actions throughout execution evaluation, session history, and auditing.
+
+### Implementation Notes
+
+The Runtime API accepts a `session_id` in the request body to correlate related interactions. Explicit correlation headers are not enforced at the FastAPI routing boundary.
 
 ---
 
 ## Idempotency Guidance
 To prevent duplicate execution or parameter configuration states, clients should observe the following idempotency rules:
 *   `GET` requests are safe and idempotent.
-*   `POST /api/v1/agents` is non-idempotent (creates a new agent governance record).
-*   `POST /api/v1/tools/execute` is non-idempotent (may mutate files, directories, or cloud resources depending on tool arguments).
+*   `POST /agents/{agent_id}/execute` is non-idempotent because it records session and audit events.
+*   `POST /api/scenarios/{scenario_id}/execute` is non-idempotent because it executes a benchmark scenario and records runtime events.
 
 ---
 
 ## Authentication
-Authentication is enforced via JWT Bearer Tokens in the authorization header:
 
+### Authentication Architecture
+
+The platform expects a JSON Web Token (JWT) supplied in the standard HTTP header:
 ```http
 Authorization: Bearer <access_token>
 ```
 
+### Implementation Notes
+
+The backend includes `JwtService` to handle token creation and verification logic.
+
+### Known Limitations
+
+FastAPI routers do not enforce JWT verification at the HTTP boundary for this release.
+
 ### Token Structure & Claims
+
 JWTs used by the platform contain the following standard claims:
 *   `sub` (Subject): The unique identifier of the calling Enterprise Agent or Administrator.
 *   `iss` (Issuer): The authoritative auth issuer of the enterprise platform.
@@ -101,108 +111,115 @@ JWTs used by the platform contain the following standard claims:
 *   `exp` (Expiration): Unix timestamp after which the token is invalid (tokens default to 1-hour lifetimes).
 *   `role` (Role claim): The assigned RBAC capability (`ADMIN`, `ANALYST`, `AGENT`).
 
-*Note: Successful token authentication establishes identity and role classification, but does not grant permission to execute a tool. Authorization is evaluated separately on every tool invocation.*
+*Note: Token authentication, where used by callers, does not grant permission to execute a tool. Authorization is evaluated separately on every runtime tool invocation.*
 
 ---
 
 ## Authorization Model
-Authorization decisions are deterministic and independent of the AI model's output. The pipeline calculates tool execution access permissions by combining:
-1.  **Agent Identity:** The authenticated agent requesting the capability.
-2.  **RBAC Role:** Verifying the token role satisfies tool permission requirements.
-3.  **Tool Registry Metadata:** Retrieving the tool's required roles and risk levels.
-4.  **Resource-Aware Policies:** Parsing resource parameters (e.g., specific file targets) against deny lists or restrictions.
-5.  **Runtime Context:** Evaluating current session event history (e.g., block thresholds).
+
+### Architecture
+
+Authorization decisions are deterministic and independent of the AI model's output. The pipeline evaluates tool execution access permissions by combining:
+1.  **Agent Identity:** The authenticated identity of the agent requesting tool execution.
+2.  **Approved Tool List:** Verification that the requested tool is explicitly allowed for the agent.
+3.  **Tool Governance Metadata:** Rules associated with the tool, such as required permissions or risk thresholds.
+4.  **Resource-Aware Policies:** Parameter validation constraints (e.g., path restrictions) defined outside the agent runtime.
+5.  **Session Context:** Behavioral analysis inputs, such as session history and consecutive execution failure counts.
+
+### Implementation Notes
+
+Tool metadata is resolved via `ToolRegistry` and permissions checked by `AuthorizationService`. Resource constraints are validated against `PolicyEngine`, and session behavioral checks (like `EXCESSIVE_DENIALS`) query active session events recorded in `SessionService`.
 
 ---
 
-## Standard Success Envelope
-Successful API resource responses return a standard envelope wrapper that exposes request tracking metadata alongside payload data:
+## Response Shape
+
+### Architecture
+
+API endpoints return direct JSON payload representations of the requested resources or execution outcomes.
+
+### Representative Example (Tool Registry Response)
 
 ```json
-{
-  "request_id": "6c5432ab-1234-5678-abcd-ef1234567890",
-  "timestamp": "2026-07-19T22:23:00Z",
-  "data": {}
-}
+[
+  {
+    "tool_id": "file_read",
+    "name": "File Read",
+    "description": "Read files from the workspace",
+    "version": "1.0.0"
+  }
+]
 ```
 
 ---
 
 ## Approval Workflow Model
-For critical or high-risk Tool Invocations, the platform implements a conditional three-way evaluation lifecycle:
-*   **ALLOW:** The Tool Invocation satisfies all access requirements. Passes directly to Secure Tool Execution.
-*   **DENY:** The request violates policies or triggers critical risk flags. The pipeline terminates the execution and returns an HTTP 403 error payload.
-*   **HOLD:** The request is suspended and placed into an approval queue (`APPROVAL_REQUIRED`). The approval workflow must be explicitly approved or rejected by an analyst. If approved, it is released to Secure Tool Execution; if rejected, it returns a DENY state error response.
+
+### Architecture
+
+For high-risk tool invocations, the security pipeline evaluates the request against a three-way decision model:
+*   **ALLOW:** The invocation meets all policy requirements and proceeds to secure execution.
+*   **DENY:** The invocation violates access policies or triggers security rules (resulting in a blocked action).
+*   **APPROVAL_REQUIRED:** The invocation triggers a requirement for administrative review, moving the transaction to a pending hold state.
+
+### Known Limitations
+
+A persistent approval queue or interactive release action is not implemented in this release. An `APPROVAL_REQUIRED` result acts as a terminal hold state, blocking execution and returning a response indicating that manual approval is required.
 
 ---
 
-## Agent Registry API
+## Implemented Runtime API
 
-### Register Agent
-Creates a new governed agent profile in the platform inventory.
+### Execute Agent Request
 
-*   **Endpoint:** `POST /api/v1/agents`
+Evaluates a requested tool through the Runtime Security Pipeline.
+
+*   **Endpoint:** `POST /agents/{agent_id}/execute`
 *   **Idempotency:** Non-idempotent
 *   **Request Payload:**
     ```json
     {
-      "name": "SOC Agent",
-      "owner": "Security Operations",
-      "risk_tier": "HIGH",
-      "approved_tools": [
-        "file_read",
-        "directory_list"
-      ]
+      "session_id": "session-123",
+      "tool_id": "file_read",
+      "user_prompt": "read notes.txt",
+      "model_output": "",
+      "tool_output": ""
     }
     ```
 *   **Response Payload:**
     ```json
     {
-      "request_id": "6c5432ab-1234-5678-abcd-ef1234567890",
-      "timestamp": "2026-07-19T22:23:00Z",
-      "data": {
-        "agent_id": "soc-agent",
-        "status": "REGISTERED"
-      }
+      "session_id": "session-123",
+      "agent_id": "agent-1",
+      "tool_id": "file_read",
+      "decision": "ALLOW",
+      "findings": [],
+      "risk_score": 0,
+      "risk_level": "LOW",
+      "response_type": "MONITOR",
+      "response_reason": "Low risk execution"
     }
     ```
-*   **Status Codes:**
-    *   `201 Created` — Agent record successfully stored.
-    *   `400 Bad Request` — Validation failure on parameters or tool list.
-    *   `409 Conflict` — Agent ID already registered.
+
+---
+
+## Implemented Management API
+The Enterprise Management API is a read-only endpoint suite providing operational visibility into platform configuration.
+
+### Implementation Notes
+
+Endpoints retrieve state from shared service instances injected via FastAPI dependencies.
 
 ### List Agents
+
 Retrieves all registered agents.
 
 *   **Endpoint:** `GET /api/v1/agents`
 *   **Idempotency:** Idempotent
 *   **Response Payload:**
     ```json
-    {
-      "request_id": "6c5432ab-1234-5678-abcd-ef1234567890",
-      "timestamp": "2026-07-19T22:23:00Z",
-      "data": [
-        {
-          "agent_id": "soc-agent",
-          "name": "SOC Agent",
-          "owner": "Security Operations",
-          "status": "ACTIVE"
-        }
-      ]
-    }
-    ```
-
-### Get Agent Details
-Retrieves details for a specific agent.
-
-*   **Endpoint:** `GET /api/v1/agents/{agent_id}`
-*   **Idempotency:** Idempotent
-*   **Response Payload:**
-    ```json
-    {
-      "request_id": "6c5432ab-1234-5678-abcd-ef1234567890",
-      "timestamp": "2026-07-19T22:23:00Z",
-      "data": {
+    [
+      {
         "agent_id": "soc-agent",
         "name": "SOC Agent",
         "owner": "Security Operations",
@@ -213,150 +230,136 @@ Retrieves details for a specific agent.
         ],
         "status": "ACTIVE"
       }
-    }
+    ]
     ```
 
 ---
-
-## Token Generation API
-
-Generates a JWT access token for an agent profile.
-
-*   **Endpoint:** `POST /api/v1/auth/token`
-*   **Request Payload:**
-    ```json
-    {
-      "agent_id": "soc-agent"
-    }
-    ```
-*   **Response Payload:**
-    ```json
-    {
-      "access_token": "eyJhbGciOi...",
-      "token_type": "bearer"
-    }
-    ```
-
----
-
-## Tool Governance API
 
 ### List Tools
-Lists all registered tools with their governance metadata.
+
+Lists metadata for all tools registered in the shared Tool Registry.
 
 *   **Endpoint:** `GET /api/v1/tools`
 *   **Idempotency:** Idempotent
 *   **Response Payload:**
     ```json
-    {
-      "request_id": "6c5432ab-1234-5678-abcd-ef1234567890",
-      "timestamp": "2026-07-19T22:23:00Z",
-      "data": [
-        {
-          "tool_id": "file_read",
-          "risk_level": "LOW"
-        },
-        {
-          "tool_id": "directory_list",
-          "risk_level": "LOW"
-        }
-      ]
-    }
-    ```
-
-### Execute Tool
-Evaluates a Tool Invocation and executes the target capability if allowed by the Runtime Security Pipeline.
-
-*   **Endpoint:** `POST /api/v1/tools/execute`
-*   **Idempotency:** Non-idempotent
-*   **Request Payload (Tool Invocation):**
-    ```json
-    {
-      "tool_id": "file_read",
-      "parameters": {
-        "path": "notes.txt"
+    [
+      {
+        "tool_id": "file_read",
+        "name": "File Read",
+        "description": "Read files from the workspace",
+        "version": "1.0.0"
       }
-    }
+    ]
     ```
-*   **Response Payload (AgentRuntimeResult):**
-    Returns the filtered execution result to preserve the trust boundary. Internal evaluation structures (`RuntimeResult`) remain hidden inside the platform.
+
+### List Detection Rules
+
+Lists active Content Detection Rules from the shared `DetectionRegistry`.
+
+*   **Endpoint:** `GET /api/v1/detection/rules`
+*   **Idempotency:** Idempotent
+*   **Response Payload:**
     ```json
-    {
-      "request_id": "6c5432ab-1234-5678-abcd-ef1234567890",
-      "decision": "ALLOW",
-      "response_type": "MONITOR",
-      "output": "sample notes content..."
-    }
+    [
+      {
+        "name": "PROMPT_INJECTION",
+        "category": "PROMPT_SECURITY",
+        "description": "Detects prompt injection attempts",
+        "controls": []
+      }
+    ]
     ```
-
----
-
-## Audit Events API
 
 ### List Audit Events
-Retrieves SIEM-ready log records of all runtime decisions.
 
-*   **Endpoint:** `GET /api/v1/events`
+Retrieves append-only audit records of final runtime decisions.
+
+*   **Endpoint:** `GET /api/v1/audit/events`
 *   **Idempotency:** Idempotent
 *   **Response Payload:**
     ```json
-    {
-      "request_id": "6c5432ab-1234-5678-abcd-ef1234567890",
-      "timestamp": "2026-07-19T22:23:00Z",
-      "data": [
-        {
-          "event_id": "9a8b7c6d-1234-5678-90ab-cdef12345678",
-          "session_id": "session-123",
-          "agent_id": "soc-agent",
-          "tool_id": "file_read",
-          "decision": "ALLOW",
-          "timestamp": "2026-01-01T00:00:00Z"
-        }
-      ]
-    }
-    ```
-
-### Get Audit Event
-*   **Endpoint:** `GET /api/v1/events/{event_id}`
-*   **Idempotency:** Idempotent
-*   **Response Payload:**
-    ```json
-    {
-      "request_id": "6c5432ab-1234-5678-abcd-ef1234567890",
-      "timestamp": "2026-07-19T22:23:00Z",
-      "data": {
-        "event_id": "9a8b7c6d-1234-5678-90ab-cdef12345678",
-        "session_id": "session-123",
-        "agent_id": "soc-agent",
+    [
+      {
+        "event_id": "evt-123",
+        "agent_id": "agent-1",
         "tool_id": "file_read",
         "decision": "ALLOW",
         "timestamp": "2026-01-01T00:00:00Z"
       }
+    ]
+    ```
+
+### List Sessions
+
+Retrieves active session records.
+
+*   **Endpoint:** `GET /api/v1/sessions`
+*   **Idempotency:** Idempotent
+
+### Platform Info
+
+Returns lightweight platform metadata and resource counts.
+
+*   **Endpoint:** `GET /api/v1/info`
+*   **Idempotency:** Idempotent
+
+---
+
+## Implemented Scenario API
+
+The Scenario API exposes the loaded attack scenario registry and executes scenarios through `ScenarioRunnerService`.
+
+### List Scenarios
+
+*   **Endpoint:** `GET /api/scenarios`
+*   **Query Parameters:** `category`, `severity`, `tag`, `enabled`
+*   **Idempotency:** Idempotent
+
+### Get Scenario
+
+*   **Endpoint:** `GET /api/scenarios/{scenario_id}`
+*   **Idempotency:** Idempotent
+
+### Execute Scenario
+
+*   **Endpoint:** `POST /api/scenarios/{scenario_id}/execute`
+*   **Idempotency:** Non-idempotent
+*   **Response Payload:**
+    ```json
+    {
+      "execution_id": "exec-123",
+      "scenario_id": "BEN-001",
+      "session_id": "scenario-run-BEN-001",
+      "execution_mode": "TOOL_SEQUENCE",
+      "status": "COMPLETED",
+      "passed": true,
+      "observed_decision": "ALLOW",
+      "observed_response": "MONITOR",
+      "observed_risk_level": "LOW",
+      "observed_findings": [],
+      "mismatches": [],
+      "error_message": null,
+      "started_at": "2026-01-01T00:00:00Z",
+      "finished_at": "2026-01-01T00:00:01Z"
     }
     ```
 
 ---
 
 ## Error Handling Model
-All API errors return a standard JSON payload:
+FastAPI returns standard validation and HTTP exception payloads. Scenario lookup failures return `404` with a detail message:
 
 ```json
 {
-  "error": {
-    "code": "AUTHORIZATION_DENIED",
-    "message": "Agent does not possess required roles to invoke the file_read tool.",
-    "request_id": "6c5432ab-1234-5678-abcd-ef1234567890"
-  }
+  "detail": "Scenario 'UNKNOWN' not found"
 }
 ```
 
 ### Standard Error Codes
-*   `AUTHENTICATION_FAILED` (401): Missing, expired, or invalid JWT.
-*   `AUTHORIZATION_DENIED` (403): The agent does not have permissions for the requested tool.
-*   `POLICY_VIOLATION` (403): The request violated resource policies (e.g. sensitive file path).
-*   `VALIDATION_FAILED` (400): Parameters violate datatype constraints or bounds.
-*   `TOOL_NOT_FOUND` (404): The requested tool ID is not registered in the Tool Registry.
-*   `APPROVAL_REQUIRED` (202): Request is held pending administrative review.
+
+*   `VALIDATION_FAILED` (422): FastAPI request validation failed.
+*   `SCENARIO_NOT_FOUND` (404): The requested scenario ID is not registered.
 *   `INTERNAL_SERVER_ERROR` (500): Unexpected platform failure.
 
 ---
@@ -368,35 +371,12 @@ All API errors return a standard JSON payload:
 
 ---
 
-## Future API Conventions
-List endpoints in future API updates are expected to support standard REST conventions:
-*   **Pagination:** URL query parameters `limit` and `offset` (e.g. `/api/v1/events?limit=50&offset=100`).
-*   **Filtering:** Filtering by active attributes (e.g. `/api/v1/events?decision=DENY`).
-*   **Cursor-Based Navigation:** Page boundaries using opaque cursor keys (`starting_after`, `ending_before`) for high-frequency logs.
+## Collection Endpoint Limits
 
----
+### Architecture
 
-## Future Platform APIs
+Endpoints retrieving lists of resources are bounded to prevent denial-of-service and optimize resource usage, supporting standard pagination conventions.
 
-### Governance APIs
-*   **Policy Management:** Manage deterministic policy configurations.
-    *   `GET /api/v1/policies`
-    *   `POST /api/v1/policies`
-*   **Approvals Workflows:** Resolve held requests.
-    *   `GET /api/v1/approvals`
-    *   `POST /api/v1/approvals/{id}/approve`
-    *   `POST /api/v1/approvals/{id}/reject`
+### Implementation Notes
 
-### Security APIs
-*   **Threat Findings:** Expose security flags raised during evaluation.
-    *   `GET /api/v1/findings`
-*   **Risk Metrics:** Expose agent and session threat scores.
-    *   `GET /api/v1/risk`
-
-### Observability APIs
-*   **Console Dashboard Summary:** Metrics for the management console.
-    *   `GET /api/v1/dashboard/summary`
-
-### Multi-Agent APIs
-*   **Agent Relationships:** Map cooperation paths between registered agents.
-    *   `GET /api/v1/agents/{id}/relations`
+The list endpoints in this release return complete in-memory collections. Pagination parameters (such as `limit` and `offset`) are not enforced by the backend services.

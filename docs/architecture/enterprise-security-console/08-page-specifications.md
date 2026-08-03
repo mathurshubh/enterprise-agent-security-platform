@@ -19,16 +19,16 @@ Defines purpose, target users, entity ownership, backend API bindings, UI compon
 - **Purpose:** Central operational landing surface surfacing items requiring immediate action (Zone 1 Action Required Queue) and overall platform security posture (Zone 2 Awareness).
 - **Target Users:** SOC Analyst, Security Engineer, Platform Administrator.
 - **Entity Ownership:** Aggregates across all platform entities.
-- **API Bindings:** `GET /api/v1/info`, `/agents`, `/sessions`, `/audit/events`. Phase 2+: `/approvals/pending`, `/findings`.
-- **Status:** Available in Phase 1 (Zone 2 metrics); upgraded in Phase 2 (Zone 1 work queue).
+- **API Bindings:** `GET /api/v1/info`, `GET /api/v1/agents`, `GET /api/v1/sessions`, `GET /api/v1/audit/events`.
+- **Status:** Available for platform summary and registry metrics.
 
 ### 2. Approval Queue (`/approvals`)
 - **Operational Mode:** MONITOR
 - **Purpose:** Work queue enabling authorized SOC analysts to review, approve, reject, or escalate agent sessions held in `REQUIRE_APPROVAL` or `HOLD_SESSION` states.
 - **Target Users:** SOC Analyst (Tier 2+), Security Administrator.
 - **Entity Ownership:** `EnforcementDecision`, `EnforcementOutcome` ([ADR-019](../../adr/ADR-019-behavioral-enforcement-engine.md), [ADR-020](../../adr/ADR-020-agent-security-operations.md)).
-- **API Bindings:** `GET /api/v1/approvals/pending`, `POST /api/v1/approvals/:id/release`, `POST /api/v1/approvals/:id/reject`.
-- **Status:** Gated by Phase 2 backend approval APIs.
+- **API Bindings:** Reserved for future backend implementation.
+- **Status:** Gated route shell.
 
 ### 3. Sessions List (`/sessions`)
 - **Operational Mode:** INVESTIGATE
@@ -43,16 +43,16 @@ Defines purpose, target users, entity ownership, backend API bindings, UI compon
 - **Purpose:** Multi-panel forensic investigation environment for deep-dive session analysis.
 - **Target Users:** SOC Analyst, Security Engineer.
 - **Entity Ownership:** `Session`, `BehavioralEvent`, `Finding`, `RiskAssessment`, `EnforcementDecision`.
-- **API Bindings:** Phase 1: `GET /sessions`, `/audit/events`. Phase 3: `GET /sessions/:id/events`, `/sessions/:id/timeline`.
-- **Status:** Simplified view in Phase 1; full multi-panel workspace in Phase 3.
+- **API Bindings:** The session list view uses `GET /api/v1/sessions`; session detail APIs are reserved for future implementation.
+- **Status:** Session list available; workspace route is not implemented.
 
 ### 5. Findings & Alerts (`/findings`)
 - **Operational Mode:** INVESTIGATE
 - **Purpose:** Centralized catalog of threat detection rule firings and behavioral anomalies.
 - **Target Users:** SOC Analyst, Security Engineer.
 - **Entity Ownership:** `BehavioralFinding` ([ADR-017](../../adr/ADR-017-behavioral-detection-engine.md)).
-- **API Bindings:** `GET /api/v1/findings`, `GET /api/v1/findings/:id`.
-- **Status:** Gated by Phase 2 backend findings API.
+- **API Bindings:** Reserved for future backend implementation.
+- **Status:** Gated route shell.
 
 ### 6. Audit Trail (`/audit`)
 - **Operational Mode:** INVESTIGATE
@@ -91,7 +91,7 @@ Defines purpose, target users, entity ownership, backend API bindings, UI compon
 - **Purpose:** Library of security validation benchmarks and prompt injection/exfiltration attack scenarios.
 - **Target Users:** Security Engineer, Red Team Specialist.
 - **Entity Ownership:** `AttackScenario` ([ADR-010](../../adr/ADR-010-scenario-execution-architecture.md)).
-- **API Bindings:** `GET /api/v1/scenarios`, `GET /api/v1/scenarios/:id`.
+- **API Bindings:** `GET /api/scenarios`, `GET /api/scenarios/:id`, `POST /api/scenarios/:id/execute`.
 - **Status:** Available in Phase 1 (promoted to primary navigation).
 
 ---
@@ -104,7 +104,7 @@ Explicit page specifications eliminate guesswork during frontend engineering. De
 
 ## Tradeoffs
 
-- **API Boundary Dependency:** Pages requiring backend capabilities not yet implemented (e.g., `/approvals`, `/findings`) are cleanly deferred to Phase 2 rather than implemented with mock data.
+- **API Boundary Dependency:** Pages requiring backend capabilities not yet implemented (e.g., `/approvals`, `/findings`) remain gated route shells rather than using mock data.
 
 ---
 
@@ -122,4 +122,4 @@ Explicit page specifications eliminate guesswork during frontend engineering. De
 
 ## Future Evolution
 
-As Multi-Agent Governance ([ADR-021](../../adr/ADR-021-multi-agent-governance.md)) and SOC Case Management ([ADR-020](../../adr/ADR-020-agent-security-operations.md)) mature, two additional page specifications (`/agents/topology` and `/cases`) will be added to this specification directory.
+Additional page specifications should be added only when corresponding backend capabilities exist.

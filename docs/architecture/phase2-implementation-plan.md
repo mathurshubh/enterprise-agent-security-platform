@@ -5,6 +5,9 @@
 
 This document serves as the canonical master implementation guide for **Phase 2 (v0.13.0)** of the Enterprise Agent Security Platform.
 
+> [!NOTE]
+> Historical planning document retained for architectural history.
+
 Phase 2 transforms the platform from an application shell into an operational **Behavioral Intelligence & Security Operations Platform**. To guarantee architectural integrity, Phase 2 strictly enforces the **Vertical Slice Principle**: every frontend capability must be backed by real, deterministic backend services and management APIs. Synthetic mocks, UI-centric state, and placeholder workflows are explicitly prohibited.
 
 ---

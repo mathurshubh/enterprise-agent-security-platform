@@ -46,7 +46,7 @@ The agent model is used by authorization and policy evaluation to determine whet
   "name": "Local Agent",
   "owner": "security-team",
   "risk_tier": "HIGH",
-  "allowed_tool_ids": [
+  "approved_tools": [
     "file_read",
     "directory_list"
   ],
@@ -237,6 +237,38 @@ It preserves the trust boundary by exposing only the high-level decision, the re
 
 ---
 
+### PlatformCapabilities
+
+`PlatformCapabilities` is the typed model representing the platform's active security capabilities.
+
+#### Persisted Fields
+*   **`tools`** (`set[str]`): The set of all registered executable tool identifiers.
+*   **`content_detection_rules`** (`set[str]`): The set of single-event content-based detection rules.
+*   **`behavioral_detection_rules`** (`set[str]`): The set of multi-event, session-based behavioral detection rules.
+
+#### Computed Fields
+*   **`all_detection_rules`** (`set[str]`): A computed property returning the union of `content_detection_rules` and `behavioral_detection_rules`.
+
+#### Example JSON
+```json
+{
+  "tools": [
+    "file_read",
+    "directory_list"
+  ],
+  "content_detection_rules": [
+    "PROMPT_INJECTION",
+    "SENSITIVE_FILE_ACCESS",
+    "DATA_EXFILTRATION"
+  ],
+  "behavioral_detection_rules": [
+    "EXCESSIVE_DENIALS"
+  ]
+}
+```
+
+---
+
 ## Security Models
 
 The security models collectively represent the deterministic security state evaluated and mutated by the Runtime Security Pipeline.
@@ -279,12 +311,11 @@ Illustrative policy representation:
 
 ### AuditEvent
 
-`AuditEvent` records final, authoritative tool execution decisions. Every request processed by the pipeline produces a compliance-ready record mapping the agent, session, tool target, decision, and timestamp for SIEM ingestion.
+`AuditEvent` records final, authoritative tool execution decisions. Every request processed by the pipeline produces a compliance-ready record mapping the agent, tool target, decision, and timestamp for SIEM ingestion.
 
 ```json
 {
   "event_id": "audit-123",
-  "session_id": "session-123",
   "agent_id": "agent-1",
   "tool_id": "file_read",
   "decision": "ALLOW",
@@ -398,7 +429,7 @@ AuditEvent
 
 The Enterprise Agent interprets natural language queries and produces a Tool Invocation. The Runtime Security Pipeline parses the invocation, runs policy checks and threat rules, and outputs a RuntimeResult. 
 
-If approved, the pipeline queries the Tool Registry to resolve ToolMetadata and initiate Secure Tool Execution. The outcomes are returned as an AgentRuntimeResult and permanently logged as an AuditEvent.
+If approved, the Agent Runtime resolves the approved tool through the Tool Registry and executes it. The outcomes are returned as an AgentRuntimeResult, while RuntimeService records the final decision as an AuditEvent.
 
 ---
 

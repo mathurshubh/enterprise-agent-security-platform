@@ -111,7 +111,7 @@ The console will be accessible at `http://127.0.0.1:3000`. API requests to `/api
 Always execute backend tests using `.venv/bin/python -m pytest` from the root directory.
 
 ```bash
-# Run complete test suite (243+ tests)
+# Run complete test suite
 .venv/bin/python -m pytest
 
 # Run targeted test file

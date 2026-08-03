@@ -21,7 +21,7 @@ To support authorization, risk assessment, threat detection, auditing, and human
 
 ## 1. Consolidated Tool Registry (`ToolRegistry`)
 
-The `ToolRegistry` ([`app/registry/tool_registry.py`](../../app/registry/tool_registry.py)) is the single source of truth for all registered tool descriptors and factories.
+The `ToolRegistry` is the single source of truth for all registered tool descriptors and factories.
 
 ### Responsibilities
 - **Registration**: Register `BaseTool` instances or lazy factories with strict metadata validation (`tool_id`, `name`, `version`).
@@ -30,13 +30,16 @@ The `ToolRegistry` ([`app/registry/tool_registry.py`](../../app/registry/tool_re
 - **Version Evolution Preparation**: Internal storage `_descriptors[tool_id][version]` and isolated `_match_version()` helper prepare the registry for future multi-version loading.
 - **Discovery**: Expose defensive copies of tool metadata (`discover_tools()`) to the management plane.
 - **Immutability**: All listing methods return immutable tuples (`tuple[ToolDescriptor, ...]`, `tuple[BaseTool, ...]`).
-- **Thread Safety**: All state reads and mutations are guarded by `threading.RLock`.
+
+### Implementation Notes
+*   **Source File:** Located at [`app/registry/tool_registry.py`](../../app/registry/tool_registry.py).
+*   **Concurrency Control:** All state reads and mutations are guarded by a reentrant lock (`threading.RLock`) to ensure thread safety.
 
 ---
 
 ## 2. Passive ToolDescriptor & ToolMetadata Architecture
 
-`ToolDescriptor` ([`app/models/tool_descriptor.py`](../../app/models/tool_descriptor.py)) is a pure passive data container holding registration information:
+`ToolDescriptor` is a pure passive data container holding registration information:
 
 ```text
 ToolDescriptor (Passive Runtime Registration Object)
@@ -52,22 +55,28 @@ ToolDescriptor (Passive Runtime Registration Object)
 └── registration_state: "REGISTERED" | "UNREGISTERED" | "DEPRECATED"
 ```
 
+### Implementation Notes
+*   **Source File:** Located at [`app/models/tool_descriptor.py`](../../app/models/tool_descriptor.py).
+
 ---
 
 ## 3. Dedicated Tool Executor (`DefaultToolExecutor`)
 
-`DefaultToolExecutor` ([`app/runtime/tool_executor.py`](../../app/runtime/tool_executor.py)) is responsible for tool instantiation, execution, and exception translation:
+`DefaultToolExecutor` is responsible for tool instantiation, execution, and exception translation:
 
 - Instantiates `BaseTool` handles from passive `ToolDescriptor` objects.
-- Executes tools with validated parameters and `RuntimeContext`.
+- Executes tools with validated parameter mappings.
 - Translates unhandled runtime execution errors into `ToolExecutionError`.
-- Serves as the extensible insertion point for future PRs #71–#75 (telemetry, event storage, detection, risk, enforcement).
+- Keeps tool lookup/resolution separate from executable tool invocation.
+
+### Implementation Notes
+*   **Source File:** Located at [`app/runtime/tool_executor.py`](../../app/runtime/tool_executor.py).
 
 ---
 
 ## 4. Runtime Execution Context (`RuntimeContext`)
 
-Tool executions are accompanied by an immutable `RuntimeContext` ([`app/models/runtime_context.py`](../../app/models/runtime_context.py)) representing execution identity only:
+Tool executions are accompanied by an immutable context representing execution identity only:
 
 | Field | Type | Description |
 |---|---|---|
@@ -78,36 +87,42 @@ Tool executions are accompanied by an immutable `RuntimeContext` ([`app/models/r
 | `authenticated_agent` | `str` | Authenticated agent identifier |
 | `execution_metadata` | `dict[str, Any]` | Read-only execution metadata |
 
+### Implementation Notes
+*   **Source File:** Located at [`app/models/runtime_context.py`](../../app/models/runtime_context.py).
+
 ---
 
 ## 5. Runtime Lifecycle & Flow Architecture
 
 ```text
-Tool Registration (ToolRegistry.register / register_factory -> ToolDescriptor)
+Bootstrap Registration (runtime_bootstrap.py -> ToolRegistry.register / register_factory -> ToolDescriptor)
 
 ↓
 
-Authorization Check (AuthorizationService.authorize)
+Runtime Security Pipeline (RuntimeService.execute)
 
 ↓
 
-Runtime Resolution (ToolRegistry.resolve(tool_id, version) -> ToolDescriptor)
+Authorization → Policy Evaluation → Detection → Risk Assessment → Response → Audit
 
 ↓
 
-Execution (ToolExecutor.execute_descriptor(descriptor, parameters, context) -> BaseTool.execute)
+If ALLOW: AgentRuntimeService resolves ToolRegistry descriptor
 
 ↓
 
-Audit Event Logged & Context Destroyed
+Execution (DefaultToolExecutor.execute_descriptor(descriptor, parameters) -> BaseTool.execute)
 ```
 
 ---
 
-## 6. Runtime Contracts (`app/runtime/contracts.py`)
+## 6. Runtime Contracts
 
 Standardized protocol interfaces define clean decoupling points:
 
 - `ToolRegistryProtocol`: Protocol governing tool registry operations.
 - `ToolFactoryProtocol`: Protocol for creating/resolving tool instances.
 - `ToolExecutorProtocol`: Protocol for executing tools with validated parameters and runtime context.
+
+### Implementation Notes
+*   **Source File:** Located at [`app/runtime/contracts.py`](../../app/runtime/contracts.py).

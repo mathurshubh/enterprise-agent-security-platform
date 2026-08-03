@@ -10,6 +10,9 @@ This document specifies the **Four-Phase Implementation Roadmap** for delivering
 
 Defines phase boundaries, backend prerequisites, implementation deliverables, and validation criteria across all four execution phases.
 
+### Release Scope & Status
+The backend provides read-only Management API endpoints for agents, tools, detection rules, audit events, sessions, and platform info, in addition to Scenario API endpoints under `/api/scenarios`. Findings, approvals, risk state, session timeline, streaming, cases, and topology endpoints listed below are roadmap prerequisites and are not active routes.
+
 ---
 
 ## Phase Matrix Overview
