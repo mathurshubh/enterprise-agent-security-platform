@@ -15,6 +15,7 @@
  */
 
 import apiClient from '../api/apiClient'
+import { ApiRoutes } from '../api/routes'
 import type { AuditEvent, AuditDecision } from '../types/auditEvent'
 
 interface AuditEventResponse {
@@ -31,7 +32,7 @@ const VALID_DECISIONS: Set<AuditDecision> = new Set(['ALLOW', 'DENY', 'APPROVAL_
  * Fetch all platform audit events from the Management API.
  */
 export const getAuditEvents = async (): Promise<AuditEvent[]> => {
-  const response = await apiClient.get<AuditEventResponse[]>('/audit/events')
+  const response = await apiClient.get<AuditEventResponse[]>(ApiRoutes.management.auditEvents)
   
   // Safe DTO validation check
   if (!Array.isArray(response.data)) {

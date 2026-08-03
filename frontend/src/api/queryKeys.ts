@@ -64,7 +64,7 @@ export const queryKeys = {
     byId: (ruleId: string) => ['detectionRules', ruleId] as const,
   },
 
-  /** Attack simulation scenarios (GET /api/v1/scenarios) */
+  /** Attack simulation scenarios (GET /api/scenarios) */
   scenarios: {
     all: ['scenarios'] as const,
     byId: (scenarioId: string) => ['scenarios', scenarioId] as const,

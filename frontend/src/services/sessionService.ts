@@ -13,6 +13,7 @@
  */
 
 import apiClient from '../api/apiClient'
+import { ApiRoutes } from '../api/routes'
 import type { Session } from '../types/session'
 
 interface SessionResponse {
@@ -25,7 +26,7 @@ interface SessionResponse {
  * Fetch all platform active sessions from the Management API.
  */
 export const getSessions = async (): Promise<Session[]> => {
-  const response = await apiClient.get<SessionResponse[]>('/sessions')
+  const response = await apiClient.get<SessionResponse[]>(ApiRoutes.management.sessions)
   
   // Safe DTO validation check
   if (!Array.isArray(response.data)) {

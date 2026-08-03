@@ -5,8 +5,9 @@
  * Equivalent to a `requests.Session()` in Python — holds base URL,
  * default headers, timeout, and interceptors in one place.
  *
- * ADR-009 Compliance:
- *   - baseURL targets the Management API (/api/v1) exclusively.
+ * ADR-009 / PR #72.1 Compliance:
+ *   - baseURL targets the API root (/api) exclusively.
+ *   - Route versioning (/v1) and endpoint paths are owned by ApiRoutes registry.
  *   - This client NEVER targets Runtime API endpoints.
  *   - No security decisions are made in the frontend. The backend
  *     enforces authorization for every request independently.
@@ -25,7 +26,7 @@ import axios, { type AxiosError } from 'axios'
 import type { ApiError } from '../types/api'
 
 const apiClient = axios.create({
-  baseURL: '/api/v1',
+  baseURL: '/api',
   timeout: 10_000,
   headers: {
     'Content-Type': 'application/json',

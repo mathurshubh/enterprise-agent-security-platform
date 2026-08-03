@@ -4,11 +4,11 @@
  * Displays the current page title, platform operational status indicator,
  * version badge, and persona context. All values are purely presentational.
  *
- * Version updated to v0.12.0 per Phase 1 milestone.
+ * Version badge dynamically populated from package.json via __APP_VERSION__.
  *
  * ADR-009 / ADR-022 compliance:
  *   - No business logic, no API calls, no authentication.
- *   - Platform version badge updated to v0.12.0.
+ *   - Platform version badge consumes global __APP_VERSION__.
  */
 
 interface HeaderProps {
@@ -30,7 +30,7 @@ export default function Header({ title }: HeaderProps) {
           <span className="w-1.5 h-1.5 rounded-full bg-status-active" aria-hidden="true" />
           Operational
         </span>
-        <span className="text-xs text-text-muted">v0.12.0</span>
+        <span className="text-xs text-text-muted">v{__APP_VERSION__}</span>
         <div className="w-px h-5 bg-border-primary" aria-hidden="true" />
         <span className="text-xs text-text-secondary">Security Engineer</span>
       </div>

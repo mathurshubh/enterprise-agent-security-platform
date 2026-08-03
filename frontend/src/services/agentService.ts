@@ -14,6 +14,7 @@
  */
 
 import apiClient from '../api/apiClient'
+import { ApiRoutes } from '../api/routes'
 import type { Agent, AgentStatus, RiskTier } from '../types/agent'
 
 /**
@@ -35,7 +36,7 @@ const VALID_RISKS: Set<RiskTier> = new Set(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']
  * Fetch all registered agents from the Management API.
  */
 export const getAgents = async (): Promise<Agent[]> => {
-  const response = await apiClient.get<AgentResponse[]>('/agents')
+  const response = await apiClient.get<AgentResponse[]>(ApiRoutes.management.agents)
   
   // Safe validation check: ensure response data is a valid array
   if (!Array.isArray(response.data)) {

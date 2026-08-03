@@ -78,7 +78,7 @@ export default function Sidebar() {
 
       {/* ── Footer ──────────────────────────────────────────────────── */}
       <div className="px-5 py-4 border-t border-border-primary shrink-0">
-        <div className="text-xs text-text-muted">Platform v0.12.0</div>
+        <div className="text-xs text-text-muted">Platform v{__APP_VERSION__}</div>
       </div>
 
     </aside>
