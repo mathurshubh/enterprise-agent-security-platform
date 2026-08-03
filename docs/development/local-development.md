@@ -142,7 +142,34 @@ Run Ruff to inspect Python code quality and formatting:
 
 ---
 
-## 10. Frontend Production Build
+## 10. Documentation Quality & Linting
+
+The repository uses `markdownlint` to enforce consistent documentation standards.
+
+Install the repository tooling from the project root:
+
+```bash
+# Install root-level developer tooling dependencies
+npm install
+```
+
+To lint documentation files locally:
+
+```bash
+# Run the Markdown linter across the repository
+npm run lint:md
+```
+
+To automatically fix simple mechanical Markdown issues:
+
+```bash
+# Run markdownlint with the fix option
+npm run lint:md:fix
+```
+
+---
+
+## 11. Frontend Production Build
 
 Validate TypeScript types and compile the Vite production bundle:
 
@@ -155,7 +182,7 @@ npm run build
 
 ---
 
-## 11. Recommended Local Environment Verification Sequence
+## 12. Recommended Local Environment Verification Sequence
 
 Before starting any feature work, run the complete verification sequence to ensure your local environment is 100% operational:
 
@@ -169,8 +196,11 @@ git status
 # 3. Run backend code quality linter
 .venv/bin/ruff check
 
-# 4. Verify frontend build
+# 4. Run documentation linter
+npm run lint:md
+
+# 5. Verify frontend build
 cd frontend && npm run build && cd ..
 ```
 
-If all 4 steps succeed, your local development environment is ready.
+If all 5 steps succeed, your local development environment is ready.

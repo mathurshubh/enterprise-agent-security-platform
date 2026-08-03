@@ -100,7 +100,7 @@ This platform is engineered around the following core security and software desi
 
 Every tool invocation follows a deterministic security pipeline before execution is permitted:
 
-```
+```text
 1. Authorization     → Is the agent permitted to use this tool?
 2. Policy Evaluation → Does the resource-aware policy allow this action?
 3. Session Event     → Record the initial authorization decision

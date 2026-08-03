@@ -70,9 +70,9 @@ export async function getAgents(): Promise<Agent[]> {
 ### 3. Query Cache Layer (TanStack Query)
 - Replaces naive mount-time re-fetching with structured client-side query caching.
 - Configures stale time intervals based on artifact lifecycle class:
-	  - **Registry Metadata (Agents, Tools, Rules, Scenarios):** Cached and refetched through TanStack Query.
-	  - **Operational Evidence (Audit Events, Sessions):** Queried from read-only Management API endpoints.
-	  - **Gated Capabilities (Findings, Approvals, Risk):** Query keys and types exist, but backend endpoints are not implemented.
+  - **Registry Metadata (Agents, Tools, Rules, Scenarios):** Cached and refetched through TanStack Query.
+  - **Operational Evidence (Audit Events, Sessions):** Queried from read-only Management API endpoints.
+  - **Gated Capabilities (Findings, Approvals, Risk):** Query keys and types exist, but backend endpoints are not implemented.
 
 ### 4. Custom Hook Layer (`src/hooks/`)
 - Exposes typed query and mutation state (`data`, `loading`, `error`, `refetch`, `mutate`) to presentation components.

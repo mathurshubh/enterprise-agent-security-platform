@@ -264,7 +264,7 @@ The platform architecture is built upon the following immutable design choices:
 
 The Scenario Library provides static security validation benchmarks and attack scenarios to evaluate policy and detection rule efficacy:
 
-```
+```text
 Scenario Library (YAML Assets)
   → Scenario Runner (ScenarioRunnerService)
   → Runtime Security Pipeline (RuntimeService)
