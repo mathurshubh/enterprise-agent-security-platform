@@ -2,7 +2,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.13-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.116+-009688)
-![Tests](https://img.shields.io/badge/Tests-243_Passing-success)
+![Tests](https://img.shields.io/badge/Tests-281_Passing-success)
 ![Providers](https://img.shields.io/badge/Providers-Ollama_|_Gemini-orange)
 ![Security](https://img.shields.io/badge/Security-Zero_Trust-red)
 ![License](https://img.shields.io/badge/License-MIT-green)
@@ -48,7 +48,7 @@ flowchart TD
     H --> I["Risk Service"]
     I --> J["Response Service"]
     J --> K{"Final Decision"}
-    K -->|ALLOW| L["Tool Execution"]
+    K -->|ALLOW| L["Tool Registry Resolution & Tool Execution"]
     K -->|DENY| M["Blocked"]
     K -->|APPROVAL_REQUIRED| N["Held for Review"]
     E --> O["Session Event"]
@@ -69,9 +69,9 @@ The project demonstrates how organizations can apply Zero Trust principles to AI
 
 ## Project Metrics
 
-| Metric | Current |
+| Metric | Value |
 |----------|---------|
-| Automated Tests | 243 |
+| Automated Tests | 281 Passing |
 | Detection Rules | 3 |
 | Security Framework Mappings | 4 (OWASP LLM Top 10, MITRE ATLAS, MITRE ATT&CK) |
 | Runtime Services | 8+ |
@@ -160,6 +160,7 @@ Supported frameworks:
 - Runtime Security Pipeline
 - Governed tool execution through Tool Registry
 - Scenario Execution Engine (supports prompt & tool sequence validation)
+- Runtime Capability Discovery through `CapabilityService`
 
 ### Security Platform
 - JWT authentication
@@ -195,12 +196,13 @@ Supported frameworks:
 - Tool metadata definition (identity, capabilities, governance, operational)
 - Automated tool discovery
 - Read-only tool inventory service
+- Runtime-discovered `PlatformCapabilities`
 - File Read Tool
 - Directory List Tool
 
 ---
 
-## Current Project Status
+## Project Status
 
 ### ✅ Backend (Completed)
 
@@ -218,13 +220,13 @@ Supported frameworks:
 - ✅ Security Standards Mapping (OWASP LLM, MITRE ATLAS, MITRE ATT&CK)
 - ✅ Provider-Agnostic Model Layer (Ollama, Gemini)
 - ✅ Tool Governance
-- ✅ 243 Automated Tests
+- ✅ Runtime Capability Discovery
+- ✅ Management APIs for agents, tools, detection rules, audit events, sessions, scenarios, and platform info
+- ✅ 281 Passing Automated Tests
 
 ### 🚧 In Progress
 
-- 🚧 REST API Expansion (including Scenario Execution endpoint)
 - 🚧 Enterprise Security Console
-- 🚧 Management APIs
 
 ### 📋 Planned
 
@@ -344,11 +346,11 @@ The examples below demonstrate how the Zero Trust pipeline processes agent reque
        ↓
 [Policy Engine]        → Evaluates parameters (secrets.txt is a sensitive resource) → DENY
        ↓
-[Threat Detection]     → SensitiveFileAccessRule flags attempt to access protected resource
+[Threat Detection]     → No content finding for this resource name
        ↓
-[Risk Assessment]      → Risk Score: 25 (Risk Level: MEDIUM)
+[Risk Assessment]      → Risk Score: 0 (Risk Level: LOW)
        ↓
-[Pipeline Response]    → Action: ALERT (Overrides decision to DENY, flags audit record)
+[Pipeline Response]    → Action: MONITOR (earlier policy DENY remains final)
        ↓
 [Authoritative Result] → DENY (Tool execution blocked; agent receives empty output)
 ```
@@ -357,11 +359,10 @@ The examples below demonstrate how the Zero Trust pipeline processes agent reque
 
 ## Testing
 
-The platform maintains a comprehensive automated test suite validated with Ruff and Pytest:
+The platform maintains a comprehensive automated test suite collected with Pytest:
 
-- **243 automated tests** covering services, models, detection rules, policies, registries, scenarios, and tools
-- **Ruff** linting with zero violations
-- **Zero test warnings**
+- **281 passing automated tests** covering services, models, detection rules, policies, registries, scenarios, and tools
+- **Ruff** linting is part of the standard validation workflow
 
 ```bash
 .venv/bin/ruff check
@@ -442,7 +443,7 @@ enterprise-agent-security-platform/
 ├── demo_workspace/      # Demo environment
 ├── docs/                # Architecture, security, and design records
 ├── scripts/             # Development utilities
-├── tests/               # Unit and integration tests (243 tests)
+├── tests/               # Unit and integration tests
 ├── requirements.txt
 ├── pytest.ini
 ├── LICENSE
@@ -472,12 +473,13 @@ enterprise-agent-security-platform/
 - Provider-agnostic LLM architecture (Ollama, Gemini)
 - Scenario Registry and Framework
 - Scenario Execution Engine
+- Runtime Capability Discovery (`CapabilityService`, `PlatformCapabilities`)
+- Read-only Management API
 - Enterprise Security Console Architecture (ADR-009, ADR-022)
-- 243 automated tests with Ruff validation
+- 281 passing automated tests
 
 ### Upcoming
 
-- REST API expansion (including Scenario Execution Endpoint)
 - Enterprise Security Console
 - React Dashboard
 - Human Approval Workflow

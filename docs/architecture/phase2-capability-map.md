@@ -3,6 +3,9 @@
 
 This document maps every capability introduced in Phase 2 across its full architectural stack: from governing ADR to backend domain service, REST API endpoint, frontend surface, Pydantic/TypeScript data models, test suite, and documentation.
 
+> [!NOTE]
+> Historical planning document retained for architectural history.
+
 ---
 
 ## Capability Mappings

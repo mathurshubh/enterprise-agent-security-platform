@@ -170,12 +170,12 @@ The UI must treat all dynamic data rendered from the server as untrusted content
 The Console shall implement the following initial views:
 
 - **Dashboard:** A central landing page displaying high-level security metrics: total active agents, tool counts, registered detection rules, historical audit volume, and recent high-severity security findings.
-- **Agents View:** A searchable catalog listing all registered agents, their current status (Active, Suspended, etc.), designated owner, risk tier, and their allowed tool authorization scopes.
+- **Agents View:** A searchable catalog listing all registered agents, their status (Active, Suspended, etc.), designated owner, risk tier, and their allowed tool authorization scopes.
 - **Tools View:** An inventory displaying registered tools, version metadata, descriptions, capability levels, and associated governance/operational profiles.
 - **Detection Rules View:** A grid of active security rules (Prompt Injection, Sensitive File Access, Data Exfiltration, etc.) describing their detection categories and descriptions.
 - **Audit Timeline:** An immutable chronological log showing runtime tool invocation decisions (Allow/Deny/Approval Required) mapped against timestamps. In initial versions, this page visualizes Audit Events as flat records. Session correlation is planned for future versions once session identity is integrated into the underlying audit event model.
-- **Coverage View (Roadmap):** A planned compliance matrix displaying the platform's detection rule capabilities mapped against security standards (OWASP Top 10 for LLM, MITRE ATLAS). This view depends on future Management API capabilities to aggregate and serve rule coverage stats.
-- **Findings View (Roadmap):** A planned alert screen displaying security violations flagged by the Detection Engine. This view will be introduced in future releases once persistent storage for detection findings is implemented at the backend.
+- **Scenarios View:** A scenario library surface listing registered attack scenarios and allowing scenario execution through the Scenario API.
+- **Findings View:** A gated route shell for future findings storage and API support; persistent findings backend endpoints are reserved for future implementation.
 
 ---
 
@@ -183,17 +183,21 @@ The Console shall implement the following initial views:
 
 The console consumes data strictly via client requests to the Enterprise Management API. 
 
-The console consumes the following currently implemented endpoints:
+The console consumes the following endpoints:
 - `GET /api/v1/info` (replacing the dashboard view with lightweight platform summary stats)
 - `GET /api/v1/agents`
 - `GET /api/v1/tools`
 - `GET /api/v1/detection/rules`
 - `GET /api/v1/audit/events`
+- `GET /api/v1/sessions`
+- `GET /api/scenarios`
+- `GET /api/scenarios/{scenario_id}`
+- `POST /api/scenarios/{scenario_id}/execute`
 
 The following endpoints are defined as future Management API capabilities:
 - `GET /api/v1/dashboard`
 - `GET /api/v1/findings`
-- `GET /api/v1/coverage`
+- `GET /api/v1/approvals/pending`
 
 The frontend code **must not** construct routes or request payloads targeted at the Runtime API (`POST /agents/{agent_id}/execute`). The console binary must not contain code dependencies or references that allow direct execution requests.
 

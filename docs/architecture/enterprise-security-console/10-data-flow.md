@@ -2,31 +2,31 @@
 
 ## Purpose
 
-This document specifies the **Data Flow Architecture**, API client integration, caching layers, real-time streaming, and audited write operations for the Enterprise Security Console.
+This document specifies the **Data Flow Architecture**, API client integration, caching layers, and service wrappers for the Enterprise Security Console.
 
 ---
 
 ## Scope
 
-Governs Axios API integration (`src/api/apiClient.ts`), service layer wrappers (`src/services/`), state hooks (`src/hooks/`), caching layer, and WebSocket/SSE streaming interfaces.
+Governs Axios API integration (`src/api/apiClient.ts`), service layer wrappers (`src/services/`), state hooks (`src/hooks/`), and the TanStack Query caching layer.
 
 ---
 
 ## End-to-End Client Data Architecture
 
 ```text
-Backend REST Management API (/api/v1/*)          Backend SSE / Streaming Endpoint
-                    │                                          │
-                    ▼                                          ▼
-   Axios API Client (apiClient.ts)              Server-Sent Events (SSE) Listener
-                    │                                          │
-                    ▼                                          │
-   Domain Services (src/services/*.ts)                         │
+Backend REST APIs (/api/v1/* and /api/scenarios)
+                    │
+                    ▼
+   Axios API Client (apiClient.ts)
+                    │
+                    ▼
+   Domain Services (src/services/*.ts)
    • DTO Validation & Mapping                                  │
-   • Enum Normalization & Fallbacks                             │
-                    │                                          │
-                    ▼                                          ▼
-   Query Cache Layer (TanStack Query)  ◄───────────── Cache Invalidation Events
+   • Enum Normalization & Fallbacks
+                    │
+                    ▼
+   Query Cache Layer (TanStack Query)
    • Request Deduplication & Stale-While-Revalidate
    • Optimistic Updates Prohibited for Security Writes
                     │
@@ -42,9 +42,10 @@ Backend REST Management API (/api/v1/*)          Backend SSE / Streaming Endpoin
 ## Data Flow Layers
 
 ### 1. API Client Layer (`src/api/apiClient.ts`)
-- Configures Axios instance targeted to `/api/v1` base URL.
-- Attaches JWT authentication headers from secure session storage.
-- Standardizes HTTP error interceptors (e.g., 401 Unauthorized redirect, 403 Forbidden alert, 503 Service Unavailable degraded mode).
+- Configures Axios instance targeted to `/api` base URL.
+- Uses `ApiRoutes` for `/v1` Management API routes and `/scenarios` Scenario API routes.
+- Includes a JWT header injection stub; requests are sent unauthenticated by default.
+- Normalizes HTTP and network errors into the frontend `ApiError` shape.
 
 ### 2. Service Layer (`src/services/*.ts`)
 - Encapsulates API endpoints and maps raw backend Data Transfer Objects (DTOs) to UI domain models.
@@ -66,67 +67,56 @@ export async function getAgents(): Promise<Agent[]> {
 }
 ```
 
-### 3. Query Cache Layer (TanStack Query — Introduced in Phase 2)
+### 3. Query Cache Layer (TanStack Query)
 - Replaces naive mount-time re-fetching with structured client-side query caching.
 - Configures stale time intervals based on artifact lifecycle class:
-  - **Immutable Evidence (Audit Events, Findings):** Long stale time (`staleTime: 5 * 60 * 1000` / 5 mins); data is append-only and immutable.
-  - **Current State (Active Sessions, Risk Posture):** Short stale time (`staleTime: 10 * 1000` / 10s); automatic background polling or SSE invalidation.
-  - **Registry Metadata (Agents, Tools, Rules):** Moderate stale time (`staleTime: 60 * 1000` / 1 min).
+	  - **Registry Metadata (Agents, Tools, Rules, Scenarios):** Cached and refetched through TanStack Query.
+	  - **Operational Evidence (Audit Events, Sessions):** Queried from read-only Management API endpoints.
+	  - **Gated Capabilities (Findings, Approvals, Risk):** Query keys and types exist, but backend endpoints are not implemented.
 
 ### 4. Custom Hook Layer (`src/hooks/`)
 - Exposes typed query and mutation state (`data`, `loading`, `error`, `refetch`, `mutate`) to presentation components.
 
 ---
 
-## Audited Operator Write Operations Pattern
+## Scenario Execution Mutation Pattern
 
-For administrative write operations (e.g., releasing a held session in `/approvals`), the data flow strictly follows an audited command pattern:
+The frontend mutation path executes benchmark scenarios through the Scenario API:
 
 ```text
-User Action (Click "Approve Release")
+User Action (Click "Execute Scenario")
        │
        ▼
-Approval Action Panel (Requires Mandatory Justification Text)
+Scenario Page
        │
        ▼
-Submit Mutation: POST /api/v1/approvals/:id/release { justification: "Analyst verified" }
-       │ (Prohibited: Optimistic Local State Mutation)
+Submit Mutation: POST /api/scenarios/:id/execute
        ▼
-Backend API Validates JWT + RBAC + Session Hold State → Writes Immutable Audit Event → Returns 200 OK
+ScenarioRunnerService executes through RuntimeService and returns ScenarioExecutionResponse
        │
        ▼
-Frontend Receives 200 OK → Invalidates Query Cache → Refetches Pending Approvals List
+Frontend renders observed decision, response, risk level, findings, and mismatches
 ```
 
-> **Critical Rule:** Optimistic UI state updates are **strictly prohibited** for security-critical governance writes. The UI MUST await authoritative backend HTTP 200 OK confirmation before updating visual state.
-
----
-
-## Real-Time Streaming Architecture (Phase 4)
-
-In Phase 4, real-time alert delivery utilizes Server-Sent Events (SSE) targeting `GET /api/v1/telemetry/stream`:
-- Unidirectional event stream broadcasting new Behavioral Findings and Enforcement Hold triggers.
-- Upon receiving an SSE payload, TanStack Query invalidates the `/approvals/pending` and `/findings` query cache keys, triggering an automatic UI refresh without full page reloads.
+> **Critical Rule:** The UI must render backend results as authoritative. It must not fabricate security decisions, findings, risk scores, or approval outcomes.
 
 ---
 
 ## Design Rationale
 
-Defensive DTO mapping in the service layer prevents malformed backend responses from breaking UI rendering. Introducing TanStack Query eliminates redundant network requests while respecting the immutability of historical evidence. Prohibiting optimistic UI updates for governance write actions preserves Zero Trust integrity.
+Defensive DTO mapping in the service layer prevents malformed backend responses from breaking UI rendering. TanStack Query eliminates redundant network requests while respecting backend ownership of platform state.
 
 ---
 
 ## Tradeoffs
 
-- **Network Delay on Writes:** Disallowing optimistic updates means buttons show a loading spinner until the backend HTTP response completes (typically 50–150ms). This slight delay is an intentional design choice to guarantee security decision accuracy.
+- **Backend Dependency:** Gated pages remain placeholders until corresponding backend APIs exist. This avoids mock security data.
 
 ---
 
 ## Dependencies
 
-- Phase 1 uses existing `src/hooks/useApiResource.ts`.
-- Phase 2 introduces TanStack Query (`@tanstack/react-query`).
-- Phase 4 introduces SSE streaming listener.
+- The frontend uses TanStack Query (`@tanstack/react-query`) through `QueryProvider`.
 
 ---
 
@@ -138,4 +128,4 @@ Defensive DTO mapping in the service layer prevents malformed backend responses 
 
 ## Future Evolution
 
-As WebSocket APIs are deployed in Phase 4 for live collaborative investigations, the SSE stream listener will upgrade to a bidirectional WebSocket transport wrapper.
+Additional data flows should be documented only when corresponding backend endpoints exist.

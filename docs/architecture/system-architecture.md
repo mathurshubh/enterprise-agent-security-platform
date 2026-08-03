@@ -1,28 +1,34 @@
 # Enterprise Agent Security Platform — Technical Architecture Reference
 
 ## 1. Overview
-The Enterprise Agent Security Platform provides a robust runtime governance, authorization, visibility, risk management, and threat mitigation boundary for autonomous AI agents operating within enterprise environments. 
+
+The Enterprise Agent Security Platform provides a robust runtime governance, authorization, visibility, risk management, and threat mitigation boundary for autonomous AI agents operating within enterprise environments.
 
 Rather than acting as another agent framework, this platform functions as a security gateway that intercepts, evaluates, and enforces policy controls over agent actions. The platform operates on the baseline assumption that AI components are not trusted security boundaries, ensuring all interactions with enterprise tools are subject to deterministic security validation.
 
 ## 2. Problem Statement
+
 Deploying autonomous AI agents with access to internal documents, code repositories, databases, file systems, and enterprise APIs presents significant security risks. Without a centralized, deterministic governance layer, agents are vulnerable to:
-*   **Adversarial Intent Alignment:** Executing unauthorized data reads or system modifications due to prompt injection or jailbreak payloads.
-*   **Privilege Escalation:** Running restricted administrative operations or bypassing access controls.
-*   **Data Leakage and Exfiltration:** Moving sensitive internal resources to unapproved external endpoints.
-*   **Audit Deficits:** Executing actions that produce unstructured, non-reputable, or untraceable activity logs, rendering forensic response impossible.
+
+* **Adversarial Intent Alignment:** Executing unauthorized data reads or system modifications due to prompt injection or jailbreak payloads.
+* **Privilege Escalation:** Running restricted administrative operations or bypassing access controls.
+* **Data Leakage and Exfiltration:** Moving sensitive internal resources to unapproved external endpoints.
+* **Audit Deficits:** Executing actions that produce unstructured, non-reputable, or untraceable activity logs, rendering forensic response impossible.
 
 ## 3. Architectural Principles
+
 The platform's technical design is governed by the following core principles:
-*   **Zero Trust Architecture:** Every runtime transition, parameter value, and tool execution request is explicitly authenticated, authorized, analyzed, and audited. No internal agent state is implicitly trusted.
-*   **LLM as an Untrusted Intent Parser:** The natural language model is treated as an untrusted client whose only job is to map user statements to structured requests. It has no authority to make policy or security decisions.
-*   **Deterministic Security Enforcement:** All policy checking, threat detection, risk calculations, and mitigation overrides are computed outside the LLM in deterministic, compiled/interpreted code.
-*   **Least Privilege Access:** Agents are restricted to the minimal set of approved tools and resource parameters necessary for their defined business roles.
-*   **Separation of Reasoning & Enforcement:** The Agent Runtime is strictly isolated from the Runtime Security Pipeline (gatekeeper), preventing model behaviors from overriding security decisions.
-*   **Complete Auditability:** Every tool request, authorization decision, policy evaluation, and mitigation action is logged as an immutable, append-only audit record suitable for ingestion by enterprise SIEM platforms.
-*   **Provider-Agnostic Design:** LLM providers are treated as interchangeable backend utilities. The platform abstracts provider-specific interfaces behind clean adapters, ensuring security logic is unaffected by model swaps.
+
+* **Zero Trust Architecture:** Every runtime transition, parameter value, and tool execution request is explicitly authenticated, authorized, analyzed, and audited. No internal agent state is implicitly trusted.
+* **LLM as an Untrusted Intent Parser:** The natural language model is treated as an untrusted client whose only job is to map user statements to structured requests. It has no authority to make policy or security decisions.
+* **Deterministic Security Enforcement:** All policy checking, threat detection, risk calculations, and mitigation overrides are computed outside the LLM in deterministic, compiled/interpreted code.
+* **Least Privilege Access:** Agents are restricted to the minimal set of approved tools and resource parameters necessary for their defined business roles.
+* **Separation of Reasoning & Enforcement:** The Agent Runtime is strictly isolated from the Runtime Security Pipeline (gatekeeper), preventing model behaviors from overriding security decisions.
+* **Complete Auditability:** Every tool request, authorization decision, policy evaluation, and mitigation action is logged as an immutable, append-only audit record suitable for ingestion by enterprise SIEM platforms.
+* **Provider-Agnostic Design:** LLM providers are treated as interchangeable backend utilities. The platform abstracts provider-specific interfaces behind clean adapters, ensuring security logic is unaffected by model swaps.
 
 ## 4. Trust Boundaries
+
 The platform enforces strict boundaries to isolate untrusted inputs and model logic from secure execution zones and enterprise resources:
 
 ```mermaid
@@ -53,9 +59,9 @@ flowchart TD
     FinalDecision --> Audit
 ```
 
-*   **Untrusted Zone:** Houses the user prompt (susceptible to indirect/direct injection) and the LLM (susceptible to instruction overrides and hallucinations). All outputs crossing this boundary are treated as untrusted payloads.
-*   **Deterministic Platform Zone:** Intercepts and parses incoming requests. Evaluates access permissions, checks compliance against enterprise policies, runs threat rules, and scores risk. Security decisions are finalized here.
-*   **Secure Execution Zone (Trusted):** Contains the registries and execution routines. Executable tool instances reside securely behind this boundary. Tool execution is triggered only upon receiving an explicit `ALLOW` decision.
+* **Untrusted Zone:** Houses the user prompt (susceptible to indirect/direct injection) and the LLM (susceptible to instruction overrides and hallucinations). All outputs crossing this boundary are treated as untrusted payloads.
+* **Deterministic Platform Zone:** Intercepts and parses incoming requests. Evaluates access permissions, checks compliance against enterprise policies, runs threat rules, and scores risk. Security decisions are finalized here.
+* **Secure Execution Zone (Trusted):** Contains the registries and execution routines. Executable tool instances reside securely behind this boundary. Tool execution is triggered only upon receiving an explicit `ALLOW` decision.
 
 ## 5. Target Reference Architecture
 The long-term target architecture introduces an API Gateway and an Agent Gateway, serving as centralized ingress points for multiple agents, supported by a React-based management console for policy configuration and human-in-the-loop approvals:
@@ -78,8 +84,8 @@ The long-term target architecture introduces an API Gateway and an Agent Gateway
            Audit Log & SIEM Pipeline
 ```
 
-## 6. Current Implementation Architecture
-The current implementation focuses on a single-agent, provider-agnostic execution environment. A deterministic gateway intercepts agent tool requests and executes them only after evaluation against security controls.
+## 6. Component Architecture
+The architecture focuses on a single-agent, provider-agnostic execution environment. A deterministic gateway intercepts agent tool requests and executes them only after evaluation against security controls.
 
 ### Static Block Architecture
 The diagram below illustrates the relationship between the primary components:
@@ -87,13 +93,42 @@ The diagram below illustrates the relationship between the primary components:
 ```mermaid
 flowchart TD
     Agent[Agent Runtime] -->|Tool Request| Pipeline[Runtime Security Pipeline]
-    Agent -->|Resolve Tool| Registry[Tool Registry]
     Pipeline --> Auth[Authorization Service]
     Pipeline --> Policy[Policy Engine]
     Pipeline --> Threat[Threat Detection Engine]
     Pipeline --> Risk[Risk & Response Engine]
     Pipeline --> Audit[Audit Service]
+    Pipeline -->|ALLOW| Agent
+    Agent -->|Resolve Approved Tool| Registry[Tool Registry]
 ```
+
+### Runtime Capability Discovery
+
+#### Architecture
+Runtime Capability Discovery is exposed through `CapabilityService`, which acts as a passive aggregation boundary. It queries live platform registries to compile a snapshot of enabled capabilities without registering tools, initializing detection rules, or mutating runtime state.
+
+```mermaid
+flowchart TD
+    Bootstrap[Shared Application Bootstrap] --> ToolRegistry[Tool Registry]
+    Bootstrap --> DetectionRegistry[DetectionRegistry]
+    Bootstrap --> RuntimeService[RuntimeService]
+    RuntimeService --> DetectionService[DetectionService]
+    ToolRegistry --> CapabilityService[CapabilityService]
+    DetectionRegistry --> CapabilityService
+    DetectionService --> CapabilityService
+    CapabilityService --> PlatformCapabilities[PlatformCapabilities]
+    ToolRegistry --> ManagementAPI[Management API Tool Inventory]
+```
+
+`CapabilityService` aggregates the platform's active state into `PlatformCapabilities`, representing:
+*   **Tool Capabilities:** Tool identifiers registered within the `ToolRegistry`.
+*   **Content Detection Capabilities:** Configured rules registered within `DetectionRegistry`.
+*   **Behavioral Detection Capabilities:** Rule tracking active in the `DetectionService`.
+
+#### Implementation Notes
+*   **Initialization & Bootstrap:** During application startup, `runtime_bootstrap.py` registers default filesystem tools into the shared `ToolRegistry`.
+*   **Dependency Injection:** API router dependencies (in `app/api/dependencies.py`) inject this shared registry instance across `RuntimeService`, `ToolInventoryService`, and `CapabilityService`, ensuring consistency between the management views and runtime enforcement.
+*   **Discovery Invocation:** The `CapabilityService.discover()` method evaluates active capability lists dynamically to produce the `PlatformCapabilities` snapshot.
 
 ## 7. Runtime Security Lifecycle
 Every interaction with the platform follows a strict, canonical lifecycle to ensure zero trust verification:
@@ -140,6 +175,8 @@ Every interaction with the platform follows a strict, canonical lifecycle to ens
 *   **Threat Detection Engine:** Runs a suite of stateless rules to identify threat signatures in prompts, payloads, and parameter states.
 *   **Risk & Response Engine:** Aggregates triggered findings, computes risk scores, and maps risk levels to mitigation actions (such as Alerting or Agent Suspension).
 *   **Tool Registry:** The authoritative service that stores metadata and controls access to executable tool code.
+*   **CapabilityService:** A passive Capability Discovery service that aggregates active capabilities from the shared Tool Registry, DetectionRegistry, and DetectionService.
+*   **PlatformCapabilities:** A typed snapshot of runtime-discovered tool IDs, Content Detection Rules, and Behavioral Detection Rules returned by `CapabilityService`.
 
 ## 9. Component Relationships
 The interaction sequence flows from natural language parsing to secure tool execution:
@@ -186,8 +223,8 @@ Reasoning providers act as interchangeable infrastructure components. Changes to
 The Tool Registry acts as the authoritative control plane for all executable capabilities. Rather than simply acting as a metadata store, it regulates the capability inventory, metadata definitions, secure tool resolution, and controlled access to executable tool implementations.
 
 The platform separates tool discovery, tool inventory, and secure tool execution:
-*   **Tool Inventory & Discovery:** Exposes only tool metadata (name, description, required roles, capability classification) to agents and management interfaces.
-*   **Tool Execution:** Executable code instances are kept isolated inside the Secure Zone. The Agent Runtime cannot instantiate tools directly; it must obtain authorized instances from the registry, which only releases them upon pipeline approval.
+*   **Tool Inventory & Discovery:** Exposes only tool metadata and runtime-discovered tool IDs from the shared Tool Registry to management and capability discovery interfaces.
+*   **Tool Execution:** Executable code instances are kept isolated inside the Secure Zone. The Agent Runtime resolves and executes a tool only after `RuntimeService` returns an `ALLOW` decision.
 
 ## 13. Runtime Audit Architecture
 The platform enforces a clear separation between stateful operational logs and compliance-ready audit logs:
@@ -209,7 +246,7 @@ Planned updates to the platform include:
 *   **Multi-Agent Governance:** Future releases will support centralized governance of multiple cooperating AI agents, preserving deterministic authorization, policy checks, and runtime threat detection across multi-agent collaborations.
 
 ## 16. Implementation Status
-The current release provides the following operational capabilities:
+The initial release provides the following operational capabilities:
 *   **Zero Trust Enforcement:** Centralized Runtime Security Pipeline intercepting agent requests.
 *   **Pluggable LLM Providers:** Adapters supporting local models (Ollama) and cloud APIs (Google Gemini).
 *   **Threat Detection Engine:** Active detection rules for prompt injection, sensitive file reads, and exfiltration attempts.

@@ -16,23 +16,23 @@ The console consumes the [Enterprise Management API](../docs/adr/ADR-008-enterpr
 
 ## Technology Stack
 
-| Technology   | Purpose                                      |
-|-------------|----------------------------------------------|
-| React        | Component-based UI rendering                 |
-| TypeScript   | Compile-time type safety                     |
-| Vite         | Build tooling and development server         |
-| Tailwind CSS | Utility-first styling (v4 with Vite plugin)  |
-| React Router | Client-side routing                          |
-| Axios        | HTTP client for Management API consumption   |
+| Technology    | Purpose                                     |
+|---------------|---------------------------------------------|
+| React         | Component-based UI rendering                |
+| TypeScript    | Compile-time type safety                    |
+| Vite          | Build tooling and development server        |
+| Tailwind CSS  | Utility-first styling (v4 with Vite plugin) |
+| React Router  | Client-side routing                         |
+| Axios         | HTTP client for Management API consumption  |
 
 ---
 
 ## Directory Structure
 
-```
+```tree
 src/
-├── api/                    # Axios client and future API utilities
-│   └── apiClient.ts        # Pre-configured Axios instance (baseURL: /api/v1)
+├── api/                    # Axios client, route registry, query client, query keys
+│   └── apiClient.ts        # Pre-configured Axios instance (baseURL: /api)
 │
 ├── assets/                 # Static assets (images, fonts)
 │
@@ -54,11 +54,15 @@ src/
 │   ├── Agents/
 │   ├── Tools/
 │   ├── Detection/
+│   ├── Sessions/
+│   ├── Scenarios/
+│   ├── Findings/
+│   ├── Approvals/
 │   └── Audit/
 │
-├── routes/                 # Route configuration (future extraction)
+├── routes/                 # Reserved route module location
 │
-├── services/               # API service wrappers (future)
+├── services/               # API service wrappers
 │
 ├── styles/                 # Global styles and theme tokens
 │   └── index.css           # Tailwind imports + CSS custom properties
@@ -112,13 +116,17 @@ npm run lint
 
 ## Routes
 
-| Path          | Page                | ADR-009 Reference     |
-|--------------|---------------------|-----------------------|
-| `/`          | Dashboard           | Dashboard             |
-| `/agents`    | Agents              | Agents View           |
-| `/tools`     | Tools               | Tools View            |
-| `/detection` | Detection Rules     | Detection Rules View  |
-| `/audit`     | Audit Timeline      | Audit Timeline        |
+| Path        | Page            | ADR-009 Reference    |
+|-------------|-----------------|----------------------|
+| `/`         | Dashboard       | Dashboard            |
+| `/agents`   | Agents          | Agents View          |
+| `/tools`    | Tools           | Tools View           |
+| `/detection`| Detection Rules | Detection Rules View |
+| `/sessions` | Sessions        | Sessions View        |
+| `/scenarios`| Scenarios       | Scenario Library     |
+| `/findings` | Findings        | Gated Findings View  |
+| `/approvals`| Approval Queue  | Gated Approval View  |
+| `/audit`    | Audit Timeline  | Audit Timeline       |
 
 ---
 
@@ -137,17 +145,12 @@ The console is a **thin client** that:
 
 ## Roadmap
 
-Upcoming pages (pending backend API support):
+Gated pages:
 
-- **Coverage View** — requires `GET /api/v1/coverage`
-- **Findings View** — requires `GET /api/v1/findings` and persistent findings storage
+- **Findings View** — route shell exists; operational mode requires a future `GET /api/v1/findings` backend.
+- **Approval Queue** — route shell exists; operational mode requires a future approval queue backend.
 
 Upcoming capabilities:
 
-- Dashboard widget implementation (PR #49)
-- Agent table with API integration
-- Tool inventory with API integration
-- Detection rule grid with security framework mappings
-- Audit event timeline with API integration
 - Live Runtime Monitor (requires backend event streaming)
 - Session Explorer (requires session ownership validation)

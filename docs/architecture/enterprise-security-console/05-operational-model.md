@@ -35,7 +35,7 @@ The Command Center is structured into two distinct operational zones:
 │  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌─────────────────────────┐ │
 │  │ Active       │ │ Risk         │ │ Enforcement  │ │ Platform Health         │ │
 │  │ Sessions     │ │ Distribution │ │ Summary      │ │ Backend Status: OK      │ │
-│  │ 12 Active    │ │ 2 High, 10 Low│ │ 1 Held, 0 Susp│ │ 243 Tests Verified      │ │
+│  │ 12 Active    │ │ 2 High, 10 Low│ │ 1 Held, 0 Susp│ │ Backend Healthy         │ │
 │  └──────────────┘ └──────────────┘ └──────────────┘ └─────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -61,7 +61,7 @@ The **Action Required Queue** is a prioritized, severity-sorted operational work
 ## Zone 2: Operational Awareness (Secondary)
 
 Positioned directly below Zone 1, **Zone 2** provides high-level security posture awareness through concise summary indicators:
-- **Active Sessions Counter:** Real-time count of currently executing agent sessions.
+- **Active Sessions Counter:** Real-time count of executing agent sessions.
 - **Risk Distribution Gauge:** Breakdown of sessions across risk tiers (`LOW`, `MEDIUM`, `HIGH`, `CRITICAL`).
 - **Enforcement Posture Summary:** Tally of active containment actions across all agents.
 - **Platform Health Status:** Read-only system summary derived from `GET /api/v1/info`.

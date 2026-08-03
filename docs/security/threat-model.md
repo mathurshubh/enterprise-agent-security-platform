@@ -80,7 +80,7 @@ flowchart TD
 1. **User Prompt (Untrusted):** The entry point for natural language requests. User input is treated as untrusted and is scanned for malicious overrides (e.g. Prompt Injection).
 2. **LLM Output (Untrusted):** The raw response returned by the foundation model. Treated as untrusted and parsed into a validated `Tool Invocation` object.
 3. **Runtime Security Pipeline (Deterministic Boundary):** The core entry point where security enforcement happens. Every request must pass through this boundary before executing tools.
-4. **Tool Registry & Secure Tool Execution Boundary (Secure Zone):** The single trust boundary for loading and executing tools. Direct tool instantiation is prohibited; only authorized, resolved tool instances can execute.
+4. **Tool Registry & Secure Tool Execution Boundary (Secure Zone):** The trust boundary for resolving registered executable tools. Tool resolution and execution occur only after the Runtime Security Pipeline returns an `ALLOW` decision.
 5. **Audit Boundary (Immutable):** The audit logging point. Event recording happens immediately after the final calculated decision, preserving the integrity of compliance logs.
 
 ---
@@ -92,7 +92,7 @@ The platform maintains the following immutable architectural guarantees:
 2. **Tool execution always passes through the Runtime Security Pipeline:** No tool can run without explicit authorization check validation.
 3. **Authorization precedes execution:** No tool lookup is resolved prior to baseline policy check validation.
 4. **Every final decision is audited:** All allow, deny, and approval-held execution outcomes write an append-only log record.
-5. **Tool Registry is the only authority for executable tools:** The Agent Runtime cannot load or instantiate tools outside the registry's control plane.
+5. **Tool Registry is the only authority for registered executable tools:** The Agent Runtime resolves approved tool invocations through the Tool Registry.
 6. **Security decisions remain deterministic:** Security results are calculated by code services, never by AI model prompts.
 7. **Later security stages may only increase restrictions:** Pipeline checks can deny or hold requests, but they cannot override earlier denials.
 
@@ -190,7 +190,7 @@ An attacker attempts to bypass security controls by calling tools directly or ma
 #### Mitigations
 - **Authoritative Runtime Security Pipeline:** The orchestration layer (Agent Runtime) acts purely as an orchestration runner, trusting the returned decision.
 - **Rigid Security Flow:** No tool execution is permitted without passing through the complete pipeline.
-- **Registry Containment:** All executable tools are managed inside the Tool Registry. The registry refuses to resolve executable tool objects unless authorized by the runtime pipeline.
+- **Registry Containment:** Executable tools are managed inside the Tool Registry. Agent Runtime resolves and executes tools only after the runtime pipeline returns `ALLOW`.
 
 ---
 
@@ -245,22 +245,9 @@ The platform identifies the following residual risks across deployment and detec
 *   **Single-Node Deployment:** The system runs as a single-node server and is not designed for distributed high-availability clustering.
 
 ### Deployment Limitations
-*   **Console and REST APIs Under Development:** Management APIs and the administrative UI are currently under construction.
+*   **Development-Grade HTTP Boundary:** Current FastAPI routers expose runtime, scenario, and read-only management endpoints for local development. Production HTTP authentication and persistent storage are not integrated.
 
-### Planned Security Improvements
-*   **AI Security Validation Framework:** Attack simulations and automated tool-abuse validation harnesses are planned future items.
+### Validation Coverage
+*   **Attack Scenario Framework:** Static attack scenarios and scenario execution endpoints validate deterministic runtime behavior against benchmark expectations.
 
 ---
-
-## Future Security Enhancements
-
-Upcoming roadmap security priorities:
-*   **REST Management APIs:** Secure endpoints for console interaction.
-*   **Enterprise Security Console:** React/Vite dashboard for incident triage.
-*   **External Vulnerability Scanner Integrations:**
-    *   **Promptfoo** (AI evaluation and prompt testing)
-    *   **NVIDIA Garak** (LLM vulnerability scanner)
-    *   **Microsoft PyRIT** (Generative AI risk identification tool)
-    *   **PurpleLlama** (Meta's trust and safety tools)
-    *   **Giskard** (Testing and evaluating AI models)
-*   **Multi-Agent Governance:** Extending deterministic policy checking across multi-agent collaborations.
