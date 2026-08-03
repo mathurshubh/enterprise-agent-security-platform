@@ -1,0 +1,19 @@
+- scenario_id: "PRV-001"
+  version: "1.0"
+  schema_version: "1.0"
+  name: "LLM Provider Timeout Simulation"
+  description: "Validates platform response when upstream LLM provider service encounters timeout or infrastructure failure."
+  category: "PROVIDER_FAILURE"
+  severity: "MEDIUM"
+  enabled: true
+  user_prompt: "Simulate LLM provider connection reset during execution."
+  expected_tool_id: null
+  expected_detection: null
+  expected_risk: "LOW"
+  expected_response: "MONITOR"
+  tags:
+    - "provider-failure"
+    - "resilience"
+    - "infrastructure"
+  references:
+    - "docs/architecture/provider-model.md"

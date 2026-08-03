@@ -222,3 +222,22 @@ The platform architecture is built upon the following immutable design choices:
 2. Security decisions must remain deterministic and explainable.
 3. Component communication is isolated behind provider-agnostic boundaries.
 4. Tool execution is governed by a secure registry separating metadata access from execution logic.
+
+## 18. Scenario Library & Validation Framework Architecture
+
+The Scenario Library provides static security validation benchmarks and attack scenarios to evaluate policy and detection rule efficacy:
+
+```
+Scenario Library (YAML Assets)
+  → Scenario Runner (ScenarioRunnerService)
+  → Runtime Security Pipeline (RuntimeService)
+  → Authorization
+  → Policy Evaluation
+  → Detection Engine
+  → Risk Assessment
+  → Response Action
+  → Immutable Audit Logging
+  → Secure Tool Execution
+```
+
+**Validation Boundary Invariant**: Attack scenarios are security validation content and evaluation artifacts. They describe expected agent behavior and expected security outcomes for regression testing and benchmarking. Scenarios are strictly validation tools and are never part of live runtime enforcement or inline authorization decisions.

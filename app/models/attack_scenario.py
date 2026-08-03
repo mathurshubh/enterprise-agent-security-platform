@@ -18,6 +18,26 @@ class ScenarioCategory(str, Enum):
     CROSS_AGENT_TRUST = "CROSS_AGENT_TRUST"
     DENIAL_OF_WALLET = "DENIAL_OF_WALLET"
     RUNTIME_REPLAY = "RUNTIME_REPLAY"
+    AUTHORIZATION = "AUTHORIZATION"
+    SENSITIVE_DATA = "SENSITIVE_DATA"
+    PROVIDER_FAILURE = "PROVIDER_FAILURE"
+    SESSION_BEHAVIOR = "SESSION_BEHAVIOR"
+    WORKFLOW_SECURITY = "WORKFLOW_SECURITY"
+
+
+class WorkflowMetadata(BaseModel):
+    """Reserved metadata model for future Workflow-Centric Security validation.
+
+    Note: This is metadata only and is NOT interpreted or evaluated by the
+    runtime security pipeline today.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    planning_steps: tuple[str, ...] = Field(default_factory=tuple)
+    expected_tool_chain: tuple[str, ...] = Field(default_factory=tuple)
+    expected_risk_progression: tuple[str, ...] = Field(default_factory=tuple)
+    expected_detections: tuple[str, ...] = Field(default_factory=tuple)
 
 
 class AttackScenario(BaseModel):
@@ -38,7 +58,12 @@ class AttackScenario(BaseModel):
     )
     scenario_version: str = Field(
         default="1.0",
+        validation_alias=AliasChoices("scenario_version", "version"),
         description="Version of the static scenario definition.",
+    )
+    schema_version: str = Field(
+        default="1.0",
+        description="Schema version for the scenario model definition.",
     )
     name: str = Field(min_length=1)
     description: str = ""
@@ -47,6 +72,10 @@ class AttackScenario(BaseModel):
         description="Security category represented by the scenario.",
     )
     severity: Severity = Severity.LOW
+    enabled: bool = Field(
+        default=True,
+        description="Whether this scenario is active for execution.",
+    )
     user_prompt: str = Field(
         default="",
         description="Untrusted prompt or task input used by the scenario.",
@@ -84,6 +113,11 @@ class AttackScenario(BaseModel):
     expected_findings: tuple[str, ...] = Field(
         default_factory=tuple,
         description="Expected security evidence identifiers.",
+    )
+
+    workflow_metadata: WorkflowMetadata | None = Field(
+        default=None,
+        description="Reserved metadata for future workflow-centric validation.",
     )
 
     @property

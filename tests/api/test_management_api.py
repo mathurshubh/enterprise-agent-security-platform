@@ -380,23 +380,23 @@ class TestPlatformInfo:
 
 class TestListScenarios:
     def test_returns_200(self) -> None:
-        response = client.get("/api/v1/scenarios")
+        response = client.get("/api/scenarios")
         assert response.status_code == 200
 
     def test_returns_list(self) -> None:
-        response = client.get("/api/v1/scenarios")
+        response = client.get("/api/scenarios")
         assert isinstance(response.json(), list)
 
     def test_contains_preregistered_scenarios(self) -> None:
-        response = client.get("/api/v1/scenarios")
+        response = client.get("/api/scenarios")
         ids = [s["scenario_id"] for s in response.json()]
-        assert "attack-001" in ids
-        assert "attack-003" in ids
+        assert "BEN-001" in ids
+        assert "DEX-001" in ids
 
     def test_response_schema(self) -> None:
-        response = client.get("/api/v1/scenarios")
+        response = client.get("/api/scenarios")
         item = next(
-            s for s in response.json() if s["scenario_id"] == "attack-001"
+            s for s in response.json() if s["scenario_id"] == "BEN-001"
         )
         assert "scenario_id" in item
         assert "name" in item
@@ -411,46 +411,46 @@ class TestListScenarios:
         assert "enabled" in item
 
     def test_expected_tools_is_list(self) -> None:
-        response = client.get("/api/v1/scenarios")
+        response = client.get("/api/scenarios")
         for scenario in response.json():
             assert isinstance(scenario["expected_tools"], list)
 
     def test_expected_detection_rules_is_list(self) -> None:
-        response = client.get("/api/v1/scenarios")
+        response = client.get("/api/scenarios")
         for scenario in response.json():
             assert isinstance(scenario["expected_detection_rules"], list)
 
     def test_category_is_string(self) -> None:
-        response = client.get("/api/v1/scenarios")
+        response = client.get("/api/scenarios")
         for scenario in response.json():
             assert isinstance(scenario["category"], str)
 
     def test_severity_is_string(self) -> None:
-        response = client.get("/api/v1/scenarios")
+        response = client.get("/api/scenarios")
         for scenario in response.json():
             assert isinstance(scenario["severity"], str)
 
     def test_tags_is_list(self) -> None:
-        response = client.get("/api/v1/scenarios")
+        response = client.get("/api/scenarios")
         for scenario in response.json():
             assert isinstance(scenario["tags"], list)
 
     def test_enabled_is_boolean(self) -> None:
-        response = client.get("/api/v1/scenarios")
+        response = client.get("/api/scenarios")
         for scenario in response.json():
             assert isinstance(scenario["enabled"], bool)
 
     def test_benign_scenario_has_no_detection(self) -> None:
-        response = client.get("/api/v1/scenarios")
+        response = client.get("/api/scenarios")
         benign = next(
-            s for s in response.json() if s["scenario_id"] == "attack-001"
+            s for s in response.json() if s["scenario_id"] == "BEN-001"
         )
         assert benign["expected_detection_rules"] == []
 
     def test_attack_scenario_has_detection(self) -> None:
-        response = client.get("/api/v1/scenarios")
+        response = client.get("/api/scenarios")
         attack = next(
-            s for s in response.json() if s["scenario_id"] == "attack-002"
+            s for s in response.json() if s["scenario_id"] == "PI-001"
         )
         assert len(attack["expected_detection_rules"]) > 0
 
@@ -462,30 +462,30 @@ class TestListScenarios:
 
 class TestGetScenario:
     def test_returns_200_for_existing_scenario(self) -> None:
-        response = client.get("/api/v1/scenarios/attack-001")
+        response = client.get("/api/scenarios/BEN-001")
         assert response.status_code == 200
 
     def test_returns_404_for_nonexistent_scenario(self) -> None:
-        response = client.get("/api/v1/scenarios/nonexistent-scenario")
+        response = client.get("/api/scenarios/nonexistent-scenario")
         assert response.status_code == 404
 
     def test_response_schema(self) -> None:
-        response = client.get("/api/v1/scenarios/attack-001")
+        response = client.get("/api/scenarios/BEN-001")
         data = response.json()
-        assert data["scenario_id"] == "attack-001"
+        assert data["scenario_id"] == "BEN-001"
         assert data["name"] == "Benign File Read Request"
         assert data["category"] == "BENIGN"
         assert data["severity"] == "LOW"
         assert data["expected_response"] == "MONITOR"
 
     def test_prompt_field_populated(self) -> None:
-        response = client.get("/api/v1/scenarios/attack-002")
+        response = client.get("/api/scenarios/PI-001")
         data = response.json()
         assert isinstance(data["prompt"], str)
         assert len(data["prompt"]) > 0
 
     def test_critical_scenario_fields(self) -> None:
-        response = client.get("/api/v1/scenarios/attack-003")
+        response = client.get("/api/scenarios/DEX-001")
         data = response.json()
         assert data["severity"] == "CRITICAL"
         assert data["expected_response"] == "SUSPEND_AGENT"

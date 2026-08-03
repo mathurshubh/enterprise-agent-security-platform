@@ -25,20 +25,38 @@ import ErrorState from '../../components/common/ErrorState'
 export default function ScenariosPage() {
   const { scenarios, loading, error } = useScenarios()
   const [search, setSearch] = useState<string>('')
+  const [selectedCategory, setSelectedCategory] = useState<string>('ALL')
 
   // ── Derived Metrics ────────────────────────────────────────────────
   const totalScenarios    = scenarios.length
   const benignScenarios   = useMemo(() => scenarios.filter((s) => s.category === 'BENIGN').length, [scenarios])
   const attackScenarios   = useMemo(() => scenarios.filter((s) => s.category !== 'BENIGN').length, [scenarios])
-  const criticalScenarios = useMemo(() => scenarios.filter((s) => s.severity === 'CRITICAL').length, [scenarios])
+  const criticalScenarios = useMemo(() => scenarios.filter((s) => s.severity === 'CRITICAL' || s.severity === 'HIGH').length, [scenarios])
 
-  // ── Client-side search filtering ───────────────────────────────────
+  const categories = [
+    'ALL',
+    'PROMPT_INJECTION',
+    'DATA_EXFILTRATION',
+    'AUTHORIZATION',
+    'SENSITIVE_DATA',
+    'TOOL_ABUSE',
+    'PROVIDER_FAILURE',
+    'SESSION_BEHAVIOR',
+    'WORKFLOW_SECURITY',
+    'BENIGN',
+  ]
+
+  // ── Client-side search + category filtering ───────────────────────
   const query = search.trim().toLowerCase()
-  const filteredScenarios = scenarios.filter((scenario) =>
-    scenario.name.toLowerCase().includes(query) ||
-    scenario.id.toLowerCase().includes(query) ||
-    scenario.description.toLowerCase().includes(query)
-  )
+  const filteredScenarios = scenarios.filter((scenario) => {
+    const matchesCategory = selectedCategory === 'ALL' || scenario.category === selectedCategory
+    const matchesSearch =
+      scenario.name.toLowerCase().includes(query) ||
+      scenario.id.toLowerCase().includes(query) ||
+      scenario.description.toLowerCase().includes(query) ||
+      scenario.tags.some((tag) => tag.toLowerCase().includes(query))
+    return matchesCategory && matchesSearch
+  })
 
   return (
     <div className="space-y-6">
@@ -52,10 +70,27 @@ export default function ScenariosPage() {
 
       {/* ── Summary Metrics ───────────────────────────────────────── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <MetricCard label="Total Scenarios"    value={totalScenarios}    loading={loading} />
-        <MetricCard label="Benign Scenarios"   value={benignScenarios}   loading={loading} />
-        <MetricCard label="Attack Scenarios"   value={attackScenarios}   loading={loading} />
-        <MetricCard label="Critical Scenarios" value={criticalScenarios} loading={loading} />
+        <MetricCard label="Total Scenarios"    value={totalScenarios} loading={loading} />
+        <MetricCard label="Benign Baselines"        value={benignScenarios} loading={loading} />
+        <MetricCard label="Attack Scenarios"        value={attackScenarios} loading={loading} />
+        <MetricCard label="High/Critical Risk"      value={criticalScenarios} loading={loading} />
+      </div>
+
+      {/* ── Category Filter Pills ──────────────────────────────────── */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {categories.map((cat) => (
+          <button
+            key={cat}
+            onClick={() => setSelectedCategory(cat)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+              selectedCategory === cat
+                ? 'bg-accent-primary text-white'
+                : 'bg-bg-surface border border-border-secondary text-text-secondary hover:border-border-primary'
+            }`}
+          >
+            {cat.replace('_', ' ')}
+          </button>
+        ))}
       </div>
 
       {/* ── Search + Table ────────────────────────────────────────── */}
@@ -66,7 +101,7 @@ export default function ScenariosPage() {
             <input
               id="scenario-search"
               type="text"
-              placeholder="Search scenarios by name, ID, or description..."
+              placeholder="Search scenarios by name, stable ID, description, or tag..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full px-3 py-2 text-xs bg-bg-surface border border-border-secondary rounded-lg focus:outline-none focus:border-border-primary text-text-primary placeholder:text-text-muted transition-colors"
