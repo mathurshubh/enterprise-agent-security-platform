@@ -211,3 +211,35 @@ def test_shared_runtime_service_consistency():
     events = shared_runtime._session_service.list_events(result.session_id)
     assert len(events) == 1
     assert events[0].tool_id == "file_read"
+
+
+def test_run_provider_connection_error_fails_gracefully():
+    """Verify provider connection failures are caught and returned as structured FAILED status."""
+    runtime_service, _ = create_runtime_service(["file_read"])
+    
+    class FailingAgentRuntimeService(AgentRuntimeService):
+        def __init__(self):
+            pass
+        def execute(self, query: str):
+            raise RuntimeError("Connection refused to http://localhost:11434")
+
+    runner = ScenarioRunnerService(
+        runtime_service=runtime_service,
+        agent_runtime_service=FailingAgentRuntimeService(),
+    )
+
+    scenario = AttackScenario(
+        scenario_id="scenario-conn-fail",
+        name="Provider Connection Failure",
+        user_prompt="Read secrets.txt",
+        expected_findings=[],
+        expected_risk_level=RiskLevel.LOW,
+    )
+
+    result = runner.run(scenario)
+
+    assert result.status == ExecutionStatus.FAILED
+    assert result.result is None
+    assert result.error_message is not None
+    assert "PROVIDER_UNAVAILABLE" in result.error_message
+

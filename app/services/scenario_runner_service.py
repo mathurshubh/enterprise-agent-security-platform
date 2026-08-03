@@ -1,5 +1,9 @@
 import uuid
 from datetime import datetime, timezone
+from json import JSONDecodeError
+
+from pydantic import ValidationError
+from requests.exceptions import RequestException
 
 from app.models.attack_scenario import AttackScenario
 from app.models.execution_mode import ExecutionMode
@@ -35,11 +39,15 @@ class ScenarioRunnerService:
         execution_id = f"exec-{uuid.uuid4()}"
         session_id = f"scenario-run-{scenario.scenario_id}"
 
-        # Determine Execution Mode based on prompt presence
+        # Determine Execution Mode: tool_sequence takes precedence for deterministic replays
         execution_mode = (
-            ExecutionMode.PROMPT
-            if scenario.user_prompt.strip()
-            else ExecutionMode.TOOL_SEQUENCE
+            ExecutionMode.TOOL_SEQUENCE
+            if scenario.tool_sequence
+            else (
+                ExecutionMode.PROMPT
+                if scenario.user_prompt.strip()
+                else ExecutionMode.TOOL_SEQUENCE
+            )
         )
 
         try:
@@ -146,26 +154,26 @@ class ScenarioRunnerService:
             )
 
         except (
+            # Infrastructure & Provider exceptions:
+            RequestException,
+            JSONDecodeError,
+            ValidationError,
+            KeyError,
+            RuntimeError,
+            # Orchestration & Tool exceptions:
             ValueError,
-            # PROMPT mode — AgentRuntimeService._tool_registry.resolve():
             ToolNotRegisteredError,
-            # PROMPT mode — AgentRuntimeService._executor.execute_descriptor():
             ToolExecutionError,
             ToolDisabledError,
         ) as e:
-            # Orchestration fault-isolation boundary: converts any recognized
-            # runtime execution failure into ScenarioExecution(status=FAILED)
-            # so the caller always receives a result object rather than a raised
-            # exception. Only exception types that can actually propagate from
-            # the execution path above are listed here.
-            #
-            # Excluded (unreachable from this path):
-            #   AgentNotFoundError, ToolNotFoundError — caught inside
-            #     AuthorizationService.authorize(), returned as Decision.DENY.
-            #   ToolVersionMismatchError — only raised by resolve(version=...) calls;
-            #     all resolve() calls in this path use no version argument.
-            #   ToolMetadataValidationError, DuplicateToolRegistrationError — only
-            #     raised during tool registration, not during execution.
+            # Orchestration fault-isolation boundary: catches narrowly scoped
+            # provider network failures, parsing errors, tool execution errors, and
+            # validation faults to return ScenarioExecution(status=FAILED) rather than
+            # bubbling uncaught exceptions to the API router.
+            is_provider_error = isinstance(e, RequestException) or "connection" in str(e).lower() or "connect" in str(e).lower()
+            error_prefix = "PROVIDER_UNAVAILABLE" if is_provider_error else ""
+            error_msg = f"{error_prefix}: {e}" if error_prefix else str(e)
+
             finished_at = datetime.now(timezone.utc)
             return ScenarioExecution(
                 execution_id=execution_id,
@@ -175,5 +183,5 @@ class ScenarioRunnerService:
                 status=ExecutionStatus.FAILED,
                 started_at=started_at,
                 finished_at=finished_at,
-                error_message=str(e),
+                error_message=error_msg,
             )
