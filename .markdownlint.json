@@ -1,0 +1,51 @@
+{
+  "default": true,
+
+  // Prevent unnecessary line-wrap churn in paragraph formatting
+  "MD013": false,
+
+  // Allow inline HTML for custom GitHub alert syntax (e.g. > [!NOTE])
+  "MD033": false,
+
+  // Preserve heading structures inside historical ADR documents
+  "MD001": false,
+
+  // Prevent bullet character type churn (* vs -) in legacy files
+  "MD004": false,
+
+  // Avoid diff noise from trailing spaces in legacy paragraphs
+  "MD009": false,
+
+  // Prevent spacing formatting churn from consecutive empty blank lines
+  "MD012": false,
+
+  // Prevent spacing churn around headings in unmodified legacy docs
+  "MD022": false,
+
+  // Allow identical header titles (e.g. "Threat", "Mitigations") in threat model files
+  "MD024": false,
+
+  // Allow multiple H1 titles in legacy design and review files
+  "MD025": false,
+
+  // Allow trailing punctuation (like colons) in heading blocks
+  "MD026": false,
+
+  // Prevent list marker spacing formatting churn
+  "MD030": false,
+
+  // Prevent spacing churn around code fences in legacy files
+  "MD031": false,
+
+  // Prevent spacing churn around list blocks in legacy files
+  "MD032": false,
+
+  // Preserve pseudo-headings (bold/italic) in legacy documents
+  "MD036": false,
+
+  // Permit front-matter metadata and comments at start of files
+  "MD041": false,
+
+  // Avoid diff noise from missing EOF newlines in legacy files
+  "MD047": false
+}

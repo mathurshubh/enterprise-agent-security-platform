@@ -1,0 +1,13 @@
+{
+  "name": "enterprise-agent-security-platform-tooling",
+  "private": true,
+  "description": "Repository engineering tooling",
+  "version": "1.0.0",
+  "scripts": {
+    "lint:md": "markdownlint \"**/*.md\"",
+    "lint:md:fix": "markdownlint \"**/*.md\" --fix"
+  },
+  "devDependencies": {
+    "markdownlint-cli": "^0.44.0"
+  }
+}

@@ -24,7 +24,7 @@ The Enterprise Security Console uses **TanStack Query v5** as the standard mecha
 
 ### Data Flow
 
-```
+```text
 Backend Management API
         ↓
    Axios API Client (src/api/apiClient.ts)
@@ -108,7 +108,7 @@ interface ApiError {
 
 A React class component wraps the layout `<Outlet />` in `AppLayout.tsx`. This provides page-level crash isolation:
 
-```
+```text
 AppLayout
   ├── <Sidebar />          (always rendered)
   ├── <Header />           (always rendered)
@@ -162,7 +162,7 @@ A structural placeholder wrapping UI elements that will require authorization in
 
 All page components use `React.lazy()` with a single `<Suspense>` boundary for route-level code splitting.
 
-```
+```text
 Initial bundle: Layout shell + TanStack Query + Router (~267 kB)
 Route chunks (loaded on demand):
   DashboardPage       ~2.8 kB
