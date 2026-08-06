@@ -1,63 +1,49 @@
 /**
  * ToolTable — List of registered capability tools.
  *
- * REACT CONCEPT: "Presentational Component & Null Coalescing"
- * ──────────────────────────────────────────────────────────────────
- * Renders the table view for registered tools.  Unexposed backend parameters
- * are mapped to null by the service layer, and rendered as "—" placeholders
- * using null-coalescing (`?? '—'`) in this view.
+ * Renders the table view for registered tools directly returned by the backend API.
+ * Displays only fields that actually exist in the backend DTO:
+ * Tool ID, Tool Name, Description, and Version.
  *
- * Table Layout Stability:
- *   Badges and conditional structures check for property existence first.
- *   When the backend API exposes these fields in the future, updating the DTO
- *   mapper in `toolService.ts` will instantly populate the cells without
- *   requiring layout modifications in this table component.
+ * Feature Folder Pattern:
+ *   Located under `pages/Tools/components/` as it is feature-specific.
  */
 
 import type { Tool } from '../../../types/tool'
 
+export type SortField = 'id' | 'name' | 'description' | 'version'
+export type SortDirection = 'asc' | 'desc'
+
 interface ToolTableProps {
   tools: Tool[]
   loading: boolean
+  sortField: SortField | null
+  sortDirection: SortDirection
+  onSort: (field: SortField) => void
 }
 
-// ── Badge Style Configurations ─────────────────────────────────────
-const STATUS_CONFIG: Record<string, string> = {
-  ENABLED: 'bg-status-active/10 text-status-active border-status-active/20',
-  DISABLED: 'bg-status-error/10 text-status-error border-status-error/20',
-}
-
-const RISK_CONFIG: Record<string, string> = {
-  LOW: 'bg-status-active/10 text-status-active border-status-active/20',
-  MEDIUM: 'bg-status-warning/10 text-status-warning border-status-warning/20',
-  HIGH: 'bg-status-error/15 text-status-error border-status-error/30 font-semibold',
-  CRITICAL: 'bg-status-error/15 text-status-error border-status-error/30 font-semibold',
-}
-
-export default function ToolTable({ tools, loading }: ToolTableProps) {
+export default function ToolTable({
+  tools,
+  loading,
+  sortField,
+  sortDirection,
+  onSort,
+}: ToolTableProps) {
   if (loading) {
     return (
       <div className="divide-y divide-border-secondary">
-        <div className="grid grid-cols-8 gap-4 px-6 py-4 bg-bg-secondary text-xs font-semibold text-text-muted uppercase">
-          <span>Name</span>
+        <div className="grid grid-cols-4 gap-4 px-6 py-4 bg-bg-secondary text-xs font-semibold text-text-muted uppercase">
+          <span>Tool ID</span>
+          <span>Tool Name</span>
+          <span>Description</span>
           <span>Version</span>
-          <span>Status</span>
-          <span>Risk</span>
-          <span>Category</span>
-          <span>Timeout</span>
-          <span>Approval</span>
-          <span className="text-right">Actions</span>
         </div>
-        {[1, 2].map((n) => (
-          <div key={n} className="grid grid-cols-8 gap-4 px-6 py-4 items-center">
-            <div className="h-4 w-28 bg-border-primary/40 rounded animate-pulse" />
-            <div className="h-4 w-12 bg-border-primary/40 rounded animate-pulse" />
+        {[1, 2, 3].map((n) => (
+          <div key={n} className="grid grid-cols-4 gap-4 px-6 py-4 items-center">
+            <div className="h-4 w-24 bg-border-primary/40 rounded animate-pulse" />
+            <div className="h-4 w-32 bg-border-primary/40 rounded animate-pulse" />
+            <div className="h-4 w-48 bg-border-primary/40 rounded animate-pulse" />
             <div className="h-4 w-16 bg-border-primary/40 rounded animate-pulse" />
-            <div className="h-4 w-16 bg-border-primary/40 rounded animate-pulse" />
-            <div className="h-4 w-20 bg-border-primary/40 rounded animate-pulse" />
-            <div className="h-4 w-12 bg-border-primary/40 rounded animate-pulse" />
-            <div className="h-4 w-16 bg-border-primary/40 rounded animate-pulse" />
-            <div className="h-6 w-12 bg-border-primary/40 rounded ml-auto animate-pulse" />
           </div>
         ))}
       </div>
@@ -71,109 +57,66 @@ export default function ToolTable({ tools, loading }: ToolTableProps) {
           No tools registered.
         </h3>
         <p className="text-xs text-text-secondary max-w-sm mx-auto">
-          Register an executable capability tool to begin audit tracking.
+          No registered tools were returned by the Management API.
         </p>
       </div>
     )
   }
 
+  const renderSortIndicator = (field: SortField) => {
+    if (sortField !== field) return <span className="text-text-muted/40 ml-1">↕</span>
+    return <span className="text-accent-primary ml-1">{sortDirection === 'asc' ? '▲' : '▼'}</span>
+  }
+
   return (
     <div className="overflow-x-auto w-full">
-      <table className="w-full text-left border-collapse min-w-[800px]">
+      <table className="w-full text-left border-collapse min-w-[650px]">
         <thead>
-          <tr className="bg-bg-secondary border-b border-border-secondary text-xs font-semibold text-text-muted uppercase tracking-wider">
-            <th className="px-6 py-4">Name / ID</th>
-            <th className="px-6 py-4">Description</th>
-            <th className="px-6 py-4">Version</th>
-            <th className="px-6 py-4">Status</th>
-            <th className="px-6 py-4">Risk Level</th>
-            <th className="px-6 py-4">Category</th>
-            <th className="px-6 py-4">Timeout</th>
-            <th className="px-6 py-4">Approval</th>
-            <th className="px-6 py-4 text-right">Actions</th>
+          <tr className="bg-bg-secondary border-b border-border-secondary text-xs font-semibold text-text-muted uppercase tracking-wider select-none">
+            <th className="px-6 py-4 cursor-pointer hover:text-text-primary transition-colors" onClick={() => onSort('id')}>
+              <div className="flex items-center">
+                Tool ID {renderSortIndicator('id')}
+              </div>
+            </th>
+
+            <th className="px-6 py-4 cursor-pointer hover:text-text-primary transition-colors" onClick={() => onSort('name')}>
+              <div className="flex items-center">
+                Tool Name {renderSortIndicator('name')}
+              </div>
+            </th>
+
+            <th className="px-6 py-4 cursor-pointer hover:text-text-primary transition-colors" onClick={() => onSort('description')}>
+              <div className="flex items-center">
+                Description {renderSortIndicator('description')}
+              </div>
+            </th>
+
+            <th className="px-6 py-4 cursor-pointer hover:text-text-primary transition-colors" onClick={() => onSort('version')}>
+              <div className="flex items-center">
+                Version {renderSortIndicator('version')}
+              </div>
+            </th>
+
           </tr>
         </thead>
         <tbody className="divide-y divide-border-secondary text-xs">
           {tools.map((tool) => (
             <tr key={tool.id} className="hover:bg-bg-surface-hover/30 transition-colors">
               
-              <td className="px-6 py-4">
-                <div className="font-semibold text-text-primary">{tool.name}</div>
-                <div className="text-[10px] text-text-muted mt-0.5 font-mono">{tool.id}</div>
+              <td className="px-6 py-4 font-mono text-[11px] text-text-muted">
+                {tool.id}
               </td>
 
-              <td className="px-6 py-4 text-text-secondary max-w-xs truncate" title={tool.description}>
+              <td className="px-6 py-4 font-semibold text-text-primary">
+                {tool.name}
+              </td>
+
+              <td className="px-6 py-4 text-text-secondary max-w-md truncate" title={tool.description}>
                 {tool.description}
               </td>
 
-              <td className="px-6 py-4 text-text-secondary font-mono">{tool.version}</td>
-
-              {/* Status Cell - Stable Layout */}
-              <td className="px-6 py-4">
-                {tool.status ? (
-                  <span className={`px-2 py-0.5 rounded border text-[10px] uppercase font-medium ${STATUS_CONFIG[tool.status.toUpperCase()] ?? 'bg-bg-surface border-border-primary text-text-secondary'}`}>
-                    {tool.status}
-                  </span>
-                ) : (
-                  <span className="text-text-muted">—</span>
-                )}
-              </td>
-
-              {/* Risk Level Cell - Stable Layout */}
-              <td className="px-6 py-4">
-                {tool.riskLevel ? (
-                  <span className={`px-2 py-0.5 rounded border text-[10px] uppercase font-medium ${RISK_CONFIG[tool.riskLevel.toUpperCase()] ?? 'bg-bg-surface border-border-primary text-text-secondary'}`}>
-                    {tool.riskLevel}
-                  </span>
-                ) : (
-                  <span className="text-text-muted">—</span>
-                )}
-              </td>
-
-              {/* Category Cell - Null Coalescing */}
-              <td className="px-6 py-4 text-text-secondary">
-                {tool.category ?? <span className="text-text-muted">—</span>}
-              </td>
-
-              {/* Timeout Cell */}
               <td className="px-6 py-4 text-text-secondary font-mono">
-                {tool.timeoutSeconds !== null && tool.timeoutSeconds !== undefined ? (
-                  `${tool.timeoutSeconds}s`
-                ) : (
-                  <span className="text-text-muted">—</span>
-                )}
-              </td>
-
-              {/* Approval Cell */}
-              <td className="px-6 py-4">
-                {tool.approvalRequired !== null && tool.approvalRequired !== undefined ? (
-                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${tool.approvalRequired ? 'bg-status-warning/10 text-status-warning border border-status-warning/20' : 'bg-bg-surface border border-border-primary text-text-secondary'}`}>
-                    {tool.approvalRequired ? 'Yes' : 'No'}
-                  </span>
-                ) : (
-                  <span className="text-text-muted">—</span>
-                )}
-              </td>
-
-              <td className="px-6 py-4 text-right">
-                <div className="flex items-center justify-end gap-2">
-                  <button
-                    disabled
-                    aria-label={`View tool ${tool.name}`}
-                    title="View action is not yet implemented"
-                    className="px-2 py-1 bg-border-primary/50 text-text-muted rounded hover:bg-bg-surface cursor-not-allowed transition-colors text-[10px]"
-                  >
-                    View
-                  </button>
-                  <button
-                    disabled
-                    aria-label={`Configure tool ${tool.name}`}
-                    title="Configure action is not yet implemented"
-                    className="px-2 py-1 bg-border-primary/50 text-text-muted rounded hover:bg-bg-surface cursor-not-allowed transition-colors text-[10px]"
-                  >
-                    Configure
-                  </button>
-                </div>
+                {tool.version}
               </td>
 
             </tr>
