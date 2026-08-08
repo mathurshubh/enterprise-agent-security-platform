@@ -3,18 +3,24 @@
  *
  * Operational Mode: INVESTIGATE
  *
- * Promoted from orphaned route to primary sidebar navigation in Phase 1
- * per ADR-022 / 11-implementation-roadmap.md.
+ * Read-only Session Explorer connected directly to the backend Management API (GET /api/v1/sessions).
  *
- * Refactored to use shared <MetricCard>, <PageHeader>, and <ErrorState>
- * components extracted as part of the application shell PR.
- *
- * ADR-022 / 08-page-specifications.md: Page 3 — Sessions List.
+ * Architecture layering:
+ *   UI (SessionsPage / SessionTable)
+ *   ↓
+ *   React Query Hook (useSessions)
+ *   ↓
+ *   Service Layer (sessionService)
+ *   ↓
+ *   API Client (apiClient)
+ *   ↓
+ *   FastAPI Management API (GET /api/v1/sessions)
  */
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useSessions } from '../../hooks/useSessions'
 import SessionTable from './components/SessionTable'
+import type { SortField, SortDirection } from './components/SessionTable'
 import PageHeader from '../../components/ui/PageHeader'
 import MetricCard from '../../components/common/MetricCard'
 import ErrorState from '../../components/common/ErrorState'
@@ -22,6 +28,8 @@ import ErrorState from '../../components/common/ErrorState'
 export default function SessionsPage() {
   const { sessions, loading, error } = useSessions()
   const [search, setSearch] = useState<string>('')
+  const [sortField, setSortField] = useState<SortField | null>(null)
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
 
   // ── Derived Metrics ────────────────────────────────────────────────
   const totalSessions = sessions.length
@@ -29,10 +37,44 @@ export default function SessionsPage() {
 
   // ── Client-side search filtering ───────────────────────────────────
   const query = search.trim().toLowerCase()
-  const filteredSessions = sessions.filter((session) =>
-    session.id.toLowerCase().includes(query) ||
-    session.agentId.toLowerCase().includes(query)
-  )
+  const filteredSessions = useMemo(() => {
+    return sessions.filter((session) =>
+      session.id.toLowerCase().includes(query) ||
+      session.agentId.toLowerCase().includes(query)
+    )
+  }, [sessions, query])
+
+  // ── Client-side deterministic sorting ─────────────────────────────
+  const sortedSessions = useMemo(() => {
+    if (!sortField) return filteredSessions
+
+    return [...filteredSessions].sort((a, b) => {
+      let comparison = 0
+
+      switch (sortField) {
+        case 'id':
+          comparison = a.id.localeCompare(b.id) || a.agentId.localeCompare(b.agentId)
+          break
+        case 'agentId':
+          comparison = a.agentId.localeCompare(b.agentId) || a.id.localeCompare(b.id)
+          break
+        case 'startedAt':
+          comparison = (new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime()) || a.id.localeCompare(b.id)
+          break
+      }
+
+      return sortDirection === 'asc' ? comparison : -comparison
+    })
+  }, [filteredSessions, sortField, sortDirection])
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortField(field)
+      setSortDirection('asc')
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -50,7 +92,7 @@ export default function SessionsPage() {
         <MetricCard label="Unique Agents"  value={uniqueAgents}  loading={loading} />
       </div>
 
-      {/* ── Search ───────────────────────────────────────────────── */}
+      {/* ── Search Bar ───────────────────────────────────────────── */}
       <div className="flex items-center gap-4">
         <div className="relative flex-1 max-w-md">
           <input
@@ -67,7 +109,13 @@ export default function SessionsPage() {
 
       {/* ── Table ────────────────────────────────────────────────── */}
       <div className="bg-bg-surface border border-border-secondary rounded-xl overflow-hidden">
-        <SessionTable sessions={filteredSessions} loading={loading} />
+        <SessionTable
+          sessions={sortedSessions}
+          loading={loading}
+          sortField={sortField}
+          sortDirection={sortDirection}
+          onSort={handleSort}
+        />
       </div>
 
     </div>
