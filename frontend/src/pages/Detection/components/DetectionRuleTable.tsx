@@ -1,17 +1,25 @@
 /**
  * DetectionRuleTable — List of active threat detection rules.
  *
- * REACT CONCEPT: "Presentational Component & Null Coalescing"
- * ──────────────────────────────────────────────────────────────────
- * Renders the table view for active detection rules. Unexposed fields
- * (like status) are rendered as "—" placeholders using null-coalescing.
+ * Renders the table view for active detection rules directly returned by the backend API.
+ * Displays only fields that actually exist in the backend DTO:
+ * Rule Name, Category, Description, and Mapped Controls.
+ *
+ * Feature Folder Pattern:
+ *   Located under `pages/Detection/components/` as it is feature-specific.
  */
 
 import type { DetectionRule, DetectionCategory } from '../../../types/detectionRule'
 
+export type SortField = 'name' | 'category' | 'description' | 'controls'
+export type SortDirection = 'asc' | 'desc'
+
 interface DetectionRuleTableProps {
   rules: DetectionRule[]
   loading: boolean
+  sortField: SortField | null
+  sortDirection: SortDirection
+  onSort: (field: SortField) => void
 }
 
 // ── Category Config Lookup ─────────────────────────────────────────
@@ -35,24 +43,28 @@ const CATEGORY_COLORS: Record<DetectionCategory, string> = {
   UNKNOWN: 'bg-border-primary/50 text-text-muted border-border-primary',
 }
 
-export default function DetectionRuleTable({ rules, loading }: DetectionRuleTableProps) {
+export default function DetectionRuleTable({
+  rules,
+  loading,
+  sortField,
+  sortDirection,
+  onSort,
+}: DetectionRuleTableProps) {
   if (loading) {
     return (
       <div className="divide-y divide-border-secondary">
-        <div className="grid grid-cols-5 gap-4 px-6 py-4 bg-bg-secondary text-xs font-semibold text-text-muted uppercase">
+        <div className="grid grid-cols-4 gap-4 px-6 py-4 bg-bg-secondary text-xs font-semibold text-text-muted uppercase">
           <span>Rule Name</span>
           <span>Category</span>
           <span>Description</span>
           <span>Mapped Controls</span>
-          <span className="text-right">Actions</span>
         </div>
-        {[1, 2].map((n) => (
-          <div key={n} className="grid grid-cols-5 gap-4 px-6 py-4 items-center">
+        {[1, 2, 3].map((n) => (
+          <div key={n} className="grid grid-cols-4 gap-4 px-6 py-4 items-center">
+            <div className="h-4 w-32 bg-border-primary/40 rounded animate-pulse" />
+            <div className="h-5 w-24 bg-border-primary/40 rounded animate-pulse" />
+            <div className="h-4 w-48 bg-border-primary/40 rounded animate-pulse" />
             <div className="h-4 w-28 bg-border-primary/40 rounded animate-pulse" />
-            <div className="h-5 w-20 bg-border-primary/40 rounded animate-pulse" />
-            <div className="h-4 w-40 bg-border-primary/40 rounded animate-pulse" />
-            <div className="h-4 w-24 bg-border-primary/40 rounded animate-pulse" />
-            <div className="h-6 w-12 bg-border-primary/40 rounded ml-auto animate-pulse" />
           </div>
         ))}
       </div>
@@ -66,23 +78,45 @@ export default function DetectionRuleTable({ rules, loading }: DetectionRuleTabl
           No detection rules registered.
         </h3>
         <p className="text-xs text-text-secondary max-w-sm mx-auto">
-          Add a detection rule to begin security threat monitoring.
+          No registered detection rules were returned by the Management API.
         </p>
       </div>
     )
   }
 
+  const renderSortIndicator = (field: SortField) => {
+    if (sortField !== field) return <span className="text-text-muted/40 ml-1">↕</span>
+    return <span className="text-accent-primary ml-1">{sortDirection === 'asc' ? '▲' : '▼'}</span>
+  }
+
   return (
     <div className="overflow-x-auto w-full">
-      <table className="w-full text-left border-collapse min-w-[800px]">
+      <table className="w-full text-left border-collapse min-w-[750px]">
         <thead>
-          <tr className="bg-bg-secondary border-b border-border-secondary text-xs font-semibold text-text-muted uppercase tracking-wider">
-            <th className="px-6 py-4">Rule Name</th>
-            <th className="px-6 py-4">Category</th>
-            <th className="px-6 py-4">Description</th>
-            <th className="px-6 py-4">Mapped Controls</th>
-            <th className="px-6 py-4">Status</th>
-            <th className="px-6 py-4 text-right">Actions</th>
+          <tr className="bg-bg-secondary border-b border-border-secondary text-xs font-semibold text-text-muted uppercase tracking-wider select-none">
+            <th className="px-6 py-4 cursor-pointer hover:text-text-primary transition-colors" onClick={() => onSort('name')}>
+              <div className="flex items-center">
+                Rule Name {renderSortIndicator('name')}
+              </div>
+            </th>
+
+            <th className="px-6 py-4 cursor-pointer hover:text-text-primary transition-colors" onClick={() => onSort('category')}>
+              <div className="flex items-center">
+                Category {renderSortIndicator('category')}
+              </div>
+            </th>
+
+            <th className="px-6 py-4 cursor-pointer hover:text-text-primary transition-colors" onClick={() => onSort('description')}>
+              <div className="flex items-center">
+                Description {renderSortIndicator('description')}
+              </div>
+            </th>
+
+            <th className="px-6 py-4 cursor-pointer hover:text-text-primary transition-colors" onClick={() => onSort('controls')}>
+              <div className="flex items-center">
+                Mapped Controls {renderSortIndicator('controls')}
+              </div>
+            </th>
           </tr>
         </thead>
         <tbody className="divide-y divide-border-secondary text-xs">
@@ -123,33 +157,6 @@ export default function DetectionRuleTable({ rules, loading }: DetectionRuleTabl
                     ))}
                   </div>
                 )}
-              </td>
-
-              {/* Status - Null Coalescing */}
-              <td className="px-6 py-4 text-text-muted italic">
-                {rule.status ?? '—'}
-              </td>
-
-              {/* Action placeholders */}
-              <td className="px-6 py-4 text-right">
-                <div className="flex items-center justify-end gap-2">
-                  <button
-                    disabled
-                    aria-label={`View detection rule ${rule.name}`}
-                    title="View action is not yet implemented"
-                    className="px-2 py-1 bg-border-primary/50 text-text-muted rounded hover:bg-bg-surface cursor-not-allowed transition-colors text-[10px]"
-                  >
-                    View
-                  </button>
-                  <button
-                    disabled
-                    aria-label={`Configure detection rule ${rule.name}`}
-                    title="Configure action is not yet implemented"
-                    className="px-2 py-1 bg-border-primary/50 text-text-muted rounded hover:bg-bg-surface cursor-not-allowed transition-colors text-[10px]"
-                  >
-                    Configure
-                  </button>
-                </div>
               </td>
 
             </tr>
