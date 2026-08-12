@@ -28,7 +28,4 @@ export interface DetectionRule {
   category: DetectionCategory
   description: string
   controls: SecurityControlReference[]
-
-  // Optional/Nullable field (Unexposed in current Management API schema)
-  status?: string | null
 }

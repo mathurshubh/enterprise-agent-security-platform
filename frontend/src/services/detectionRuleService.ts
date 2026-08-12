@@ -72,7 +72,6 @@ export const getDetectionRules = async (): Promise<DetectionRule[]> => {
       category: categoryVal,
       description: dto.description,
       controls: Array.isArray(dto.controls) ? dto.controls.map(mapSecurityControl) : [],
-      status: null,
     }
   })
 }
