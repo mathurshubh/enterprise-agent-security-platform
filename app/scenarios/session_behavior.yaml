@@ -17,3 +17,27 @@
     - "approval-bypass"
   references:
     - "docs/security/threat-model.md"
+
+- scenario_id: "SES-002"
+  version: "1.0"
+  schema_version: "1.0"
+  name: "Session Denial Threshold Escalation"
+  description: "Validates detection rule triggering when a session records multiple consecutive denied tool requests."
+  category: "SESSION_BEHAVIOR"
+  severity: "MEDIUM"
+  enabled: true
+  tool_sequence:
+    - "unauthorized_tool"
+    - "unauthorized_tool"
+    - "unauthorized_tool"
+  expected_detection: "EXCESSIVE_DENIALS"
+  expected_findings:
+    - "EXCESSIVE_DENIALS"
+  expected_risk: "MEDIUM"
+  expected_response: "ALERT"
+  tags:
+    - "session-security"
+    - "behavioral-escalation"
+    - "denial-threshold"
+  references:
+    - "docs/security/threat-model.md"

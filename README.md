@@ -361,7 +361,7 @@ The examples below demonstrate how the Zero Trust pipeline processes agent reque
 
 The platform maintains a comprehensive automated test suite collected with Pytest:
 
-- **281 passing automated tests** covering services, models, detection rules, policies, registries, scenarios, and tools
+- **284 passing automated tests** covering services, models, detection rules, policies, registries, scenarios, and tools
 - **Ruff** linting is part of the standard validation workflow
 
 ```bash

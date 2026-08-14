@@ -93,3 +93,52 @@ def test_scenario_requires_id_and_name():
             scenario_id="",
             name="Missing ID",
         )
+
+
+def test_packaged_scenarios_expanded_coverage():
+    from app.services.attack_scenario_service import AttackScenarioService
+
+    service = AttackScenarioService()
+    scenarios_by_id = {s.scenario_id: s for s in service.load_scenarios()}
+
+    # Verify newly added scenario assets exist and have expected deterministic assertions
+    assert "AUTH-003" in scenarios_by_id
+    assert scenarios_by_id["AUTH-003"].expected_response == ResponseType.REQUIRE_APPROVAL
+
+    assert "DEX-003" in scenarios_by_id
+    assert scenarios_by_id["DEX-003"].expected_risk == RiskLevel.CRITICAL
+
+    assert "PI-003" in scenarios_by_id
+    assert scenarios_by_id["PI-003"].expected_detection == "PROMPT_INJECTION"
+
+    assert "BEN-002" in scenarios_by_id
+    assert len(scenarios_by_id["BEN-002"].tool_sequence) == 2
+
+    assert "SES-002" in scenarios_by_id
+    assert "EXCESSIVE_DENIALS" in scenarios_by_id["SES-002"].expected_findings
+
+
+def test_all_packaged_scenarios_satisfy_security_invariants():
+    from app.services.attack_scenario_service import AttackScenarioService
+
+    service = AttackScenarioService()
+    scenarios = service.load_scenarios()
+
+    seen_ids = set()
+    for scenario in scenarios:
+        # Scenario ID & name invariants
+        assert scenario.scenario_id.strip() != ""
+        assert scenario.name.strip() != ""
+
+        # Case-insensitive ID uniqueness invariant
+        canon_id = scenario.scenario_id.lower()
+        assert canon_id not in seen_ids, f"Duplicate canonical scenario ID: {canon_id}"
+        seen_ids.add(canon_id)
+
+        # Enum & type invariants
+        assert isinstance(scenario.category, ScenarioCategory)
+        assert isinstance(scenario.severity, Severity)
+        assert isinstance(scenario.expected_risk, RiskLevel)
+        assert isinstance(scenario.expected_response, ResponseType)
+        assert isinstance(scenario.tags, tuple)
+        assert isinstance(scenario.references, tuple)
