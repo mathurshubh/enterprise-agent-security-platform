@@ -11,7 +11,7 @@ class TestListScenarios:
         assert response.status_code == 200
         data = response.json()
         assert isinstance(data, list)
-        assert len(data) == 14
+        assert len(data) == 19
 
     def test_filter_by_category(self) -> None:
         response = client.get("/api/scenarios?category=PROMPT_INJECTION")

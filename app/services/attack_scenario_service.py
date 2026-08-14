@@ -74,12 +74,13 @@ class AttackScenarioService:
                         f"Scenario file '{file_path}' contains an invalid scenario"
                     ) from exc
 
-                if scenario.scenario_id in scenario_ids:
+                normalized_id = scenario.scenario_id.lower()
+                if normalized_id in scenario_ids:
                     raise ScenarioLoadError(
                         f"Duplicate scenario_id '{scenario.scenario_id}'"
                     )
 
-                scenario_ids.add(scenario.scenario_id)
+                scenario_ids.add(normalized_id)
                 scenarios.append(scenario)
 
         return sorted(

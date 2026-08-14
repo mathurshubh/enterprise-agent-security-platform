@@ -42,7 +42,7 @@ def test_load_packaged_attack_scenarios():
 
     scenarios = service.load_scenarios()
 
-    assert len(scenarios) == 14
+    assert len(scenarios) == 19
     assert [scenario.scenario_id for scenario in scenarios] == sorted(
         scenario.scenario_id for scenario in scenarios
     )
@@ -209,3 +209,16 @@ def test_list_by_category_filters_scenarios(tmp_path):
 
     assert len(scenarios) == 1
     assert scenarios[0].scenario_id == "DEX-001"
+
+
+def test_load_case_insensitive_duplicate_scenario_ids_raises_error(tmp_path):
+    write_scenarios(tmp_path, [create_scenario("AUTH-001")], "file1.yaml")
+    write_scenarios(tmp_path, [create_scenario("auth-001")], "file2.yaml")
+
+    service = AttackScenarioService(tmp_path)
+
+    with pytest.raises(
+        ScenarioLoadError,
+        match="Duplicate scenario_id 'auth-001'",
+    ):
+        service.load_scenarios()
