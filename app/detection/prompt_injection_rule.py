@@ -5,7 +5,7 @@ from app.detection.category import DetectionCategory
 from app.detection.context import DetectionContext
 from app.detection.metadata import RuleMetadata
 from app.detection.rule import DetectionRule
-from app.models.finding import Finding, Severity
+from app.models.finding import Finding, FindingCategory, Severity
 
 
 class PromptInjectionRule(DetectionRule):
@@ -83,8 +83,10 @@ class PromptInjectionRule(DetectionRule):
                 ),
                 session_id=context.session_id,
                 agent_id=context.agent_id,
+                rule_id=self.rule_name,
                 rule_name=self.rule_name,
                 severity=Severity.HIGH,
+                category=FindingCategory.PROMPT_INJECTION,
                 description=(
                     "Prompt injection indicator detected: "
                     f"{matched_indicator}"

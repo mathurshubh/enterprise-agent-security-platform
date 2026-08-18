@@ -5,7 +5,7 @@ from app.detection.category import DetectionCategory
 from app.detection.context import DetectionContext
 from app.detection.metadata import RuleMetadata
 from app.detection.rule import DetectionRule
-from app.models.finding import Finding, Severity
+from app.models.finding import Finding, FindingCategory, Severity
 
 
 class SensitiveFileAccessRule(DetectionRule):
@@ -91,8 +91,10 @@ class SensitiveFileAccessRule(DetectionRule):
                 finding_id=self._finding_id(context, matched_indicator),
                 session_id=context.session_id,
                 agent_id=context.agent_id,
+                rule_id=self.rule_name,
                 rule_name=self.rule_name,
                 severity=Severity.HIGH,
+                category=FindingCategory.SENSITIVE_FILE_ACCESS,
                 description=f"Sensitive file access attempt detected: {matched_indicator}",
                 created_at=self._CREATED_AT,
             )
