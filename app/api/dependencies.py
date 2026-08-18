@@ -17,6 +17,7 @@ from app.services.agent_service import AgentService
 from app.services.attack_scenario_service import AttackScenarioService
 from app.services.audit_service import AuditService
 from app.services.capability_service import CapabilityService
+from app.services.findings_service import FindingsService
 from app.services.runtime_bootstrap import bootstrap_runtime_service
 from app.services.runtime_service import RuntimeService
 from app.services.session_service import SessionService
@@ -52,6 +53,8 @@ tool_inventory_service: ToolInventoryService = ToolInventoryService(tool_registr
 
 audit_service: AuditService = AuditService()
 
+findings_service: FindingsService = FindingsService()
+
 detection_registry: DetectionRegistry = create_default_detection_registry()
 
 scenario_registry: ScenarioRegistry = AttackScenarioService().load_registry()
@@ -62,6 +65,7 @@ runtime_service: RuntimeService = bootstrap_runtime_service(
     audit_service=audit_service,
     detection_registry=detection_registry,
     tool_registry=tool_registry,
+    findings_service=findings_service,
 )
 
 capability_service: CapabilityService = CapabilityService(

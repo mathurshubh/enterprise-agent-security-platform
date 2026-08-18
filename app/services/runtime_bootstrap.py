@@ -14,6 +14,7 @@ from app.registry.tool_registry import ToolRegistry
 from app.services.agent_service import AgentNotFoundError, AgentService
 from app.services.audit_service import AuditService
 from app.services.detection_service import DetectionService
+from app.services.findings_service import FindingsService
 from app.services.response_service import ResponseService
 from app.services.risk_service import RiskService
 from app.services.runtime_service import RuntimeService
@@ -112,6 +113,7 @@ def bootstrap_runtime_service(
     detection_registry: DetectionRegistry,
     agent_id: str = "agent-1",
     tool_registry: ToolRegistry | None = None,
+    findings_service: FindingsService | None = None,
 ) -> RuntimeService:
     """Canonical bootstrapping implementation for RuntimeService and dependencies."""
     register_default_agent(agent_service, agent_id)
@@ -138,5 +140,5 @@ def bootstrap_runtime_service(
         response_service=ResponseService(),
         audit_service=audit_service,
         tool_registry=registry,
+        findings_service=findings_service,
     )
-

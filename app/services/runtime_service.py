@@ -24,6 +24,7 @@ from app.registry.tool_registry import ToolRegistry
 from app.services.agent_service import AgentService
 from app.services.audit_service import AuditService
 from app.services.detection_service import DetectionService
+from app.services.findings_service import FindingsService
 from app.services.response_service import ResponseService
 from app.services.risk_service import RiskService
 from app.services.session_service import SessionService
@@ -41,6 +42,7 @@ class RuntimeService:
         response_service: ResponseService,
         audit_service: AuditService | None = None,
         tool_registry: ToolRegistry | None = None,
+        findings_service: FindingsService | None = None,
     ) -> None:
         self._authorization_service = authorization_service
         self._session_service = session_service
@@ -50,7 +52,12 @@ class RuntimeService:
         self._response_service = response_service
         self._audit_service = audit_service or AuditService()
         self._tool_registry = tool_registry
+        self._findings_service = findings_service
         self._last_result = None
+
+    @property
+    def findings_service(self) -> FindingsService | None:
+        return self._findings_service
 
     @property
     def tool_registry(self) -> ToolRegistry | None:
@@ -210,6 +217,9 @@ class RuntimeService:
             session_events
         )
         findings = content_findings + session_findings
+
+        if self._findings_service and findings:
+            self._findings_service.record_findings(findings)
 
         if findings:
             risk_assessment = self._risk_service.assess(findings)

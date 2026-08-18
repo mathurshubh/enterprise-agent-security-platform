@@ -9,23 +9,27 @@ All service instances are imported from app.api.dependencies so that this
 router and the Runtime API share a single, consistent in-memory state.
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Query, status
 
 from app.api.dependencies import (
     agent_service,
     audit_service,
     detection_registry,
+    findings_service,
     session_service,
     tool_inventory_service,
 )
+from app.detection.security_standard import SecurityFramework
 from app.models.api.agent_response import AgentResponse
 from app.models.api.audit_event_response import AuditEventResponse
 from app.models.api.detection_rule_response import (
     DetectionRuleResponse,
     SecurityControlReferenceResponse,
 )
+from app.models.api.finding_response import FindingResponse
 from app.models.api.session_response import SessionResponse
 from app.models.api.tool_response import ToolResponse
+from app.models.finding import Finding, FindingCategory, FindingStatus, Severity
 
 router = APIRouter(tags=["Management"])
 
@@ -153,6 +157,77 @@ def list_sessions() -> list[SessionResponse]:
     ]
 
 
+# ── Findings ─────────────────────────────────────────────────────────────────
+
+
+def _map_finding_to_response(finding: Finding) -> FindingResponse:
+    mitre_techniques: list[str] = []
+    for metadata in detection_registry.metadata():
+        if metadata.name == finding.rule_name or metadata.name == finding.rule_id:
+            for control in metadata.controls:
+                if control.framework in (
+                    SecurityFramework.MITRE_ATTACK,
+                    SecurityFramework.MITRE_ATLAS,
+                ):
+                    mitre_techniques.append(control.control_id)
+            break
+
+    return FindingResponse(
+        id=finding.finding_id,
+        session_id=finding.session_id,
+        agent_id=finding.agent_id,
+        rule_id=finding.rule_id,
+        rule_name=finding.rule_name,
+        severity=finding.severity,
+        category=finding.category,
+        status=finding.status,
+        description=finding.description,
+        detected_at=finding.created_at,
+        mitre_techniques=mitre_techniques,
+    )
+
+
+@router.get(
+    "/findings",
+    response_model=list[FindingResponse],
+    summary="List security findings",
+)
+def list_findings(
+    session_id: str | None = Query(default=None, description="Filter by session ID"),
+    agent_id: str | None = Query(default=None, description="Filter by agent ID"),
+    severity: Severity | None = Query(default=None, description="Filter by severity level"),
+    category: FindingCategory | None = Query(default=None, description="Filter by category"),
+    status: FindingStatus | None = Query(default=None, description="Filter by status"),
+    rule_id: str | None = Query(default=None, description="Filter by rule ID"),
+) -> list[FindingResponse]:
+    """Return all security findings recorded by the platform matching optional filters."""
+    findings = findings_service.list_findings(
+        session_id=session_id,
+        agent_id=agent_id,
+        severity=severity,
+        category=category,
+        status=status,
+        rule_id=rule_id,
+    )
+    return [_map_finding_to_response(f) for f in findings]
+
+
+@router.get(
+    "/findings/{finding_id}",
+    response_model=FindingResponse,
+    summary="Get security finding by ID",
+)
+def get_finding(finding_id: str) -> FindingResponse:
+    """Return a single security finding by ID."""
+    finding = findings_service.get_finding(finding_id)
+    if finding is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Finding '{finding_id}' not found",
+        )
+    return _map_finding_to_response(finding)
+
+
 # ── Platform info ─────────────────────────────────────────────────────────────
 
 
@@ -175,4 +250,5 @@ def platform_info() -> dict:
         "registered_tools": len(tool_inventory_service.list_registered_tools()),
         "registered_detection_rules": len(detection_registry.metadata()),
         "audit_events": len(audit_service.list_events()),
+        "findings": len(findings_service.list_findings()),
     }
