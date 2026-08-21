@@ -204,6 +204,15 @@ An attacker attempts to modify or delete logs to erase forensic evidence of runt
 - **Audit Service (Immutable Compliance Log):** Records permanent, stateless audit records of all final runtime decisions.
 - **Separation of Concerns:** Audit logs are append-only and immutable. Event generation happens immediately after decision computation, preventing modification of records.
 
+### Threat 7: Cross-Session or Cross-Agent Risk Contamination
+
+An attacker or compromised session attempts to aggregate or inspect risk assessments across unrelated sessions or agents, leaking security posture or polluting risk levels.
+
+#### Mitigations
+- **Strict Scope Validation:** `RiskService.assess_session()` validates that all input findings belong strictly to the requested `session_id` and `agent_id`, rejecting mixed inputs with a `ValueError`.
+- **Management API Authorization & Filtering:** Endpoints restrict risk assessment queries by explicit `session_id`, `agent_id`, and `risk_level` parameters.
+- **Process-Local Derived Posture:** `RiskAssessment` is treated as non-authoritative process-local derived posture; `Finding` objects remain the authoritative security evidence.
+
 ---
 
 ## Threat -> Mitigation Mapping
@@ -216,6 +225,7 @@ An attacker attempts to modify or delete logs to erase forensic evidence of runt
 | **Unauthorized Tool Access** | EoP / Tampering | Authorization Service + Policy Engine | Runtime Security Pipeline (Fails closed and returns `DENY`) | Audit Service |
 | **Runtime Decision Bypass** | EoP | Validation & Type checks | Runtime Security Pipeline (Authoritative decision point) | Audit Service |
 | **Audit Log Tampering** | Repudiation / Tampering | N/A | Stateful Session Tracking vs. Immutable Auditing | Audit Service |
+| **Cross-Session Risk Contamination** | Info Disclosure / Tampering | Scope Isolation Validation | Process-local scope boundary in `RiskService` | Audit Service |
 
 ---
 

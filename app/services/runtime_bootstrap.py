@@ -114,6 +114,7 @@ def bootstrap_runtime_service(
     agent_id: str = "agent-1",
     tool_registry: ToolRegistry | None = None,
     findings_service: FindingsService | None = None,
+    risk_service: RiskService | None = None,
 ) -> RuntimeService:
     """Canonical bootstrapping implementation for RuntimeService and dependencies."""
     register_default_agent(agent_service, agent_id)
@@ -136,7 +137,7 @@ def bootstrap_runtime_service(
         session_service=session_service,
         detection_engine=detection_engine,
         detection_service=DetectionService(),
-        risk_service=RiskService(),
+        risk_service=risk_service or RiskService(),
         response_service=ResponseService(),
         audit_service=audit_service,
         tool_registry=registry,

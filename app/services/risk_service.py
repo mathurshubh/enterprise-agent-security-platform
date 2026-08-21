@@ -1,14 +1,35 @@
+from threading import RLock
+
 from app.models.finding import Finding, Severity
 from app.models.risk_assessment import RiskAssessment, RiskLevel
 
 
 class RiskService:
-    def assess(
+    """Service for calculating and maintaining process-local dynamic risk assessments.
+
+    RiskAssessment is non-authoritative derived posture; Finding is the
+    authoritative security evidence. Assessments are process-local and
+    stored in memory.
+    """
+
+    def __init__(self) -> None:
+        self._lock = RLock()
+        self._assessments: dict[str, RiskAssessment] = {}
+
+    def assess_session(
         self,
+        session_id: str,
+        agent_id: str,
         findings: list[Finding],
     ) -> RiskAssessment:
-        if not findings:
-            raise ValueError("At least one finding is required")
+        """Calculate and store a deterministic risk assessment for a specific session and agent.
+
+        Enforces strict session and agent isolation. All findings must belong to the
+        given session_id and agent_id.
+        """
+        for finding in findings:
+            if finding.session_id != session_id or finding.agent_id != agent_id:
+                raise ValueError("All findings must belong to the requested session and agent")
 
         severity_weights = {
             Severity.LOW: 10,
@@ -17,10 +38,7 @@ class RiskService:
             Severity.CRITICAL: 100,
         }
 
-        risk_score = sum(
-            severity_weights[finding.severity]
-            for finding in findings
-        )
+        risk_score = sum(severity_weights[finding.severity] for finding in findings)
 
         if risk_score >= 100:
             risk_level = RiskLevel.CRITICAL
@@ -31,12 +49,64 @@ class RiskService:
         else:
             risk_level = RiskLevel.LOW
 
-        first_finding = findings[0]
-
-        return RiskAssessment(
-            session_id=first_finding.session_id,
-            agent_id=first_finding.agent_id,
+        assessment = RiskAssessment(
+            session_id=session_id,
+            agent_id=agent_id,
             risk_score=risk_score,
             risk_level=risk_level,
             finding_count=len(findings),
         )
+
+        with self._lock:
+            self._assessments[session_id] = assessment
+
+        return assessment
+
+    def assess(
+        self,
+        findings: list[Finding],
+    ) -> RiskAssessment:
+        """Calculate a risk assessment for a list of findings (backwards compatibility)."""
+        if not findings:
+            raise ValueError("At least one finding is required")
+
+        first_finding = findings[0]
+        return self.assess_session(
+            session_id=first_finding.session_id,
+            agent_id=first_finding.agent_id,
+            findings=findings,
+        )
+
+    def record_assessment(self, assessment: RiskAssessment) -> RiskAssessment:
+        """Record a risk assessment directly in process-local state."""
+        with self._lock:
+            self._assessments[assessment.session_id] = assessment
+            return assessment
+
+    def get_assessment(self, session_id: str) -> RiskAssessment | None:
+        """Retrieve the latest process-local risk assessment for a session."""
+        with self._lock:
+            return self._assessments.get(session_id)
+
+    def list_assessments(
+        self,
+        session_id: str | None = None,
+        agent_id: str | None = None,
+        risk_level: RiskLevel | None = None,
+    ) -> list[RiskAssessment]:
+        """List process-local risk assessments matching optional filters."""
+        with self._lock:
+            results = list(self._assessments.values())
+            if session_id is not None:
+                results = [r for r in results if r.session_id == session_id]
+            if agent_id is not None:
+                results = [r for r in results if r.agent_id == agent_id]
+            if risk_level is not None:
+                results = [r for r in results if r.risk_level == risk_level]
+            return results
+
+    def clear(self) -> None:
+        """Clear process-local risk assessments (useful for testing)."""
+        with self._lock:
+            self._assessments.clear()
+

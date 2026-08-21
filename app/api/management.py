@@ -16,6 +16,7 @@ from app.api.dependencies import (
     audit_service,
     detection_registry,
     findings_service,
+    risk_service,
     session_service,
     tool_inventory_service,
 )
@@ -27,9 +28,11 @@ from app.models.api.detection_rule_response import (
     SecurityControlReferenceResponse,
 )
 from app.models.api.finding_response import FindingResponse
+from app.models.api.risk_assessment_response import RiskAssessmentResponse
 from app.models.api.session_response import SessionResponse
 from app.models.api.tool_response import ToolResponse
 from app.models.finding import Finding, FindingCategory, FindingStatus, Severity
+from app.models.risk_assessment import RiskAssessment, RiskLevel
 
 router = APIRouter(tags=["Management"])
 
@@ -226,6 +229,55 @@ def get_finding(finding_id: str) -> FindingResponse:
             detail=f"Finding '{finding_id}' not found",
         )
     return _map_finding_to_response(finding)
+
+
+# ── Risk Assessments ─────────────────────────────────────────────────────────
+
+
+def _map_risk_assessment_to_response(assessment: RiskAssessment) -> RiskAssessmentResponse:
+    return RiskAssessmentResponse(
+        session_id=assessment.session_id,
+        agent_id=assessment.agent_id,
+        risk_score=assessment.risk_score,
+        risk_level=assessment.risk_level,
+        finding_count=assessment.finding_count,
+        assessed_at=assessment.assessed_at,
+    )
+
+
+@router.get(
+    "/risk-assessments",
+    response_model=list[RiskAssessmentResponse],
+    summary="List risk assessments",
+)
+def list_risk_assessments(
+    session_id: str | None = Query(default=None, description="Filter by session ID"),
+    agent_id: str | None = Query(default=None, description="Filter by agent ID"),
+    risk_level: RiskLevel | None = Query(default=None, description="Filter by risk level"),
+) -> list[RiskAssessmentResponse]:
+    """Return process-local risk assessments matching optional filters."""
+    assessments = risk_service.list_assessments(
+        session_id=session_id,
+        agent_id=agent_id,
+        risk_level=risk_level,
+    )
+    return [_map_risk_assessment_to_response(a) for a in assessments]
+
+
+@router.get(
+    "/risk-assessments/{session_id}",
+    response_model=RiskAssessmentResponse,
+    summary="Get risk assessment by session ID",
+)
+def get_risk_assessment(session_id: str) -> RiskAssessmentResponse:
+    """Return the latest process-local risk assessment for a session."""
+    assessment = risk_service.get_assessment(session_id)
+    if assessment is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Risk assessment for session '{session_id}' not found",
+        )
+    return _map_risk_assessment_to_response(assessment)
 
 
 # ── Platform info ─────────────────────────────────────────────────────────────

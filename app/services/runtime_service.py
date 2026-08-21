@@ -221,16 +221,11 @@ class RuntimeService:
         if self._findings_service and findings:
             self._findings_service.record_findings(findings)
 
-        if findings:
-            risk_assessment = self._risk_service.assess(findings)
-        else:
-            risk_assessment = RiskAssessment(
-                session_id=session_id,
-                agent_id=agent_id,
-                risk_score=0,
-                risk_level=RiskLevel.LOW,
-                finding_count=0,
-            )
+        risk_assessment = self._risk_service.assess_session(
+            session_id=session_id,
+            agent_id=agent_id,
+            findings=findings,
+        )
 
         response_action = (
             self._response_service.recommend(

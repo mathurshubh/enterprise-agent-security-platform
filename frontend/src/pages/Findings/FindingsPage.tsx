@@ -23,11 +23,28 @@
 
 import { useState } from 'react'
 import { useFindings } from '../../hooks/useFindings'
+import { useRiskAssessments } from '../../hooks/useRiskAssessments'
 import FindingTable from './components/FindingTable'
 import PageHeader from '../../components/ui/PageHeader'
 import MetricCard from '../../components/common/MetricCard'
 import ErrorState from '../../components/common/ErrorState'
+import Badge from '../../components/ui/Badge'
 import type { FindingSeverity, FindingCategory, FindingStatus } from '../../types/finding'
+import type { RiskLevel } from '../../types/riskAssessment'
+
+function riskBadgeVariant(level: RiskLevel): 'error' | 'warning' | 'info' | 'muted' {
+  switch (level) {
+    case 'CRITICAL':
+    case 'HIGH':
+      return 'error'
+    case 'MEDIUM':
+      return 'warning'
+    case 'LOW':
+      return 'info'
+    default:
+      return 'muted'
+  }
+}
 
 export default function FindingsPage() {
   const [severityFilter, setSeverityFilter] = useState<FindingSeverity | ''>('')
@@ -35,11 +52,17 @@ export default function FindingsPage() {
   const [statusFilter, setStatusFilter] = useState<FindingStatus | ''>('')
 
   // Pass active filters to backend API via query params
-  const { findings, loading, error } = useFindings({
+  const { findings, loading: loadingFindings, error: errorFindings } = useFindings({
     severity: severityFilter || undefined,
     category: categoryFilter || undefined,
     status: statusFilter || undefined,
   })
+
+  // Fetch backend-calculated dynamic risk assessments
+  const { riskAssessments, loading: loadingRisk, error: errorRisk } = useRiskAssessments()
+
+  const loading = loadingFindings || loadingRisk
+  const error = errorFindings || errorRisk
 
   // ── Derived Metrics ────────────────────────────────────────────────
   const totalFindings    = findings.length
@@ -47,14 +70,47 @@ export default function FindingsPage() {
   const openFindings     = findings.filter((f) => f.status === 'OPEN').length
   const categoriesCount  = new Set(findings.map((f) => f.category)).size
 
+  // ── Derived Risk Intelligence (Backend-driven) ────────────────────
+  const maxRiskScore = riskAssessments.reduce((max, r) => Math.max(max, r.risk_score), 0)
+  const highestRiskLevel: RiskLevel = riskAssessments.reduce<RiskLevel>((highest, r) => {
+    const order: Record<RiskLevel, number> = { LOW: 1, MEDIUM: 2, HIGH: 3, CRITICAL: 4 }
+    return order[r.risk_level] > order[highest] ? r.risk_level : highest
+  }, 'LOW')
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Findings & Alerts"
-        description="Behavioral threat detection rule firings and anomaly findings recorded across all agent sessions."
+        description="Behavioral threat detection rule firings and dynamic risk posture recorded across all agent sessions."
       />
 
       {error && <ErrorState message={error} />}
+
+      {/* ── Dynamic Risk Intelligence Banner ─────────────────────── */}
+      <div className="bg-bg-surface border border-border-secondary rounded-xl p-4 flex flex-wrap items-center justify-between gap-4">
+        <div className="space-y-1">
+          <div className="text-xs font-semibold text-text-muted uppercase tracking-wider">
+            Session Risk Posture
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-bold text-text-primary">
+              Highest Risk Level:
+            </span>
+            <Badge label={highestRiskLevel} variant={riskBadgeVariant(highestRiskLevel)} />
+          </div>
+        </div>
+
+        <div className="flex items-center gap-6 text-xs">
+          <div>
+            <span className="text-text-muted">Max Risk Score: </span>
+            <span className="font-mono font-bold text-text-primary">{maxRiskScore}</span>
+          </div>
+          <div>
+            <span className="text-text-muted">Assessed Sessions: </span>
+            <span className="font-mono font-bold text-text-primary">{riskAssessments.length}</span>
+          </div>
+        </div>
+      </div>
 
       {/* ── Summary Metrics ───────────────────────────────────────── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
