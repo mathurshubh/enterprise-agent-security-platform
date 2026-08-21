@@ -61,7 +61,7 @@ export const NAV_SECTIONS: NavSection[] = [
     section: 'INVESTIGATE',
     items: [
       { label: 'Sessions',    path: '/sessions',  icon: React.createElement(IconSessions) },
-      { label: 'Findings',    path: '/findings',  icon: React.createElement(IconFindings),  gated: true },
+      { label: 'Findings',    path: '/findings',  icon: React.createElement(IconFindings) },
       { label: 'Audit Trail', path: '/audit',     icon: React.createElement(IconAuditTrail) },
     ],
   },

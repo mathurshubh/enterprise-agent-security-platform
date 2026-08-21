@@ -26,6 +26,9 @@ export const ApiRoutes = {
     auditEvents: '/v1/audit/events',
 
     detectionRules: '/v1/detection/rules',
+
+    findings: '/v1/findings',
+    finding: (id: string) => `/v1/findings/${encodeURIComponent(id)}`,
   },
   scenarios: {
     list: '/scenarios',
