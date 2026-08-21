@@ -38,7 +38,7 @@ export const BEHAVIORAL_TELEMETRY_ENABLED = false
  * Gates the /findings page operational mode.
  * Backend API: GET /api/v1/findings
  */
-export const FINDINGS_ENABLED = false
+export const FINDINGS_ENABLED = true
 
 /**
  * Behavioral Risk Engine — Dynamic Risk State (ADR-018).
