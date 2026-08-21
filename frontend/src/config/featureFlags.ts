@@ -45,7 +45,7 @@ export const FINDINGS_ENABLED = true
  * Gates dynamic risk badges on /agents, /sessions, and the Command Center.
  * Backend API: GET /api/v1/risk/state/{session_id}
  */
-export const RISK_ENGINE_ENABLED = false
+export const RISK_ENGINE_ENABLED = true
 
 /**
  * Behavioral Enforcement Engine — Approval Queue (ADR-019, ADR-020).
