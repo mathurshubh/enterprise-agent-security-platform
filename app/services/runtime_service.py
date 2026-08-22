@@ -221,10 +221,19 @@ class RuntimeService:
         if self._findings_service and findings:
             self._findings_service.record_findings(findings)
 
+        # Retrieve accumulated historical findings for session + agent scope to calculate cumulative risk posture
+        if self._findings_service:
+            accumulated_findings = self._findings_service.list_findings(
+                session_id=session_id,
+                agent_id=agent_id,
+            )
+        else:
+            accumulated_findings = findings
+
         risk_assessment = self._risk_service.assess_session(
             session_id=session_id,
             agent_id=agent_id,
-            findings=findings,
+            findings=accumulated_findings,
         )
 
         response_action = (

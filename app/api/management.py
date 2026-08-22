@@ -33,6 +33,7 @@ from app.models.api.session_response import SessionResponse
 from app.models.api.tool_response import ToolResponse
 from app.models.finding import Finding, FindingCategory, FindingStatus, Severity
 from app.models.risk_assessment import RiskAssessment, RiskLevel
+from app.services.risk_service import AmbiguousAssessmentScopeError
 
 router = APIRouter(tags=["Management"])
 
@@ -269,9 +270,19 @@ def list_risk_assessments(
     response_model=RiskAssessmentResponse,
     summary="Get risk assessment by session ID",
 )
-def get_risk_assessment(session_id: str) -> RiskAssessmentResponse:
-    """Return the latest process-local risk assessment for a session."""
-    assessment = risk_service.get_assessment(session_id)
+def get_risk_assessment(
+    session_id: str,
+    agent_id: str | None = Query(default=None, description="Filter by agent ID"),
+) -> RiskAssessmentResponse:
+    """Return the latest process-local risk assessment for a session (and optional agent ID)."""
+    try:
+        assessment = risk_service.get_assessment(session_id, agent_id=agent_id)
+    except AmbiguousAssessmentScopeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="agent_id is required when multiple risk assessments exist for the session",
+        ) from exc
+
     if assessment is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

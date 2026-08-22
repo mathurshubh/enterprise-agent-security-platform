@@ -4,6 +4,10 @@ from app.models.finding import Finding, Severity
 from app.models.risk_assessment import RiskAssessment, RiskLevel
 
 
+class AmbiguousAssessmentScopeError(ValueError):
+    """Raised when an unscoped get_assessment query matches multiple agents for a session."""
+
+
 class RiskService:
     """Service for calculating and maintaining process-local dynamic risk assessments.
 
@@ -14,7 +18,7 @@ class RiskService:
 
     def __init__(self) -> None:
         self._lock = RLock()
-        self._assessments: dict[str, RiskAssessment] = {}
+        self._assessments: dict[tuple[str, str], RiskAssessment] = {}
 
     def assess_session(
         self,
@@ -25,7 +29,8 @@ class RiskService:
         """Calculate and store a deterministic risk assessment for a specific session and agent.
 
         Enforces strict session and agent isolation. All findings must belong to the
-        given session_id and agent_id.
+        given session_id and agent_id. Derived assessment is stored under composite
+        key (session_id, agent_id).
         """
         for finding in findings:
             if finding.session_id != session_id or finding.agent_id != agent_id:
@@ -58,7 +63,7 @@ class RiskService:
         )
 
         with self._lock:
-            self._assessments[session_id] = assessment
+            self._assessments[(session_id, agent_id)] = assessment
 
         return assessment
 
@@ -80,13 +85,32 @@ class RiskService:
     def record_assessment(self, assessment: RiskAssessment) -> RiskAssessment:
         """Record a risk assessment directly in process-local state."""
         with self._lock:
-            self._assessments[assessment.session_id] = assessment
+            self._assessments[(assessment.session_id, assessment.agent_id)] = assessment
             return assessment
 
-    def get_assessment(self, session_id: str) -> RiskAssessment | None:
-        """Retrieve the latest process-local risk assessment for a session."""
+    def get_assessment(
+        self,
+        session_id: str,
+        agent_id: str | None = None,
+    ) -> RiskAssessment | None:
+        """Retrieve process-local risk assessment for a session (and optional agent ID).
+
+        If agent_id is omitted and multiple assessments exist for session_id across
+        different agents, raises AmbiguousAssessmentScopeError.
+        """
         with self._lock:
-            return self._assessments.get(session_id)
+            if agent_id is not None:
+                return self._assessments.get((session_id, agent_id))
+
+            matching = [a for key, a in self._assessments.items() if key[0] == session_id]
+            if len(matching) == 0:
+                return None
+            if len(matching) == 1:
+                return matching[0]
+
+            raise AmbiguousAssessmentScopeError(
+                f"Multiple risk assessments exist for session '{session_id}'; agent_id is required"
+            )
 
     def list_assessments(
         self,

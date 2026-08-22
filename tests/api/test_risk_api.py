@@ -79,6 +79,41 @@ def test_get_risk_assessment_by_session():
     assert "assessed_at" in dto
 
 
+def test_get_risk_assessment_with_agent_id_filter():
+    fA = create_finding(Severity.HIGH, "fA", session_id="shared-sess", agent_id="agent-A")
+    fB = create_finding(Severity.LOW, "fB", session_id="shared-sess", agent_id="agent-B")
+
+    risk_service.assess_session("shared-sess", "agent-A", [fA])
+    risk_service.assess_session("shared-sess", "agent-B", [fB])
+
+    resA = client.get("/api/v1/risk-assessments/shared-sess?agent_id=agent-A")
+    assert resA.status_code == 200
+    dtoA = resA.json()
+    assert dtoA["agent_id"] == "agent-A"
+    assert dtoA["risk_level"] == "HIGH"
+    assert dtoA["risk_score"] == 50
+
+    resB = client.get("/api/v1/risk-assessments/shared-sess?agent_id=agent-B")
+    assert resB.status_code == 200
+    dtoB = resB.json()
+    assert dtoB["agent_id"] == "agent-B"
+    assert dtoB["risk_level"] == "LOW"
+    assert dtoB["risk_score"] == 10
+
+
+def test_get_risk_assessment_ambiguous_scope_returns_400():
+    fA = create_finding(Severity.HIGH, "fA", session_id="shared-sess", agent_id="agent-A")
+    fB = create_finding(Severity.LOW, "fB", session_id="shared-sess", agent_id="agent-B")
+
+    risk_service.assess_session("shared-sess", "agent-A", [fA])
+    risk_service.assess_session("shared-sess", "agent-B", [fB])
+
+    # Unscoped request on shared session MUST return 400 Bad Request and NOT leak either assessment
+    res = client.get("/api/v1/risk-assessments/shared-sess")
+    assert res.status_code == 400
+    assert "agent_id is required" in res.json()["detail"]
+
+
 def test_get_risk_assessment_not_found():
     res = client.get("/api/v1/risk-assessments/nonexistent-session")
     assert res.status_code == 404

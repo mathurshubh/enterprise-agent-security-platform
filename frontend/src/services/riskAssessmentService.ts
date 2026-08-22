@@ -68,8 +68,8 @@ export const getRiskAssessments = async (filters?: RiskAssessmentFilters): Promi
 /**
  * Fetch the latest risk assessment for a specific session ID.
  */
-export const getRiskAssessmentBySession = async (sessionId: string): Promise<RiskAssessment | null> => {
-  const response = await apiClient.get<RiskAssessmentDto>(ApiRoutes.management.riskAssessment(sessionId))
+export const getRiskAssessmentBySession = async (sessionId: string, agentId?: string): Promise<RiskAssessment | null> => {
+  const response = await apiClient.get<RiskAssessmentDto>(ApiRoutes.management.riskAssessment(sessionId, agentId))
   const dto = response.data
   if (!dto || !dto.session_id) return null
 
