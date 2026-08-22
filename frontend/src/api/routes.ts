@@ -31,7 +31,8 @@ export const ApiRoutes = {
     finding: (id: string) => `/v1/findings/${encodeURIComponent(id)}`,
 
     riskAssessments: '/v1/risk-assessments',
-    riskAssessment: (sessionId: string) => `/v1/risk-assessments/${encodeURIComponent(sessionId)}`,
+    riskAssessment: (sessionId: string, agentId?: string) =>
+      `/v1/risk-assessments/${encodeURIComponent(sessionId)}${agentId ? `?agent_id=${encodeURIComponent(agentId)}` : ''}`,
   },
   scenarios: {
     list: '/scenarios',

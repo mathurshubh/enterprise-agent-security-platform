@@ -190,15 +190,15 @@ def test_state_storage_and_retrieval():
     service.assess_session("session-1", "agent-1", [create_finding(Severity.HIGH, "f1")])
     service.assess_session("session-2", "agent-2", [create_finding(Severity.CRITICAL, "f2", session_id="session-2", agent_id="agent-2")])
 
-    a1 = service.get_assessment("session-1")
+    a1 = service.get_assessment("session-1", "agent-1")
     assert a1 is not None
     assert a1.risk_level == RiskLevel.HIGH
 
-    a2 = service.get_assessment("session-2")
+    a2 = service.get_assessment("session-2", "agent-2")
     assert a2 is not None
     assert a2.risk_level == RiskLevel.CRITICAL
 
-    assert service.get_assessment("nonexistent") is None
+    assert service.get_assessment("nonexistent", "agent-1") is None
 
     # Test list_assessments filtering
     all_assessments = service.list_assessments()
@@ -214,3 +214,42 @@ def test_state_storage_and_retrieval():
 
     service.clear()
     assert len(service.list_assessments()) == 0
+
+
+def test_h2_cross_agent_session_id_isolation():
+    """Verify H2: Assessments for the same session_id across different agents are isolated."""
+    service = RiskService()
+
+    f1 = create_finding(Severity.HIGH, "f1", session_id="sess-shared", agent_id="agent-A")
+    f2 = create_finding(Severity.LOW, "f2", session_id="sess-shared", agent_id="agent-B")
+
+    service.assess_session("sess-shared", "agent-A", [f1])
+    service.assess_session("sess-shared", "agent-B", [f2])
+
+    a_agent_a = service.get_assessment("sess-shared", "agent-A")
+    a_agent_b = service.get_assessment("sess-shared", "agent-B")
+
+    assert a_agent_a is not None
+    assert a_agent_a.agent_id == "agent-A"
+    assert a_agent_a.risk_level == RiskLevel.HIGH
+    assert a_agent_a.risk_score == 50
+
+    assert a_agent_b is not None
+    assert a_agent_b.agent_id == "agent-B"
+    assert a_agent_b.risk_level == RiskLevel.LOW
+    assert a_agent_b.risk_score == 10
+
+
+def test_h2_unscoped_get_assessment_ambiguity_raises():
+    """Verify unscoped get_assessment raises AmbiguousAssessmentScopeError when multiple agents match."""
+    from app.services.risk_service import AmbiguousAssessmentScopeError
+    service = RiskService()
+
+    f1 = create_finding(Severity.HIGH, "f1", session_id="sess-shared", agent_id="agent-A")
+    f2 = create_finding(Severity.LOW, "f2", session_id="sess-shared", agent_id="agent-B")
+
+    service.assess_session("sess-shared", "agent-A", [f1])
+    service.assess_session("sess-shared", "agent-B", [f2])
+
+    with pytest.raises(AmbiguousAssessmentScopeError, match="agent_id is required"):
+        service.get_assessment("sess-shared")
