@@ -65,7 +65,7 @@ flowchart TD
 
 ## Release & Platform Status
 
-- **Latest Published GitHub Release:** `v0.13.1`
+- **Latest Published GitHub Release:** `v0.15`
 - **Latest Repository Tag:** `v0.15.0`
 - **Current Development Cycle:** `v0.16.0` — Unreleased
 - **Active Baseline PR:** PR #87 (Documentation, Architecture & Roadmap Synchronization)
@@ -79,7 +79,7 @@ flowchart TD
 | Metric | Value |
 |----------|---------|
 | Automated Tests | 326 Passing |
-| Latest Published GitHub Release | v0.13.1 |
+| Latest Published GitHub Release | v0.15 |
 | Latest Repository Tag | v0.15.0 |
 | Current Development Cycle | v0.16.0 (Unreleased) |
 | Detection Rules | 4 (`PROMPT_INJECTION`, `SENSITIVE_FILE_ACCESS`, `DATA_EXFILTRATION`, `EXCESSIVE_DENIALS`) |
