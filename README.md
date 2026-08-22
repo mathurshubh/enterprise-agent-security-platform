@@ -3,7 +3,7 @@
 ![Python](https://img.shields.io/badge/Python-3.13-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.116+-009688)
 ![Tests](https://img.shields.io/badge/Tests-326_Passing-success)
-![GitHub Release](https://img.shields.io/badge/GitHub_Release-v0.13.1-blue)
+![GitHub Release](https://img.shields.io/badge/GitHub_Release-v0.15-blue)
 ![Git Tag](https://img.shields.io/badge/Git_Tag-v0.15.0-blue)
 ![Development Cycle](https://img.shields.io/badge/Development-v0.16.0--dev-orange)
 ![Providers](https://img.shields.io/badge/Providers-Ollama_|_Gemini-orange)
