@@ -16,29 +16,30 @@ Core principles:
 - Full Auditability
 - Provider Agnostic
 - LLM as Untrusted Intent Parser
+- Authoritative Evidence vs Derived Posture Separation
 
 Release Status:
 
-v1.0 Development
+- Latest Published GitHub Release: `v0.13.1`
+- Latest Repository Tag: `v0.15.0`
+- Current Development Cycle: `v0.16.0` — Unreleased
+- Baseline PR: PR #87 (Documentation, Architecture & Roadmap Synchronization)
 
-Implemented:
+Implemented Capabilities:
 
-- Agent Registry
-- Tool Registry
-- JWT
-- RBAC
-- Runtime Service
-- Detection Engine
-- Prompt Injection Detection
-- Attack Scenario Framework
-- Enterprise Security Console Architecture (ADR-009, ADR-022)
-- Provider Abstraction
-- Ollama
-- Gemini
-- Runtime Capability Discovery
-- CapabilityService
-- PlatformCapabilities
-- 281 passing automated tests
+- Agent Registry & Tool Registry
+- JWT Authentication & RBAC
+- Policy Engine with Resource-Aware Authorization
+- Deterministic `RuntimeService` Single Security Authority
+- Detection Engine (`PROMPT_INJECTION`, `SENSITIVE_FILE_ACCESS`, `DATA_EXFILTRATION`, `EXCESSIVE_DENIALS`)
+- Attack Scenario Framework & Security Standards Mapping (OWASP LLM, MITRE ATLAS, MITRE ATT&CK)
+- Provider Abstraction (Ollama, Gemini)
+- Runtime Capability Discovery (`CapabilityService`, `PlatformCapabilities`)
+- **Findings & Alerts API (`GET /api/v1/findings`, `FindingsService`)**
+- **Enterprise Findings Console UI (`/findings`)**
+- **Dynamic Risk Engine & Management API (`RiskService`, `GET /api/v1/risk-assessments`)**
+- **Risk Assessment Integrity & Isolation:** Composite `(session_id, agent_id)` identity with HTTP 400 Bad Request ambiguity protection
+- **326 passing backend pytest tests**
 
 ---
 

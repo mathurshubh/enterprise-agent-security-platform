@@ -24,7 +24,9 @@ The platform's technical design is governed by the following core principles:
 * **Deterministic Security Enforcement:** All policy checking, threat detection, risk calculations, and mitigation overrides are computed outside the LLM in deterministic, compiled/interpreted code.
 * **Least Privilege Access:** Agents are restricted to the minimal set of approved tools and resource parameters necessary for their defined business roles.
 * **Separation of Reasoning & Enforcement:** The Agent Runtime is strictly isolated from the Runtime Security Pipeline (gatekeeper), preventing model behaviors from overriding security decisions.
-* **Complete Auditability:** Every tool request, authorization decision, policy evaluation, and mitigation action is logged as an immutable, append-only audit record suitable for ingestion by enterprise SIEM platforms.
+* **Authoritative Evidence vs Derived Posture:** `Finding` objects recorded in `FindingsService` represent authoritative security evidence. `RiskAssessment` objects in `RiskService` represent derived process-local posture indexed by composite `(session_id, agent_id)` keys.
+* **Cumulative Risk Posture:** Dynamic risk calculation aggregates all authoritative findings recorded for a session and agent scope. Subsequent benign tool executions maintain the session's cumulative risk level.
+* **Complete Auditability:** Every tool request, authorization decision, policy evaluation, finding, risk score, and mitigation action is logged as an immutable, append-only audit record suitable for ingestion by enterprise SIEM platforms.
 * **Provider-Agnostic Design:** LLM providers are treated as interchangeable backend utilities. The platform abstracts provider-specific interfaces behind clean adapters, ensuring security logic is unaffected by model swaps.
 
 ## 4. Trust Boundaries
@@ -40,7 +42,7 @@ flowchart TD
 
     subgraph DeterministicPlatform ["Deterministic Platform Zone (Runtime Security Pipeline)"]
         Validation["Request Parameter Validation"]
-        Pipeline["Auth / Policy / Threat Detection / Risk & Response"]
+        Pipeline["Auth / Policy / Threat Detection / Findings / Risk & Response"]
         FinalDecision["Final Decision Point"]
     end
 
@@ -60,16 +62,16 @@ flowchart TD
 ```
 
 * **Untrusted Zone:** Houses the user prompt (susceptible to indirect/direct injection) and the LLM (susceptible to instruction overrides and hallucinations). All outputs crossing this boundary are treated as untrusted payloads.
-* **Deterministic Platform Zone:** Intercepts and parses incoming requests. Evaluates access permissions, checks compliance against enterprise policies, runs threat rules, and scores risk. Security decisions are finalized here.
+* **Deterministic Platform Zone:** Intercepts and parses incoming requests. Evaluates access permissions, checks compliance against enterprise policies, runs threat rules, records authoritative findings, and computes cumulative risk posture. Security decisions are finalized here.
 * **Secure Execution Zone (Trusted):** Contains the registries and execution routines. Executable tool instances reside securely behind this boundary. Tool execution is triggered only upon receiving an explicit `ALLOW` decision.
 
 ## 5. Target Reference Architecture
-The long-term target architecture introduces an API Gateway and an Agent Gateway, serving as centralized ingress points for multiple agents, supported by a React-based management console for policy configuration and human-in-the-loop approvals:
+The target architecture introduces an API Gateway and an Agent Gateway, serving as centralized ingress points for multiple agents, supported by an Enterprise Security Console for policy configuration, findings triage, dynamic risk visibility, and human-in-the-loop approvals:
 
 ```text
        Security Analysts / Administrators
                        ↓
-            Web Management Console
+             Web Security Console
                        ↓
              Management REST APIs
                        ↓
@@ -96,7 +98,9 @@ flowchart TD
     Pipeline --> Auth[Authorization Service]
     Pipeline --> Policy[Policy Engine]
     Pipeline --> Threat[Threat Detection Engine]
-    Pipeline --> Risk[Risk & Response Engine]
+    Pipeline --> Findings[FindingsService (Authoritative Evidence)]
+    Pipeline --> Risk[RiskService (Derived Posture: session_id + agent_id)]
+    Pipeline --> Response[Response Service]
     Pipeline --> Audit[Audit Service]
     Pipeline -->|ALLOW| Agent
     Agent -->|Resolve Approved Tool| Registry[Tool Registry]
@@ -127,7 +131,7 @@ flowchart TD
 
 #### Implementation Notes
 *   **Initialization & Bootstrap:** During application startup, `runtime_bootstrap.py` registers default filesystem tools into the shared `ToolRegistry`.
-*   **Dependency Injection:** API router dependencies (in `app/api/dependencies.py`) inject this shared registry instance across `RuntimeService`, `ToolInventoryService`, and `CapabilityService`, ensuring consistency between the management views and runtime enforcement.
+*   **Dependency Injection:** API router dependencies (in `app/api/dependencies.py`) inject shared service instances across `RuntimeService`, `FindingsService`, `RiskService`, `ToolInventoryService`, and `CapabilityService`, ensuring consistency between management views and runtime enforcement.
 *   **Discovery Invocation:** The `CapabilityService.discover()` method evaluates active capability lists dynamically to produce the `PlatformCapabilities` snapshot.
 
 ## 7. Runtime Security Lifecycle
@@ -152,9 +156,11 @@ Every interaction with the platform follows a strict, canonical lifecycle to ens
        ↓
 [Threat Detection]          (Stateless rules scan input/output payloads)
        ↓
-[Risk Assessment]           (Scores active findings by severity weight)
+[Findings Persistence]      (Records findings in FindingsService as authoritative evidence)
        ↓
-[Response Recommendation]   (Recommends MONITOR, ALERT, APPROVAL, or SUSPEND)
+[Risk Assessment]           (Calculates cumulative score and level for (session_id, agent_id))
+       ↓
+[Response Recommendation]   (Recommends MONITOR, ALERT, REQUIRE_APPROVAL, or SUSPEND_AGENT)
        ↓
 [Final Decision Overrides]  (Applies enforcement logic to compute outcome)
        ↓
@@ -170,21 +176,23 @@ Every interaction with the platform follows a strict, canonical lifecycle to ens
 ## 8. Major Components
 *   **Agent Runtime:** Coordinates LLM calls and maps intent to tool parameters. Acts purely as an orchestration client and has no security enforcement responsibilities.
 *   **Provider Adapter:** Translates standard agent requests into model-specific API calls (e.g., Ollama, Gemini), decoupling reasoning logic from provider SDKs.
-*   **Runtime Security Pipeline:** The core controller that orchestrates the execution of authorization, policy, threat detection, and risk-based mitigation rules.
+*   **Runtime Security Pipeline:** The core controller that orchestrates authorization, policy, threat detection, findings persistence, dynamic risk scoring, and response overrides.
 *   **Authorization & Policy Engine:** A deterministic engine that matches caller identity, requested tool IDs, and resource path arguments against security policies.
 *   **Threat Detection Engine:** Runs a suite of stateless rules to identify threat signatures in prompts, payloads, and parameter states.
-*   **Risk & Response Engine:** Aggregates triggered findings, computes risk scores, and maps risk levels to mitigation actions (such as Alerting or Agent Suspension).
+*   **FindingsService:** The thread-safe in-memory repository for authoritative security findings generated during runtime.
+*   **RiskService:** Computes derived dynamic risk assessments based on accumulated findings for a specific `(session_id, agent_id)` scope.
+*   **ResponseService:** Recommends mitigation actions and maps risk levels to zero trust decision overrides.
 *   **Tool Registry:** The authoritative service that stores metadata and controls access to executable tool code.
 *   **CapabilityService:** A passive Capability Discovery service that aggregates active capabilities from the shared Tool Registry, DetectionRegistry, and DetectionService.
-*   **PlatformCapabilities:** A typed snapshot of runtime-discovered tool IDs, Content Detection Rules, and Behavioral Detection Rules returned by `CapabilityService`.
 
 ## 9. Component Relationships
 The interaction sequence flows from natural language parsing to secure tool execution:
 1. The **Agent Runtime** passes the prompt through the **Provider Adapter** to parse intent.
 2. The resulting **Tool Invocation** is passed to the **Runtime Security Pipeline**.
-3. The pipeline verifies access against the **Authorization & Policy Engine**, scans payloads with the **Threat Detection Engine**, and computes overrides via the **Risk & Response Engine**.
-4. If approved, the pipeline permits the agent to query the **Tool Registry** to resolve the tool.
-5. The tool runs in the **Secure Execution Zone**, logging outcomes via the **Audit Service**.
+3. The pipeline verifies access against the **Authorization & Policy Engine**, scans payloads with the **Threat Detection Engine**, persists authoritative findings in **FindingsService**, and evaluates cumulative risk posture via **RiskService**.
+4. **ResponseService** applies overrides (`REQUIRE_APPROVAL` $\rightarrow$ `APPROVAL_REQUIRED`, `SUSPEND_AGENT` $\rightarrow$ `DENY`).
+5. If approved, the pipeline permits the agent to query the **Tool Registry** to resolve the tool.
+6. The tool runs in the **Secure Execution Zone**, logging outcomes via the **Audit Service**.
 
 ## 10. Security Architecture
 The platform's security architecture enforces baseline access controls combined with real-time behavioral and payload threat evaluation.
@@ -193,7 +201,7 @@ The platform's security architecture enforces baseline access controls combined 
 The runtime security pipeline executes decisions progressively:
 
 ```text
-Authorization → Policy Evaluation → Threat Detection → Risk Assessment → Response Recommendation → Final Decision → Secure Tool Execution
+Authorization → Policy Evaluation → Threat Detection → Findings → Risk Assessment → Response Recommendation → Final Decision → Secure Tool Execution
 ```
 
 Each stage contributes additional security evidence to the context. A critical property of this decision flow is that it is progressively more restrictive: later stages can increase execution restrictions or escalate mitigation response parameters, but they can never weaken or override an earlier denial or restriction. The LLM has no participation in this security decision flow, preserving deterministic, zero trust enforcement.
@@ -202,10 +210,11 @@ Each stage contributes additional security evidence to the context. A critical p
 Authorization is resource-aware and verified independently of the LLM. If the policy specifies that an agent is denied access to a file path (e.g., `secrets.txt`), the pipeline rejects the execution block immediately.
 
 ### Threat Detection Rules
-The threat engine executes stateless rules to identify indicators of abuse:
+The threat engine executes rules to identify indicators of abuse:
 *   *Prompt Injection Detection:* Evaluates prompts and model responses for override sequences.
 *   *Sensitive File Access Detection:* Scans file resource paths for protected system files (`.env`, private keys).
 *   *Data Exfiltration Detection:* Flags the concurrent presence of exfiltration targets and sensitive datasets.
+*   *Excessive Denials Detection:* Identifies repetitive tool invocation denials within active session event history.
 
 ### Risk-Adaptive Response Recommendations
 Triggered findings map to risk levels, which determine the final override action:
@@ -217,7 +226,7 @@ Triggered findings map to risk levels, which determine the final override action
 ## 11. Provider Architecture
 Model interaction is isolated behind Provider Adapters, separating natural language processing from the security runtime. Provider Adapters handle raw client initialization, connection timeouts, and structure parsing, outputting standard **Tool Invocation** objects.
 
-Reasoning providers act as interchangeable infrastructure components. Changes to the underlying models or Provider Adapters do not affect the security pipeline, as provider-specific SDKs are isolated behind the adapters, ensuring the deterministic security rules remain entirely provider-independent.
+Reasoning providers act as interchangeable infrastructure components. Changes to the underlying models or Provider Adapters do not affect the security pipeline, as provider-specific SDKs are isolated behind the adapters, ensuring deterministic security rules remain entirely provider-independent.
 
 ## 12. Tool Governance
 The Tool Registry acts as the authoritative control plane for all executable capabilities. Rather than simply acting as a metadata store, it regulates the capability inventory, metadata definitions, secure tool resolution, and controlled access to executable tool implementations.
@@ -237,21 +246,29 @@ The platform enforces a clear separation between stateful operational logs and c
 *   **Tool Integrations:** Register new custom enterprise capabilities through the Tool Registry by supplying operational metadata.
 *   **Resource Policies:** Author policies to restrict tool parameters and arguments.
 
-## 15. Future Architecture
-Planned updates to the platform include:
-*   **Agent Gateway:** Standardized API ingress routing and rate limiting.
-*   **Enterprise Security Console:** An enterprise security operations console (ADR-009, ADR-022) for work triage, forensic session investigation, and policy governance.
-*   **Security Agent:** An advisory assistant reviewing findings and recommending policy adjustments.
-*   **Risk-Adaptive Authorization:** Dynamically restricting permissions based on aggregate agent threat scores.
-*   **Multi-Agent Governance:** Future releases will support centralized governance of multiple cooperating AI agents, preserving deterministic authorization, policy checks, and runtime threat detection across multi-agent collaborations.
+## 15. Future Architecture Roadmap
+The roadmap defines the capability-based evolution of the platform:
+*   **CI/CD & DevSecOps Quality Gates:** Automated GitHub Actions for backend pytest, frontend Vite build, ESLint, Ruff Python linter, and markdown quality pipeline.
+*   **Observability & Distributed Tracing:** OpenTelemetry, Prometheus, Grafana, and Jaeger integration for end-to-end telemetry across LLM and tool execution boundaries.
+*   **Agent Abstraction Framework:** Formalized agent identities, risk tiers, capability definitions, and security contexts.
+*   **Rich Governed Tool Ecosystem:** Controlled `FileWriteTool`, `NetworkTool`/`HTTPTool`, and sandboxed browser interaction capabilities under Zero Trust policy enforcement.
+*   **Model Context Protocol (MCP) Integration Layer:** Exposing and consuming MCP server tools through the deterministic security pipeline.
+*   **Multi-Agent Governance (A2A):** Centralized governance over inter-agent communication, cross-agent authorization, capability delegation, and trust boundaries.
+*   **Automated Adversarial AI Security Evaluation:** Automated red-teaming and continuous security evaluation integration (Promptfoo, Garak, PyRIT).
 
 ## 16. Implementation Status
-The initial release provides the following operational capabilities:
-*   **Zero Trust Enforcement:** Centralized Runtime Security Pipeline intercepting agent requests.
-*   **Pluggable LLM Providers:** Adapters supporting local models (Ollama) and cloud APIs (Google Gemini).
-*   **Threat Detection Engine:** Active detection rules for prompt injection, sensitive file reads, and exfiltration attempts.
-*   **Tool Governance:** Centralized Tool Registry exposing metadata and controlling secure tool execution.
-*   **Immutable Logging:** Separate session tracking and append-only audit logging.
+- **Latest Published GitHub Release:** `v0.13.1`
+- **Latest Repository Tag:** `v0.15.0`
+- **Current Development Cycle:** `v0.16.0` — Unreleased
+- **Automated Test Count:** **326 passing backend pytest tests**
+- **Operational Capabilities:**
+  - Zero Trust Security Pipeline (`RuntimeService`)
+  - Pluggable LLM Providers (Ollama, Gemini)
+  - Threat Detection Engine & Rules (`PROMPT_INJECTION`, `SENSITIVE_FILE_ACCESS`, `DATA_EXFILTRATION`, `EXCESSIVE_DENIALS`)
+  - **Findings & Alerts API (`GET /api/v1/findings`, `FindingsService`)**
+  - **Dynamic Risk Engine (`RiskService`, `GET /api/v1/risk-assessments`)**
+  - **Risk Assessment Composite Isolation:** Derived posture indexed by composite `(session_id, agent_id)` keys with HTTP 400 Bad Request ambiguity protection.
+  - Read-Only Management REST APIs and Enterprise Findings Console UI.
 
 ## 17. Architectural Decision Summary
 The platform architecture is built upon the following immutable design choices:
@@ -259,6 +276,7 @@ The platform architecture is built upon the following immutable design choices:
 2. Security decisions must remain deterministic and explainable.
 3. Component communication is isolated behind provider-agnostic boundaries.
 4. Tool execution is governed by a secure registry separating metadata access from execution logic.
+5. Findings represent authoritative evidence; Risk Assessments represent derived posture.
 
 ## 18. Scenario Library & Validation Framework Architecture
 
@@ -271,6 +289,7 @@ Scenario Library (YAML Assets)
   → Authorization
   → Policy Evaluation
   → Detection Engine
+  → Findings Persistence
   → Risk Assessment
   → Response Action
   → Immutable Audit Logging

@@ -12,8 +12,9 @@ The models support:
 - Tool Governance
 - Runtime Execution
 - Authorization
-- Detection
-- Risk Assessment
+- Threat Detection
+- Authoritative Findings Persistence
+- Dynamic Risk Assessment
 - Auditability
 
 The platform follows a Zero Trust model. User prompts, provider outputs, Tool Invocations, tool outputs, and external content are treated as untrusted input. Security decisions are represented through deterministic domain models and evaluated by platform services rather than by the AI model.
@@ -25,6 +26,7 @@ The platform follows a Zero Trust model. User prompts, provider outputs, Tool In
 The platform's data layer conforms to the following domain design principles:
 
 *   **Security-Relevant Information Mapping:** Models focus purely on representing state relevant to security enforcement, auditing, and threat detection.
+*   **Authoritative Evidence vs Derived Posture:** `Finding` objects represent authoritative security evidence. `RiskAssessment` objects represent derived process-local posture.
 *   **Deterministic Evaluation State:** Domain data states are parsed and checked deterministically, ensuring decisions are reproducible and explainable.
 *   **Independence from AI Model Reasoning:** Domain structures cannot be altered by model prompts or provider reasoning outputs.
 *   **Provider-Agnostic Schema:** Data schemas are unified and independent of the selected LLM provider API models.
@@ -79,8 +81,6 @@ The Tool Registry acts as the authoritative control plane for all executable cap
 
 `ToolCapability` describes what a tool is capable of doing from a security perspective. The current implementation models capability through a category and explicit access flags rather than free-form supported operation lists.
 
-These fields help future authorization, detection, and inventory workflows reason about tool behavior without exposing the executable tool implementation.
-
 ```json
 {
   "category": "filesystem",
@@ -93,13 +93,9 @@ These fields help future authorization, detection, and inventory workflows reaso
 }
 ```
 
-These capability attributes are descriptive metadata and do not grant permission to execute a tool. Capability metadata describes what a tool is capable of doing, not what it is authorized to do.
-
 ### ToolGovernance
 
 `ToolGovernance` captures deterministic security metadata used by authorization and policy evaluation. It defines the tool risk level, required permissions, ownership metadata, and whether manual approval is required.
-
-Authorization checks the Enterprise Agent, approved tool list, tool metadata, and resource-aware policy rules deterministically.
 
 ```json
 {
@@ -124,8 +120,6 @@ Authorization checks the Enterprise Agent, approved tool list, tool metadata, an
 }
 ```
 
-Operational metadata does not participate in authorization decisions. It affects runtime execution behavior but is intentionally excluded from security evaluations.
-
 ### ToolMetadata
 
 `ToolMetadata` is the primary governance model for an executable enterprise tool. Rather than simply aggregating metadata fields, it serves as the:
@@ -133,8 +127,6 @@ Operational metadata does not participate in authorization decisions. It affects
 *   **Inventory Representation:** The authoritative catalog record.
 *   **Authorization Input:** The schema parsed by policy engines to evaluate risk and permissions.
 *   **Discovery Representation:** The safe, non-executable definition returned to developers and agents.
-
-ToolMetadata is treated as an immutable contract registered with the Tool Registry. The registry exposes deep-copied metadata for discovery and inventory, while executable tool instances remain hidden behind the secure zone boundary.
 
 ```json
 {
@@ -176,8 +168,6 @@ ToolMetadata is treated as an immutable contract registered with the Tool Regist
 ### ToolInvocation
 
 `ToolInvocation` is the canonical representation of an agent's requested capability. It represents the structured request produced by the Enterprise Agent after the configured LLM provider adapter interprets the user prompt.
-
-Every runtime security decision operates directly on the ToolInvocation rather than raw prompts or unstructured model outputs. It is treated as untrusted until it successfully passes through all stages of the Runtime Security Pipeline.
 
 ```json
 {
@@ -223,9 +213,7 @@ Every runtime security decision operates directly on the ToolInvocation rather t
 
 ### AgentRuntimeResult
 
-`AgentRuntimeResult` is the filtered external caller response returned after the security evaluations and (if allowed) secure tool executions are complete.
-
-It preserves the trust boundary by exposing only the high-level decision, the response type, and the execution output payload, hiding internal findings, risk scores, and registry identifiers from untrusted clients.
+`AgentRuntimeResult` is the filtered external caller response returned after security evaluations and secure tool executions are complete. It preserves the trust boundary by exposing only the high-level decision, response type, and output payload.
 
 ```json
 {
@@ -237,81 +225,48 @@ It preserves the trust boundary by exposing only the high-level decision, the re
 
 ---
 
-### PlatformCapabilities
+## Security & Behavioral Intelligence Models
 
-`PlatformCapabilities` is the typed model representing the platform's active security capabilities.
+### Finding (Authoritative Evidence)
 
-#### Persisted Fields
-*   **`tools`** (`set[str]`): The set of all registered executable tool identifiers.
-*   **`content_detection_rules`** (`set[str]`): The set of single-event content-based detection rules.
-*   **`behavioral_detection_rules`** (`set[str]`): The set of multi-event, session-based behavioral detection rules.
-
-#### Computed Fields
-*   **`all_detection_rules`** (`set[str]`): A computed property returning the union of `content_detection_rules` and `behavioral_detection_rules`.
-
-#### Example JSON
-```json
-{
-  "tools": [
-    "file_read",
-    "directory_list"
-  ],
-  "content_detection_rules": [
-    "PROMPT_INJECTION",
-    "SENSITIVE_FILE_ACCESS",
-    "DATA_EXFILTRATION"
-  ],
-  "behavioral_detection_rules": [
-    "EXCESSIVE_DENIALS"
-  ]
-}
-```
-
----
-
-## Security Models
-
-The security models collectively represent the deterministic security state evaluated and mutated by the Runtime Security Pipeline.
-
-### Policy
-
-Policies are evaluated deterministically at runtime rather than stored as configurable policy objects. The policy layer evaluates agent status, agent risk tier, tool risk level, protected resources, and approval requirements.
-
-Current policy behavior includes:
-- Deny suspended or disabled agents.
-- Deny low-risk-tier agents from using high-risk or critical tools.
-- Deny protected resource access such as `secrets.txt`.
-- Require approval for critical-risk tools.
-
-Illustrative policy representation:
+`Finding` represents a security threat indicator flagged by the Threat Detection Engine. Findings are recorded in `FindingsService`, which serves as the authoritative, thread-safe security evidence repository.
 
 ```json
 {
-  "policy_id": "resource-protection",
-  "effect": "DENY",
-  "resource": "secrets.txt",
-  "reason": "Protected resource access is not allowed"
+  "finding_id": "find-101",
+  "session_id": "session-123",
+  "agent_id": "agent-1",
+  "rule_name": "PROMPT_INJECTION",
+  "category": "PROMPT",
+  "severity": "HIGH",
+  "description": "System prompt override attempt detected",
+  "rule_id": "rule-pi-01",
+  "status": "OPEN",
+  "mitre_techniques": ["AML.T0043"],
+  "created_at": "2026-08-21T18:00:00Z"
 }
 ```
 
-### RiskAssessment
+### RiskAssessment (Derived Posture)
 
-`RiskAssessment` represents the assessed risk level generated from detection findings. The implementation aggregates findings by severity weight to compute a risk score, mapping it to a risk level.
+`RiskAssessment` represents derived process-local security posture. It is calculated by `RiskService` summing fixed severity weights (`LOW=10`, `MEDIUM=25`, `HIGH=50`, `CRITICAL=100`) over all accumulated authoritative findings for a specific `(session_id, agent_id)` scope.
+
+`RiskAssessment` is indexed internally by composite tuple key `(session_id, agent_id)` to isolate risk posture across agents.
 
 ```json
 {
   "session_id": "session-123",
   "agent_id": "agent-1",
-  "risk_score": 25,
-  "risk_level": "MEDIUM",
+  "risk_score": 50,
+  "risk_level": "HIGH",
   "finding_count": 1,
-  "assessed_at": "2026-07-04T00:00:00Z"
+  "assessed_at": "2026-08-21T18:00:05Z"
 }
 ```
 
 ### AuditEvent
 
-`AuditEvent` records final, authoritative tool execution decisions. Every request processed by the pipeline produces a compliance-ready record mapping the agent, tool target, decision, and timestamp for SIEM ingestion.
+`AuditEvent` records final, authoritative tool execution decisions for compliance and SIEM ingestion.
 
 ```json
 {
@@ -320,41 +275,6 @@ Illustrative policy representation:
   "tool_id": "file_read",
   "decision": "ALLOW",
   "timestamp": "2026-07-04T00:00:00Z"
-}
-```
-
-### DetectionFinding
-
-`DetectionFinding` represents threat indicators flagged during execution. A finding maps a specific rule name, its severity, and description to a session context.
-
-```json
-{
-  "finding_id": "finding-123",
-  "session_id": "session-123",
-  "agent_id": "agent-1",
-  "rule_name": "EXCESSIVE_DENIALS",
-  "severity": "MEDIUM",
-  "description": "Session contains 3 denied actions",
-  "created_at": "2026-07-04T00:00:00Z"
-}
-```
-
-### ApprovalRecord
-
-`ApprovalRecord` is a planned capability and is not implemented in the current release.
-
-Planned model shape:
-
-```json
-{
-  "approval_id": "approval-123",
-  "session_id": "session-123",
-  "agent_id": "agent-1",
-  "tool_id": "critical_tool",
-  "status": "PENDING",
-  "approver": null,
-  "created_at": "2026-07-04T00:00:00Z",
-  "expires_at": "2026-07-04T01:00:00Z"
 }
 ```
 
@@ -385,115 +305,16 @@ Planned model shape:
 - `REQUIRE_APPROVAL`
 - `SUSPEND_AGENT`
 
-### Detection Severities
-- `LOW`
-- `MEDIUM`
-- `HIGH`
-- `CRITICAL`
+### Finding Categories
+- `PROMPT`
+- `DATA`
+- `TOOL`
+- `IDENTITY`
+- `BEHAVIORAL`
+- `POLICY`
 
-### JWT Roles
-- `ADMIN`
-- `ANALYST`
-- `AGENT`
-
----
-
-## Data Model Relationships
-
-The conceptual data relationships flow as follows:
-
-```text
-EnterpriseAgent
-       │
-       ▼
-Tool Invocation
-       │
-       ▼
-Runtime Security Pipeline
-       │
-       ▼
-RuntimeResult
-       │
-       ▼
-Tool Registry
-       │
-       ▼
-Secure Tool Execution
-       │
-       ▼
-AgentRuntimeResult
-       │
-       ▼
-AuditEvent
-```
-
-The Enterprise Agent interprets natural language queries and produces a Tool Invocation. The Runtime Security Pipeline parses the invocation, runs policy checks and threat rules, and outputs a RuntimeResult. 
-
-If approved, the Agent Runtime resolves the approved tool through the Tool Registry and executes it. The outcomes are returned as an AgentRuntimeResult, while RuntimeService records the final decision as an AuditEvent.
-
----
-
-## Future Models
-
-Future AI asset governance models will extend the current metadata-driven architecture to cover additional enterprise entities without changing the deterministic runtime security model.
-
-### ModelMetadata
-
-`ModelMetadata` is planned to describe AI model identity, provenance, provider, version, owner, risk tier, approval status, and governance attributes.
-
-```json
-{
-  "model_id": "llama3.2-3b",
-  "provider": "ollama",
-  "version": "3b",
-  "owner": "security-team",
-  "status": "APPROVED",
-  "risk_tier": "MEDIUM",
-  "provenance": {
-    "source": "internal-approved-provider",
-    "approved_at": "2026-07-04T00:00:00Z"
-  }
-}
-```
-
-### ModelRegistry
-
-`ModelRegistry` is planned as a governed registry for approved models and providers, complementary to the Tool Registry.
-
-```json
-{
-  "registry_id": "enterprise-model-registry",
-  "approved_models": [
-    "llama3.2-3b",
-    "gemini-enterprise"
-  ],
-  "default_provider": "ollama",
-  "last_reviewed_at": "2026-07-04T00:00:00Z"
-}
-```
-
-### AIAssetInventory
-
-`AIAssetInventory` is planned as a broader inventory of AI assets, including agents, tools, models, prompts, datasets, and related governance metadata.
-
-```json
-{
-  "inventory_id": "ai-assets-prod",
-  "agents": [
-    "agent-1"
-  ],
-  "tools": [
-    "file_read",
-    "directory_list"
-  ],
-  "models": [
-    "llama3.2-3b"
-  ],
-  "last_updated_at": "2026-07-04T00:00:00Z"
-}
-```
-
-### Planned Model Status Values
-- `APPROVED`
-- `PENDING`
-- `DEPRECATED`
+### Finding Statuses
+- `OPEN`
+- `IN_PROGRESS`
+- `RESOLVED`
+- `DISMISSED`
