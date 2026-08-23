@@ -6,10 +6,6 @@ from app.detection.engine import DetectionEngine
 from app.models.agent import Agent, AgentStatus, RiskTier
 from app.models.audit_event import AuditEvent, Decision
 from app.models.response_action import ResponseType
-from app.models.risk_assessment import (
-    RiskAssessment,
-    RiskLevel,
-)
 from app.models.runtime_context import RuntimeContext
 from app.models.runtime_result import RuntimeResult
 from app.models.session_event import SessionEvent

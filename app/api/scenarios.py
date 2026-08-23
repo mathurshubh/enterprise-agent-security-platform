@@ -80,10 +80,10 @@ def get_scenario(scenario_id: str) -> ScenarioResponse:
     """Return a single attack scenario by its stable identifier."""
     try:
         scenario = scenario_registry.get_scenario(scenario_id)
-    except ScenarioNotFoundError:
+    except ScenarioNotFoundError as err:
         raise HTTPException(
             status_code=404, detail=f"Scenario '{scenario_id}' not found"
-        )
+        ) from err
     return _scenario_to_response(scenario)
 
 
@@ -96,10 +96,10 @@ def execute_scenario(scenario_id: str) -> ScenarioExecutionResponse:
     """Execute a scenario through the deterministic Runtime Security Pipeline."""
     try:
         scenario = scenario_registry.get_scenario(scenario_id)
-    except ScenarioNotFoundError:
+    except ScenarioNotFoundError as err:
         raise HTTPException(
             status_code=404, detail=f"Scenario '{scenario_id}' not found"
-        )
+        ) from err
 
     runner = ScenarioRunnerService(runtime_service=runtime_service)
     execution = runner.run(scenario)

@@ -1,7 +1,7 @@
 import pytest
 
 from app.models.finding import Finding, Severity
-from app.models.risk_assessment import RiskAssessment, RiskLevel
+from app.models.risk_assessment import RiskLevel
 from app.services.risk_service import RiskService
 
 

@@ -197,3 +197,11 @@ The platform maps threat detections to industry security frameworks through rule
 - **Heuristic Detection Limits:** Detections rely on deterministic rules; complex semantic evasion requires future vector-based classification.
 - **In-Memory State Persistence:** Current process-local state is in-memory; persistent database models are planned for future phases.
 - **Session Registration Boundary:** `session_id` uniqueness validation at the `RuntimeService` boundary is recorded for future backlog.
+
+---
+
+## DevSecOps & CI/CD Security Controls
+
+- **Automated Quality Pipeline:** PR validation executes parallel quality gates for Pytest, Ruff, ESLint, Vite build, Markdownlint, and Git whitespace checking.
+- **Secret Scanning:** `gitleaks` scans commit history and PR diffs to prevent credential/key exposure.
+- **Least Privilege Workflows:** Workflows run under unprivileged `pull_request` triggers with `permissions: contents: read` and zero production secrets.

@@ -1,0 +1,10 @@
+[tool.ruff]
+target-version = "py313"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "B", "I", "PYI"]
+ignore = [
+    "E501", # Line length (managed by formatter/diff, ignore in linter)
+    "B008", # FastAPI Query/Path/Depends function calls in argument defaults are standard DI pattern
+]

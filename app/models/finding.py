@@ -45,7 +45,7 @@ class Finding(BaseModel):
         default_factory=lambda: datetime.now(timezone.utc)
     )
 
-    def model_post_init(self, __context: Any) -> None:
+    def model_post_init(self, context: Any) -> None:
         if not self.rule_id:
             self.rule_id = self.rule_name
 

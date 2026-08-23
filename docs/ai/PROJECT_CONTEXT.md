@@ -39,6 +39,7 @@ Implemented Capabilities:
 - **Enterprise Findings Console UI (`/findings`)**
 - **Dynamic Risk Engine & Management API (`RiskService`, `GET /api/v1/risk-assessments`)**
 - **Risk Assessment Integrity & Isolation:** Composite `(session_id, agent_id)` identity with HTTP 400 Bad Request ambiguity protection
+- **DevSecOps Quality Pipeline:** GitHub Actions (`ci.yml`), Gitleaks secret scanning, Dependabot (`dependabot.yml`), and multi-job quality gates
 - **326 passing backend pytest tests**
 
 ---
