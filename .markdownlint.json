@@ -47,5 +47,8 @@
   "MD041": false,
 
   // Avoid diff noise from missing EOF newlines in legacy files
-  "MD047": false
+  "MD047": false,
+
+  // Avoid diff noise from table column style expectations across legacy tables
+  "MD060": false
 }

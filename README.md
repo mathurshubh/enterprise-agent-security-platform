@@ -231,6 +231,7 @@ The platform maintains a comprehensive automated test suite executed with Pytest
 
 ## Documentation
 
+- **DevSecOps & Quality Gates:** `docs/development/ci-cd-devsecops.md`
 - **System Architecture:** `docs/architecture/system-architecture.md`
 - **Data Model:** `docs/architecture/data-model.md`
 - **Threat Model:** `docs/security/threat-model.md`

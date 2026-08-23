@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from app.auth.authorization_service import AuthorizationService
 from app.detection.engine import DetectionEngine
 from app.detection.registry import DetectionRegistry
@@ -20,6 +22,8 @@ from app.services.risk_service import RiskService
 from app.services.runtime_service import RuntimeService
 from app.services.session_service import SessionService
 from app.services.tool_service import ToolNotFoundError, ToolService
+from app.tools.directory_list_tool import DirectoryListTool
+from app.tools.file_read_tool import FileReadTool
 
 
 def register_default_agent(agent_service: AgentService, agent_id: str = "agent-1") -> None:
@@ -37,12 +41,6 @@ def register_default_agent(agent_service: AgentService, agent_id: str = "agent-1
                 status=AgentStatus.ACTIVE,
             )
         )
-
-
-from pathlib import Path
-
-from app.tools.directory_list_tool import DirectoryListTool
-from app.tools.file_read_tool import FileReadTool
 
 
 def register_default_tools(
