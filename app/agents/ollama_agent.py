@@ -95,8 +95,14 @@ Output:
     def __init__(
         self,
         provider: ProviderAdapter | None = None,
+        agent_id: str = "agent-1",
     ) -> None:
         self._provider = provider or OllamaProvider()
+        self._agent_id = agent_id
+
+    @property
+    def agent_id(self) -> str:
+        return self._agent_id
 
     def decide_tool(
         self,
@@ -110,10 +116,9 @@ Output:
         return ToolInvocation.model_validate(
             response
         )
-    
+
     def invoke(
         self,
         query: str,
     ) -> ToolInvocation:
         return self.decide_tool(query)
-    

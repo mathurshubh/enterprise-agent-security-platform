@@ -40,7 +40,7 @@ The platform's data layer conforms to the following domain design principles:
 
 The `Agent` model represents an approved Enterprise Agent operating under platform governance. It identifies the agent, records ownership, assigns a risk tier, defines the tools the agent is allowed to request, and tracks the current lifecycle status.
 
-The agent model is used by authorization and policy evaluation to determine whether a requested tool action is allowed.
+The agent model is used by authorization and policy evaluation to determine whether a requested tool action is allowed. Concrete agent orchestrators implement the `EnterpriseAgent` contract interface (`app/agents/enterprise_agent.py`) exposing `agent_id` and `invoke() -> ToolInvocation`. The registered `Agent` domain model in `AgentService` remains the sole authoritative source of truth for authorization, approved tools, and risk tiers.
 
 ```json
 {

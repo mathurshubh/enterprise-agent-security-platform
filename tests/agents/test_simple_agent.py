@@ -1,14 +1,17 @@
 import pytest
 
-from app.services.simple_agent import SimpleAgent
+from app.agents.simple_agent import SimpleAgent
+
+
+def test_simple_agent_contract_and_agent_id() -> None:
+    agent = SimpleAgent(agent_id="test-simple-agent")
+    assert agent.agent_id == "test-simple-agent"
 
 
 def test_read_file_query_returns_file_read_tool() -> None:
     agent = SimpleAgent()
 
-    invocation = agent.decide_tool(
-        "read notes.txt"
-    )
+    invocation = agent.decide_tool("read notes.txt")
 
     assert invocation.tool_id == "file_read"
     assert invocation.parameters == {
@@ -30,10 +33,7 @@ def test_directory_queries_return_directory_tool(
 
     invocation = agent.decide_tool(query)
 
-    assert (
-        invocation.tool_id
-        == "directory_list"
-    )
+    assert invocation.tool_id == "directory_list"
     assert invocation.parameters == {
         "path": ".",
     }
@@ -46,6 +46,4 @@ def test_unsupported_query_raises_error() -> None:
         ValueError,
         match="Unsupported query",
     ):
-        agent.decide_tool(
-            "send an email"
-        )
+        agent.decide_tool("send an email")
