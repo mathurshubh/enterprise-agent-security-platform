@@ -260,7 +260,7 @@ The roadmap defines the capability-based evolution of the platform:
 - **Latest Published GitHub Release:** `v0.13.1`
 - **Latest Repository Tag:** `v0.15.0`
 - **Current Development Cycle:** `v0.16.0` — Unreleased
-- **Automated Test Count:** **326 passing backend pytest tests**
+- **Automated Test Count:** **335 passing backend pytest tests**
 - **Operational Capabilities:**
   - Zero Trust Security Pipeline (`RuntimeService`)
   - Pluggable LLM Providers (Ollama, Gemini)

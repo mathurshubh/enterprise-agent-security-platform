@@ -1,17 +1,23 @@
 from app.agents.enterprise_agent import EnterpriseAgent
-from app.models.tool_invocation import (
-    ToolInvocation,
-)
+from app.models.tool_invocation import ToolInvocation
 
 
 class SimpleAgent(EnterpriseAgent):
+    def __init__(
+        self,
+        agent_id: str = "agent-1",
+    ) -> None:
+        self._agent_id = agent_id
+
+    @property
+    def agent_id(self) -> str:
+        return self._agent_id
 
     def invoke(
-            self,
-            query: str,
+        self,
+        query: str,
     ) -> ToolInvocation:
-            return self.decide_tool(query)
-     
+        return self.decide_tool(query)
 
     def decide_tool(
         self,
@@ -43,6 +49,3 @@ class SimpleAgent(EnterpriseAgent):
         raise ValueError(
             f"Unsupported query: {query}"
         )
-
-
-   
