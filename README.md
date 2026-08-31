@@ -2,7 +2,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.13-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.116+-009688)
-![Tests](https://img.shields.io/badge/Tests-335_Passing-success)
+![Tests](https://img.shields.io/badge/Tests-353_Passing-success)
 ![GitHub Release](https://img.shields.io/badge/GitHub_Release-v0.15-blue)
 ![Git Tag](https://img.shields.io/badge/Git_Tag-v0.15.0-blue)
 ![Development Cycle](https://img.shields.io/badge/Development-v0.16.0--dev-orange)
@@ -26,7 +26,7 @@ It is **not** an AI agent framework or orchestration tool.
 
 Instead, it provides deterministic security controls around AI agents, including:
 
-- Authentication (JWT, RBAC)
+- Authentication (FastAPI HTTPBearer JWT, Agent Identity Binding, RBAC)
 - Resource-Aware Authorization
 - Policy Enforcement
 - Threat Detection & Behavioral Intelligence
@@ -50,8 +50,8 @@ flowchart TD
     F --> G["Session Event Recording"]
     G --> H["Threat Detection Engine"]
     H --> I["FindingsService (Authoritative Evidence)"]
-    I --> J["RiskService (Derived Posture: session_id + agent_id)"]
     J --> K["ResponseService (Recommendation & Enforcement)"]
+    I --> J["RiskService (Derived Posture: session_id + agent_id)"]
     K --> L{"Authoritative Decision"}
     L -->|ALLOW| M["Tool Execution"]
     L -->|DENY| N["Blocked"]
@@ -69,7 +69,7 @@ flowchart TD
 - **Latest Repository Tag:** `v0.15.0`
 - **Current Development Cycle:** `v0.16.0` — Unreleased
 - **Active Baseline PR:** PR #87 (Documentation, Architecture & Roadmap Synchronization)
-- **Automated Test Coverage:** **335 passing backend pytest tests** (`.venv/bin/python -m pytest`)
+- **Automated Test Coverage:** **353 passing backend pytest tests** (`.venv/bin/python -m pytest`)
 - **Frontend Build Status:** Passing (`npm run build` & `npm run lint`)
 
 ---
@@ -78,7 +78,7 @@ flowchart TD
 
 | Metric | Value |
 |----------|---------|
-| Automated Tests | 335 Passing |
+| Automated Tests | 353 Passing |
 | Latest Published GitHub Release | v0.15 |
 | Latest Repository Tag | v0.15.0 |
 | Current Development Cycle | v0.16.0 (Unreleased) |

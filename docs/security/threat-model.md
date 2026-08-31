@@ -167,6 +167,17 @@ An agent attempts to read sensitive data and transmit it out of the enterprise b
 - **Composite Key Isolation (H2):** `RiskService` indexes process-local assessments using composite key tuples `(session_id, agent_id)`.
 - **Ambiguity Protection API (H2 API):** `RiskService.get_assessment()` and `GET /api/v1/risk-assessments/{session_id}` raise `AmbiguousAssessmentScopeError` and return `HTTP 400 Bad Request` if `agent_id` is omitted when multiple assessments match `session_id`. Zero cross-agent posture disclosure.
 
+### Threat 8: Unauthenticated HTTP Gateway Access & Caller Identity Forgery [Spoofing / Elevation of Privilege]
+
+#### Threat
+An untrusted client on the network sends HTTP requests directly to FastAPI endpoints (`/agents/{agent_id}/execute`, `/api/scenarios/*`, or `/api/v1/*`) without authentication credentials, or supplies an arbitrary `agent_id` in the URL path to impersonate an enterprise agent or administrative principal. Unauthenticated access risks unauthorized tool execution, management plane telemetry disclosure, and audit log attribution falsification.
+
+#### Mitigations
+- **FastAPI HTTPBearer Gateway Enforcement:** All runtime, scenario, and management routers enforce JWT Bearer authentication (`get_current_principal` dependency). Requests lacking valid, signed, unexpired Bearer tokens are rejected immediately at the HTTP boundary with `HTTP 401 Unauthorized` and `WWW-Authenticate: Bearer` before reaching application services.
+- **Runtime Agent Identity Binding:** `POST /agents/{agent_id}/execute` compares `claims.agent_id` against the path `agent_id` for `AGENT` principals. Any mismatch raises `HTTP 403 Forbidden` and halts execution before reaching `RuntimeService`.
+- **Role-Based Endpoint Access:** Only `AGENT` (matching identity) and `ADMIN` principals may invoke agent runtime execution. `ANALYST` principals are restricted to observability, findings triage, and attack scenario evaluation.
+- **Fail-Closed Verification:** Token verification handles signature invalidity, expiration, and malformed claims structures deterministically without leaking stack traces or credentials.
+
 ---
 
 ## Threat -> Mitigation Mapping
@@ -181,6 +192,7 @@ An agent attempts to read sensitive data and transmit it out of the enterprise b
 | **Audit Log Tampering** | Repudiation / Tampering | N/A | Stateful Session Tracking vs. Immutable Auditing | Audit Service |
 | **Temporal Risk Masking & Cross-Agent Collision** | Info Disclosure / Integrity | Cumulative `FindingsService` retrieval + `(session_id, agent_id)` composite keying | `RiskService` composite key isolation + HTTP 400 Bad Request ambiguity protection | Audit Service |
 | **Agent Identity Spoofing** | Elevation of Privilege / Spoofing | Agent Identity Context Validation | `AgentRuntimeService` identity matching + `AgentService` authoritative registry lookup (`Decision.DENY` if unregistered/unauthorized) | Audit Service |
+| **Unauthenticated HTTP Gateway Access & Caller Identity Forgery** | Spoofing / EoP | FastAPI `HTTPBearer` Gateway Dependency (`get_current_principal`) | HTTP 401 Unauthorized for missing/invalid token + HTTP 403 Forbidden for agent identity mismatch | Audit Service |
 
 ---
 
@@ -198,6 +210,7 @@ The platform maps threat detections to industry security frameworks through rule
 - **Heuristic Detection Limits:** Detections rely on deterministic rules; complex semantic evasion requires future vector-based classification.
 - **In-Memory State Persistence:** Current process-local state is in-memory; persistent database models are planned for future phases.
 - **Session Registration Boundary:** `session_id` uniqueness validation at the `RuntimeService` boundary is recorded for future backlog.
+- **External Identity Provider Integration:** Current gateway authentication uses symmetric JWT verification (`HS256`). Asymmetric signing (`RS256`/`ES256`) and dynamic enterprise IdP / OIDC discovery are planned for distributed deployment milestones.
 
 ---
 

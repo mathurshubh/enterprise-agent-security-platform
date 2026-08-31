@@ -22,9 +22,11 @@ from app.api.dependencies import (
 from app.main import app
 from app.models.agent import Agent, AgentStatus, RiskTier
 from app.models.audit_event import AuditEvent, Decision
+from app.models.jwt_claims import Role
 from app.tools.file_read_tool import FileReadTool
+from tests.conftest import auth_headers
 
-client = TestClient(app)
+client = TestClient(app, headers=auth_headers(role=Role.ADMIN))
 
 
 # ─────────────────────────────────────────────────────────────────────────────

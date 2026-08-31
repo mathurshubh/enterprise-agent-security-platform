@@ -7,6 +7,8 @@ Constructing services in individual router files would produce independent
 instances with diverging state.
 """
 
+from app.auth.jwt_service import JWTService
+from app.config.settings import get_jwt_secret_key
 from app.detection.data_exfiltration_rule import DataExfiltrationRule
 from app.detection.prompt_injection_rule import PromptInjectionRule
 from app.detection.registry import DetectionRegistry
@@ -78,5 +80,6 @@ capability_service: CapabilityService = CapabilityService(
     detection_service=runtime_service.detection_service,
 )
 
-
-
+jwt_service: JWTService = JWTService(
+    secret_key=get_jwt_secret_key(),
+)

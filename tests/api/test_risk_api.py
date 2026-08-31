@@ -4,8 +4,10 @@ from fastapi.testclient import TestClient
 from app.api.dependencies import risk_service
 from app.main import app
 from app.models.finding import Finding, Severity
+from app.models.jwt_claims import Role
+from tests.conftest import auth_headers
 
-client = TestClient(app)
+client = TestClient(app, headers=auth_headers(role=Role.ADMIN))
 
 
 @pytest.fixture(autouse=True)

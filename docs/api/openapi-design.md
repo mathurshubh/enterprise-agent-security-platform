@@ -96,22 +96,22 @@ Authorization: Bearer <access_token>
 
 ### Implementation Notes
 
-The backend includes `JwtService` to handle token creation and verification logic.
+FastAPI routers enforce JWT verification (`HTTPBearer`) at the HTTP boundary across all runtime, scenario, and management routes via the `get_current_principal` dependency. Requests lacking valid authentication fail closed with `HTTP 401 Unauthorized` and `WWW-Authenticate: Bearer`.
 
-### Known Limitations
+### Gateway Enforcement
 
-FastAPI routers do not enforce JWT verification at the HTTP boundary for this release.
+FastAPI routers enforce JWT verification at the HTTP boundary. In addition, the runtime execution endpoint (`POST /agents/{agent_id}/execute`) enforces agent identity binding (`claims.agent_id == path agent_id` for `AGENT` principals), returning `HTTP 403 Forbidden` on mismatch to prevent caller identity spoofing.
 
 ### Token Structure & Claims
 
-JWTs used by the platform contain the following standard claims:
+JWTs verified by the platform contain the following claims (defined in `JWTClaims`):
 *   `sub` (Subject): The unique identifier of the calling Enterprise Agent or Administrator.
-*   `iss` (Issuer): The authoritative auth issuer of the enterprise platform.
-*   `aud` (Audience): The platform API audience identifier.
-*   `exp` (Expiration): Unix timestamp after which the token is invalid (tokens default to 1-hour lifetimes).
+*   `agent_id` (Agent ID): The registered agent identifier bound to the token principal.
 *   `role` (Role claim): The assigned RBAC capability (`ADMIN`, `ANALYST`, `AGENT`).
+*   `iat` (Issued At): Unix timestamp of token issuance.
+*   `exp` (Expiration): Unix timestamp after which the token is invalid (tokens default to 1-hour lifetimes).
 
-*Note: Token authentication, where used by callers, does not grant permission to execute a tool. Authorization is evaluated separately on every runtime tool invocation.*
+*(Note: Enterprise claims `iss` and `aud` are scheduled for future federated Identity Provider milestones. Token authentication establishes caller identity but does not grant permission to execute a tool. Authorization is evaluated separately on every runtime tool invocation.)*
 
 ---
 
