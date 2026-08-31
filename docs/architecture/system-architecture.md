@@ -138,9 +138,15 @@ flowchart TD
 Every interaction with the platform follows a strict, canonical lifecycle to ensure zero trust verification:
 
 ```text
-[User Request] 
+[User Request / HTTP Ingress]
        ↓
-[Agent Runtime] 
+====================== FASTAPI AUTHENTICATION BOUNDARY ======================
+       ↓
+[JWT Verification (HTTPBearer)] (Validates signature, expiration, claims; fails closed with 401)
+       ↓
+[Agent Identity Binding]        (Binds claims.agent_id == path agent_id for AGENT; 403 on mismatch)
+       ↓
+[Agent Runtime]
        ↓
 [Provider Adapter]          (Invokes the configured LLM provider)
        ↓

@@ -1,7 +1,9 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
+from app.api.auth import get_current_principal
 from app.api.dependencies import runtime_service
+from app.models.jwt_claims import JWTClaims, Role
 
 router = APIRouter()
 
@@ -19,7 +21,20 @@ class ExecuteRequest(BaseModel):
 def execute(
     agent_id: str,
     request: ExecuteRequest,
+    principal: JWTClaims = Depends(get_current_principal),
 ) -> dict:
+    if principal.role == Role.AGENT and principal.agent_id != agent_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Agent identity mismatch: token agent_id '{principal.agent_id}' does not match path agent_id '{agent_id}'",
+        )
+
+    if principal.role == Role.ANALYST:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Role 'ANALYST' is not authorized to execute agent runtime actions",
+        )
+
     result = runtime_service.execute(
         session_id=request.session_id,
         agent_id=agent_id,

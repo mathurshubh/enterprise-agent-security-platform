@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 import jwt
+from pydantic import ValidationError
 
 from app.models.jwt_claims import JWTClaims, Role
 
@@ -60,4 +61,7 @@ class JWTService:
         except jwt.InvalidTokenError as e:
             raise ValueError(f"Invalid token: {e}") from e
 
-        return JWTClaims(**payload)
+        try:
+            return JWTClaims(**payload)
+        except ValidationError as e:
+            raise ValueError(f"Invalid token claims: {e}") from e

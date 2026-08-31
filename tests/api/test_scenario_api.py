@@ -1,8 +1,10 @@
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.models.jwt_claims import Role
+from tests.conftest import auth_headers
 
-client = TestClient(app)
+client = TestClient(app, headers=auth_headers(role=Role.ADMIN))
 
 
 class TestListScenarios:

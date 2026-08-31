@@ -1,8 +1,11 @@
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.models.jwt_claims import Role
+from tests.conftest import auth_headers
 
 client = TestClient(app)
+agent_headers = auth_headers(agent_id="agent-1", role=Role.AGENT)
 
 
 def test_health():
@@ -15,6 +18,7 @@ def test_health():
 def test_execute_request_received():
     response = client.post(
         "/agents/agent-1/execute",
+        headers=agent_headers,
         json={
             "session_id": "session-1",
             "tool_id": "file_read",
@@ -43,6 +47,7 @@ def test_execute_response_includes_findings():
     for _ in range(2):
         response = client.post(
             "/agents/agent-1/execute",
+            headers=agent_headers,
             json={
                 "session_id": session_id,
                 "tool_id": "file_write",
@@ -63,6 +68,7 @@ def test_execute_response_includes_findings():
 
     response = client.post(
         "/agents/agent-1/execute",
+        headers=agent_headers,
         json={
             "session_id": session_id,
             "tool_id": "file_write",

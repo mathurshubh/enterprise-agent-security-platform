@@ -114,7 +114,7 @@ Authentication is enforced at the HTTP boundary before requests reach applicatio
 Management API authorization governs access to platform metadata and operational visibility only. It never authorizes runtime tool execution.
 
 ### Implementation Notes
-While JWT services are implemented in the codebase, the FastAPI management router does not enforce JWT validation at the HTTP boundary in this release.
+The FastAPI management router enforces JWT validation at the HTTP boundary using FastAPI dependencies (`get_current_principal`), ensuring all management endpoints require valid Bearer token authentication before accessing service metadata.
 
 ---
 
