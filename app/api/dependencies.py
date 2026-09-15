@@ -25,6 +25,7 @@ from app.services.runtime_bootstrap import bootstrap_runtime_service
 from app.services.runtime_service import RuntimeService
 from app.services.session_service import SessionService
 from app.services.tool_inventory_service import ToolInventoryService
+from app.telemetry.dispatcher import InMemoryTelemetryDispatcher
 
 
 def create_default_detection_registry() -> DetectionRegistry:
@@ -64,6 +65,8 @@ detection_registry: DetectionRegistry = create_default_detection_registry()
 
 scenario_registry: ScenarioRegistry = AttackScenarioService().load_registry()
 
+telemetry_dispatcher: InMemoryTelemetryDispatcher = InMemoryTelemetryDispatcher()
+
 runtime_service: RuntimeService = bootstrap_runtime_service(
     agent_service=agent_service,
     session_service=session_service,
@@ -72,6 +75,7 @@ runtime_service: RuntimeService = bootstrap_runtime_service(
     tool_registry=tool_registry,
     findings_service=findings_service,
     risk_service=risk_service,
+    telemetry_emitter=telemetry_dispatcher,
 )
 
 capability_service: CapabilityService = CapabilityService(
