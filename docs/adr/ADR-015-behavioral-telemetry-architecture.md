@@ -1,6 +1,6 @@
 # ADR-015: Behavioral Telemetry Architecture
 
-**Status:** Proposed
+**Status:** Accepted
 
 **Date:** 2026-07-24
 
@@ -8,8 +8,8 @@
 - Shubhankar Mathur
 
 **Implementation Status:**
-- Architecture Proposed (Pending ADR-015 Review)
-- Implementation: Deferred (No production code modified; storage owned by ADR-016, detection owned by ADR-017)
+- Implemented in v0.16.0-dev (Canonical BehavioralEvent envelope, TelemetryEmitter contract, InMemoryTelemetryDispatcher, and RuntimeService MVP instrumentation)
+- Storage owned by ADR-016, detection owned by ADR-017
 
 ---
 
@@ -219,7 +219,7 @@ The Telemetry Dispatcher acts as an internal, non-blocking event broker between 
 
 - **Asynchronous Non-Blocking Buffer:** Event producers publish events to an internal memory buffer. Event publishing returns immediately, ensuring zero added latency to the security pipeline.
 - **Ordering Guarantees:** Strict chronological event ordering is guaranteed within an individual execution session (`session_id`). Event ordering is not required or guaranteed across unrelated sessions.
-- **Delivery Semantics:** Telemetry delivery is architecturally defined as **best effort** for high-frequency diagnostic events (`TOOL_INVOCATION.PARAMETERS_VALIDATED`) and **at least once** for security-critical governance events (`GOVERNANCE_ACTION.DECISION_FINALIZED`).
+- **Delivery Semantics:** Telemetry delivery for the in-memory dispatcher is architecturally defined as **best effort** with fail-silent drop behavior under queue saturation. True durable at-least-once delivery is a property of the persistent event store (ADR-016). Compliance auditing is preserved independently via synchronous AuditService records.
 - **Fail-Silent Isolation Philosophy:** Telemetry is operationally important for long-term behavioral intelligence, but it is not mission-critical for single-request execution safety. If the dispatcher encounters an internal error or buffer saturation, it logs a diagnostic warning and drops the affected telemetry event. It **must never** throw an exception back into `RuntimeService` or interrupt tool execution. The Runtime Security Pipeline must continue operating safely and enforcing Zero Trust controls even if telemetry processing becomes unavailable.
 - **Backpressure & Queue Management:** The buffer utilizes a fixed-capacity queue. Under extreme traffic spikes, the queue applies drop-oldest strategies for diagnostic events while prioritizing governance events (`GOVERNANCE_ACTION.DECISION_FINALIZED`).
 

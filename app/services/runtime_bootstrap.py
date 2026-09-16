@@ -22,6 +22,7 @@ from app.services.risk_service import RiskService
 from app.services.runtime_service import RuntimeService
 from app.services.session_service import SessionService
 from app.services.tool_service import ToolNotFoundError, ToolService
+from app.telemetry.contracts import TelemetryEmitter
 from app.tools.directory_list_tool import DirectoryListTool
 from app.tools.file_read_tool import FileReadTool
 
@@ -113,6 +114,7 @@ def bootstrap_runtime_service(
     tool_registry: ToolRegistry | None = None,
     findings_service: FindingsService | None = None,
     risk_service: RiskService | None = None,
+    telemetry_emitter: TelemetryEmitter | None = None,
 ) -> RuntimeService:
     """Canonical bootstrapping implementation for RuntimeService and dependencies."""
     register_default_agent(agent_service, agent_id)
@@ -140,4 +142,5 @@ def bootstrap_runtime_service(
         audit_service=audit_service,
         tool_registry=registry,
         findings_service=findings_service,
+        telemetry_emitter=telemetry_emitter,
     )

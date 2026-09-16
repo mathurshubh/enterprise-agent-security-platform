@@ -2,7 +2,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.13-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.116+-009688)
-![Tests](https://img.shields.io/badge/Tests-353_Passing-success)
+![Tests](https://img.shields.io/badge/Tests-372_Passing-success)
 ![GitHub Release](https://img.shields.io/badge/GitHub_Release-v0.15-blue)
 ![Git Tag](https://img.shields.io/badge/Git_Tag-v0.15.0-blue)
 ![Development Cycle](https://img.shields.io/badge/Development-v0.16.0--dev-orange)
@@ -30,6 +30,7 @@ Instead, it provides deterministic security controls around AI agents, including
 - Resource-Aware Authorization
 - Policy Enforcement
 - Threat Detection & Behavioral Intelligence
+- Behavioral Telemetry Architecture (Non-Blocking Dispatcher & Canonical BehavioralEvent)
 - Authoritative Security Findings Persistence
 - Dynamic Risk Assessment & Risk Level Calculation
 - Automated Response Actions
@@ -57,6 +58,7 @@ flowchart TD
     L -->|DENY| N["Blocked"]
     L -->|APPROVAL_REQUIRED| O["Held for Review"]
     E --> P["Audit Event Logging"]
+    E -.-> Q["TelemetryDispatcher (ADR-015 Behavioral Telemetry)"]
 ```
 
 `RuntimeService` is the single authoritative source of security decisions. The LLM never makes authorization, policy, detection, risk, or enforcement decisions.
@@ -69,7 +71,7 @@ flowchart TD
 - **Latest Repository Tag:** `v0.15.0`
 - **Current Development Cycle:** `v0.16.0` — Unreleased
 - **Active Baseline PR:** PR #87 (Documentation, Architecture & Roadmap Synchronization)
-- **Automated Test Coverage:** **353 passing backend pytest tests** (`.venv/bin/python -m pytest`)
+- **Automated Test Coverage:** **372 passing backend pytest tests** (`.venv/bin/python -m pytest`)
 - **Frontend Build Status:** Passing (`npm run build` & `npm run lint`)
 
 ---
@@ -78,7 +80,7 @@ flowchart TD
 
 | Metric | Value |
 |----------|---------|
-| Automated Tests | 353 Passing |
+| Automated Tests | 372 Passing |
 | Latest Published GitHub Release | v0.15 |
 | Latest Repository Tag | v0.15.0 |
 | Current Development Cycle | v0.16.0 (Unreleased) |

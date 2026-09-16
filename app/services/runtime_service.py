@@ -1,4 +1,6 @@
+import time
 import uuid
+from typing import Any
 
 from app.auth.authorization_service import AuthorizationService
 from app.detection.context import DetectionContext
@@ -9,6 +11,11 @@ from app.models.response_action import ResponseType
 from app.models.runtime_context import RuntimeContext
 from app.models.runtime_result import RuntimeResult
 from app.models.session_event import SessionEvent
+from app.models.telemetry.behavioral_event import (
+    BehavioralEvent,
+    compute_parameter_hash,
+)
+from app.models.telemetry.event_taxonomy import TelemetryEventType
 from app.models.tool import Tool
 from app.models.tool_capability import ToolCapability
 from app.models.tool_governance import ToolGovernance
@@ -25,6 +32,7 @@ from app.services.response_service import ResponseService
 from app.services.risk_service import RiskService
 from app.services.session_service import SessionService
 from app.services.tool_service import ToolService
+from app.telemetry.contracts import TelemetryEmitter
 
 
 class RuntimeService:
@@ -39,6 +47,7 @@ class RuntimeService:
         audit_service: AuditService | None = None,
         tool_registry: ToolRegistry | None = None,
         findings_service: FindingsService | None = None,
+        telemetry_emitter: TelemetryEmitter | None = None,
     ) -> None:
         self._authorization_service = authorization_service
         self._session_service = session_service
@@ -49,7 +58,20 @@ class RuntimeService:
         self._audit_service = audit_service or AuditService()
         self._tool_registry = tool_registry
         self._findings_service = findings_service
+        self._telemetry_emitter = telemetry_emitter
         self._last_result = None
+
+    @property
+    def telemetry_emitter(self) -> TelemetryEmitter | None:
+        return self._telemetry_emitter
+
+    def _safe_emit(self, event: BehavioralEvent) -> None:
+        if self._telemetry_emitter is not None:
+            try:
+                self._telemetry_emitter.emit(event)
+            except Exception:
+                # Fail-silent guarantee: telemetry emission must never raise into runtime
+                pass
 
     @property
     def findings_service(self) -> FindingsService | None:
@@ -71,6 +93,7 @@ class RuntimeService:
     def create_default(
         cls,
         agent_id: str = "agent-1",
+        telemetry_emitter: TelemetryEmitter | None = None,
     ) -> "RuntimeService":
         from app.api.dependencies import (
             agent_service,
@@ -88,6 +111,7 @@ class RuntimeService:
             detection_registry=detection_registry,
             agent_id=agent_id,
             tool_registry=tool_registry,
+            telemetry_emitter=telemetry_emitter,
         )
 
     @staticmethod
@@ -170,11 +194,54 @@ class RuntimeService:
         model_output: str = "",
         tool_output: str = "",
         context: RuntimeContext | None = None,
+        parameters: dict[str, Any] | None = None,
     ) -> RuntimeResult:
+        start_time = time.perf_counter()
+        trace_id = context.request_id if context is not None else None
+        principal = context.principal if context is not None else None
+        tenant_id = (
+            context.execution_metadata.get("tenant_id")
+            if (context is not None and context.execution_metadata)
+            else None
+        )
+        param_hash = compute_parameter_hash(parameters)
+
+        self._safe_emit(
+            BehavioralEvent(
+                event_type=TelemetryEventType.TOOL_INVOCATION_REQUESTED,
+                session_id=session_id,
+                agent_id=agent_id,
+                trace_id=trace_id,
+                principal=principal,
+                tenant_id=tenant_id,
+                tool_id=tool_id,
+                resource_target=resource,
+                parameter_hash=param_hash,
+                execution_time_ms=0,
+            )
+        )
+
         decision = self._authorization_service.authorize(
             agent_id,
             tool_id,
             resource,
+        )
+
+        auth_elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+        self._safe_emit(
+            BehavioralEvent(
+                event_type=TelemetryEventType.SECURITY_AUTHORIZATION_CHECKED,
+                session_id=session_id,
+                agent_id=agent_id,
+                trace_id=trace_id,
+                principal=principal,
+                tenant_id=tenant_id,
+                tool_id=tool_id,
+                resource_target=resource,
+                parameter_hash=param_hash,
+                decision=decision,
+                execution_time_ms=auth_elapsed_ms,
+            )
         )
 
         if context is None:
@@ -253,6 +320,24 @@ class RuntimeService:
             decision=recorded_event.decision,
         )
         self._audit_service.record_event(audit_event)
+
+        total_elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+        self._safe_emit(
+            BehavioralEvent(
+                event_type=TelemetryEventType.GOVERNANCE_DECISION_FINALIZED,
+                session_id=session_id,
+                agent_id=agent_id,
+                trace_id=trace_id,
+                principal=principal,
+                tenant_id=tenant_id,
+                tool_id=tool_id,
+                resource_target=resource,
+                parameter_hash=param_hash,
+                decision=recorded_event.decision,
+                risk_level=risk_assessment.risk_level,
+                execution_time_ms=total_elapsed_ms,
+            )
+        )
 
         result = RuntimeResult(
             event=recorded_event,
