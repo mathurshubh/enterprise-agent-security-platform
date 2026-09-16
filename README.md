@@ -204,6 +204,10 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
+# Required: the platform fails closed without an explicit signing key.
+# There is no development fallback, and .env files are not loaded.
+export JWT_SECRET_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')"
+
 .venv/bin/python -m pytest
 ```
 

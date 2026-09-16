@@ -35,7 +35,7 @@ Three markers describe what each test is for. They are registered in
 | Marker | Meaning | Behaviour today |
 |---|---|---|
 | `security_baseline` | Reproduces a confirmed weakness | Passes — it documents current behaviour |
-| `security_invariant` | States the contract a hardening milestone must establish | `xfail(strict=True)` — expected to fail until the fix lands |
+| `security_invariant` | States the contract a hardening milestone must establish | `xfail(strict=True)` until the fix lands, then the `xfail` is removed and the marker is kept, so `-m security_invariant` lists every contract — pending and enforced |
 | `security_regression` | Protects a control that is already correct | Passes and must keep passing |
 
 `security_invariant` tests use `strict=True` deliberately. While the weakness
@@ -51,7 +51,7 @@ the failure is the signal to promote them.
 
 | ID | Finding | Current status | Future invariant |
 |---|---|---|---|
-| H-1 | Committed default JWT secret | Reproduced | Missing secret fails closed; legacy-signed tokens rejected |
+| H-1 | Committed default JWT secret | **Fixed** — invariants enforced | Missing secret fails closed; legacy-signed tokens rejected |
 | H-2 | Management plane RBAC missing | Reproduced | Role gating plus caller scoping |
 | H-3 | Risk posture resets on session rotation | Reproduced | Posture cannot be relaxed by rotating an identifier |
 | H-4 | Suspension is advisory | Reproduced | `SUSPEND_AGENT` writes durable state |
@@ -116,9 +116,10 @@ rules to avoid disturbing existing tests:
 Three items from the review could not be expressed cleanly as tests without
 changing production code, which is out of scope for this corpus:
 
-* **H-1 startup failure.** The invariant that a missing `JWT_SECRET_KEY` aborts
-  startup is asserted against `get_jwt_secret_key()`. Asserting on application
-  startup itself requires the configuration change that hardening will make.
+* **H-1 startup failure.** Now enforced. `app.api.dependencies` resolves the
+  signing key at import time, so the `ConfigurationError` raised by
+  `get_jwt_secret_key()` *is* the application's startup failure, and the
+  invariant asserts it directly.
 * **H-4 positive control.** `PolicyEngine` correctly denies an already-suspended
   agent. That is covered by `tests/policy/test_policy_engine.py` and is not
   duplicated; the gap is the missing writer, which is what this corpus records.
