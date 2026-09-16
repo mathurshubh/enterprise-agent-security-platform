@@ -80,9 +80,18 @@ cd ..
 
 ## 6. Run Backend Service
 
-Start the FastAPI Management API and Runtime Security engine locally:
+The platform fails closed when the JWT signing key is not provisioned: there is no
+development fallback, and the application will not start without `JWT_SECRET_KEY`.
+Export an explicit secret of at least 32 bytes first.
+
+> [!NOTE]
+> `.env` files are **not** loaded by the application. The variable must be exported
+> in the shell that starts the server.
 
 ```bash
+# Generate and export a signing key for this shell session
+export JWT_SECRET_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')"
+
 # Start backend server using python -m uvicorn (defaults to http://127.0.0.1:8000)
 .venv/bin/python -m uvicorn app.main:app --reload --port 8000
 ```

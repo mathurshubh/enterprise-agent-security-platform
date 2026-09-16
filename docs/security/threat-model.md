@@ -177,6 +177,7 @@ An untrusted client on the network sends HTTP requests directly to FastAPI endpo
 - **Runtime Agent Identity Binding:** `POST /agents/{agent_id}/execute` compares `claims.agent_id` against the path `agent_id` for `AGENT` principals. Any mismatch raises `HTTP 403 Forbidden` and halts execution before reaching `RuntimeService`.
 - **Role-Based Endpoint Access:** Only `AGENT` (matching identity) and `ADMIN` principals may invoke agent runtime execution. `ANALYST` principals are restricted to observability, findings triage, and attack scenario evaluation.
 - **Fail-Closed Verification:** Token verification handles signature invalidity, expiration, and malformed claims structures deterministically without leaking stack traces or credentials.
+- **Fail-Closed Signing Key Configuration:** `get_jwt_secret_key()` refuses to return a key unless `JWT_SECRET_KEY` is explicitly provisioned. There is no development fallback, the retired default shipped up to `74e8c51` is rejected explicitly, and keys shorter than the 32-byte HS256 minimum (RFC 7518 section 3.2) are refused. Because the key is resolved at import time, an unconfigured deployment cannot start rather than starting with a forgeable identity boundary.
 
 ---
 

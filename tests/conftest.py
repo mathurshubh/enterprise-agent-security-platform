@@ -1,11 +1,24 @@
 """
 Shared pytest fixtures and test helpers for authentication and API testing.
+
+``JWT_SECRET_KEY`` is provisioned here before any test module imports the
+application. Since finding H-1 was fixed, ``app.api.dependencies`` resolves the
+signing key at import time and raises ``ConfigurationError`` when it is absent,
+so the suite must supply one explicitly.
+
+The assignment is unconditional to keep the suite hermetic: a developer shell
+holding an unrelated (or retired) ``JWT_SECRET_KEY`` must not change how the
+tests run.
 """
 
-import pytest
+import os
 
-from app.api.dependencies import jwt_service
-from app.models.jwt_claims import Role
+os.environ["JWT_SECRET_KEY"] = "pytest-suite-signing-key-not-for-production-use"
+
+import pytest  # noqa: E402
+
+from app.api.dependencies import jwt_service  # noqa: E402
+from app.models.jwt_claims import Role  # noqa: E402
 
 
 def create_test_jwt(
