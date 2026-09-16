@@ -214,6 +214,14 @@ The platform maps threat detections to industry security frameworks through rule
 
 ---
 
+## Adversarial Regression Corpus
+
+The adversarial corpus in `tests/security/` captures vulnerabilities identified during the post-v0.16 review and will be used as the regression baseline for subsequent security-hardening milestones.
+
+Each finding is represented twice: a `security_baseline` test recording the behaviour observed at commit `74e8c51`, and a `security_invariant` test stating the contract a hardening milestone must establish. Invariant tests are marked `xfail(strict=True)`, so they convert into permanent assertions at the moment a fix makes them pass. See `tests/security/README.md` for the finding index and execution instructions.
+
+---
+
 ## DevSecOps & CI/CD Security Controls
 
 - **Automated Quality Pipeline:** PR validation executes parallel quality gates for Pytest, Ruff, ESLint, Vite build, Markdownlint, and Git whitespace checking.
