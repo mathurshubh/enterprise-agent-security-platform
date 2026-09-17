@@ -134,11 +134,12 @@ cd frontend && npm run build && cd ..
    ```
 
 2. **Open Pull Request**: Navigate to GitHub and open a PR targeting `main`.
-3. **Fill PR Template**: Use the standard PR template (`docs/development/pr-template-phase2.md`). Document:
-   - Objective & Vertical Slice scope
-   - Files changed
-   - Security & threat model impact
-   - Verification command results
+3. **Fill PR Template**: GitHub pre-fills the repository PR template (`.github/pull_request_template.md`). Document:
+   - Summary: what changed, why, and the finding, ADR or PR it builds on
+   - Changes and files changed
+   - Security / architecture impact, including trust boundaries and backwards compatibility
+   - Validation commands actually run and their results
+   - Scope and explicit non-changes
 4. **Request Review**: Assign appropriate reviewers and address feedback.
 
 ---
