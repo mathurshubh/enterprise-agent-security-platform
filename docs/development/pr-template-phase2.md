@@ -1,5 +1,8 @@
 # Phase 2 Pull Request Template
 
+> [!NOTE]
+> Historical template retained for Phase 2 (`v0.13.0`) history. New pull requests use `.github/pull_request_template.md`, which GitHub applies automatically.
+
 Every PR in Phase 2 must follow this standard format before review and merge.
 
 ---
