@@ -59,6 +59,67 @@ With `.venv` activated, install the required Python packages:
 .venv/bin/python -m pip install -r requirements.txt
 ```
 
+`requirements.txt` is the only Python dependency file developers and CI install, and the file `pip-audit` scans. It is **generated**: never edit it by hand.
+
+### Managing Python Dependencies
+
+| File | Maintained by | Contents |
+|---|---|---|
+| `requirements.in` | Humans | Direct dependencies only, grouped into runtime and development/test |
+| `requirements.txt` | `scripts/compile-requirements.sh` | The complete pinned dependency graph |
+| `requirements-tools.txt` | Humans | The pinned pip-tools toolchain used to generate `requirements.txt`. Not an application dependency |
+
+The script installs the toolchain into a separate `.venv-tools/` virtualenv.
+
+**Lock policy**
+
+`requirements.txt` is a committed lock, not a fresh resolution. pip-compile reuses the pins already in `requirements.txt` and only resolves what the change requires:
+
+| Operation | Command | Effect on existing pins |
+|---|---|---|
+| Normal compile | `scripts/compile-requirements.sh` | Preserved. Only intentional `requirements.in` changes are resolved |
+| Intentional upgrade | `scripts/compile-requirements.sh --upgrade-package <package>` | Only that package, and the transitive changes it requires, are re-resolved |
+| CI verification | `scripts/compile-requirements.sh --check` | Never changed. Verifies the committed `requirements.txt` is reproducible and never upgrades dependencies |
+
+Dependency lock generation is standardized on **Python 3.13**, the version CI uses. Do not regenerate `requirements.txt` with another Python version: the script refuses to run with one.
+
+**Adding a dependency**
+
+1. Add the direct dependency to the appropriate section of `requirements.in`.
+2. Regenerate the lockfile:
+
+   ```bash
+   scripts/compile-requirements.sh
+   ```
+
+3. Review the `requirements.txt` diff, including any new transitive dependencies.
+4. Install and validate:
+
+   ```bash
+   .venv/bin/python -m pip install -r requirements.txt
+   .venv/bin/python -m pytest
+   ```
+
+5. Commit `requirements.in` and `requirements.txt` together.
+
+**Updating a dependency**
+
+Upgrades are intentional operations. Upgrade one package at a time and review the transitive changes it brings:
+
+```bash
+scripts/compile-requirements.sh --upgrade-package <package>
+```
+
+Then validate and commit as above. Dependabot follows the same model: it updates `requirements.txt` from `requirements.in` using the compile options in `pyproject.toml`.
+
+**Verifying the lockfile**
+
+CI runs this check. It recompiles copies in a temporary directory, with the committed `requirements.txt` supplying the existing pins, and fails if the result differs from the committed file. It never modifies the working tree:
+
+```bash
+scripts/compile-requirements.sh --check
+```
+
 ---
 
 ## 5. Install Frontend Dependencies

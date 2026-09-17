@@ -202,6 +202,7 @@ cd enterprise-agent-security-platform
 
 python3 -m venv .venv
 source .venv/bin/activate
+# requirements.txt is generated from requirements.in; see docs/development/local-development.md
 pip install -r requirements.txt
 
 # Required: the platform fails closed without an explicit signing key.
