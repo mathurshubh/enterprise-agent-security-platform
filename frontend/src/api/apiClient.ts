@@ -13,7 +13,7 @@
  *     enforces authorization for every request independently.
  *
  * Interceptors:
- *   Request — JWT Authorization header stub (Phase 3 integration point).
+ *   Request — deliberately attaches no credentials (see below).
  *   Response — Error normalization into ApiError shape.
  *
  * Error Normalization:
@@ -36,21 +36,19 @@ const apiClient = axios.create({
 // ── Request Interceptor ──────────────────────────────────────────────────────
 
 /**
- * JWT Authorization header injection stub.
+ * Request interceptor — deliberately credential-free.
  *
- * Phase 3 integration point: When JWT authentication is introduced per
- * ADR-009, replace this stub with a call to the AuthContext token accessor:
+ * The backend enforces JWT authentication on every /api route, but this
+ * browser client never holds, stores or sends a JWT:
  *
- *   const token = authStore.getAccessToken()
- *   if (token) {
- *     config.headers.Authorization = `Bearer ${token}`
- *   }
- *
- * Until JWT enforcement is introduced, all requests are sent unauthenticated.
+ *   - Local development: the Vite dev proxy attaches the Authorization header
+ *     server-side from EASP_DEV_API_TOKEN (see vite.config.ts and
+ *     docs/development/local-development.md). The token never reaches the browser.
+ *   - Production: console authentication is not implemented yet and requires an
+ *     identity provider. Do not add client-side token handling here as a shortcut.
  */
 apiClient.interceptors.request.use(
   (config) => {
-    // TODO (Phase 3 — ADR-009): Inject JWT Authorization header here.
     return config
   },
   (error) => Promise.reject(error)

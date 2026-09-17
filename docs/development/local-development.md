@@ -104,14 +104,56 @@ Verify backend health by visiting:
 
 ## 7. Run Frontend Console
 
-In a separate terminal, start the Vite development server for the Enterprise Security Console:
+The backend requires a JWT on every `/api` route, and the browser console holds no credentials. For local development, the Vite development proxy attaches an `Authorization` header to proxied API requests from the `EASP_DEV_API_TOKEN` environment variable.
+
+> [!IMPORTANT]
+> This is a local development convenience only. It does not provide production authentication: production console authentication requires an identity provider and is not implemented. The mechanism is active only for `npm run dev`, never for `vite build` or `vite preview`.
+
+```text
+Browser
+  │  unauthenticated HTTP request
+  ▼
+Vite dev server (Node process) ── holds EASP_DEV_API_TOKEN
+  │  adds Authorization only for trusted local-origin requests
+  ▼
+FastAPI ── JWT authentication, unchanged
+```
+
+- `EASP_DEV_API_TOKEN` is intentionally **not** a `VITE_*` variable. Vite compiles `VITE_*` variables into browser code, so never place the token in one.
+- The token is held only by the Vite Node process. The browser never receives or stores it, and it is not included in the production bundle.
+- Because the proxy attaches the token automatically, it would otherwise behave like a cookie that any web page open in your browser could use. To prevent that cross-site request forgery, the proxy attaches it only when `Sec-Fetch-Site` is `same-origin`, `none` or absent, and `Origin`, when present, matches the development server's own origin. Other requests are forwarded without the token, and the backend returns `401`.
+- Non-browser tools on your machine that send neither header, such as `curl`, also receive the token.
+- With a token set, the development server refuses to start if it is explicitly exposed beyond loopback (for example `npm run dev -- --host`) or configured with `server.allowedHosts: true`, because anyone reaching the proxy would act as the token's principal.
+
+In a separate terminal, export the same `JWT_SECRET_KEY` the backend is running with (section 6), then generate a short-lived `ANALYST` token from the repository root without printing it:
+
+```bash
+export EASP_DEV_API_TOKEN="$(.venv/bin/python -c '
+from app.auth.jwt_service import JWTService
+from app.config.settings import get_jwt_secret_key
+from app.models.jwt_claims import Role
+
+print(JWTService(secret_key=get_jwt_secret_key()).create_token(
+    subject="local-console-analyst",
+    agent_id="local-console",
+    role=Role.ANALYST,
+))
+')"
+```
+
+Start the Vite development server from the same terminal, so it inherits the variable:
 
 ```bash
 cd frontend
 npm run dev
 ```
 
-The console will be accessible at `http://127.0.0.1:3000`. API requests to `/api/*` are automatically proxied to the backend at `http://127.0.0.1:8000`.
+The console will be accessible at `http://127.0.0.1:3000`. API requests to `/api/*` are proxied to the backend at `http://127.0.0.1:8000` with the token attached.
+
+- Use an `ANALYST` token for the console, not `ADMIN`, so it runs with the least-privileged management role.
+- Tokens expire after 60 minutes. When the console reports `401`, generate a new token and restart `npm run dev`.
+- Without `EASP_DEV_API_TOKEN`, the proxy forwards requests unchanged and the backend returns `401`.
+- The token is a credential. Do not commit it or paste it into shared logs.
 
 ---
 
