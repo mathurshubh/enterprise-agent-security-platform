@@ -174,6 +174,8 @@ A persistent approval queue or interactive release action is not implemented in 
 
 Evaluates a requested tool through the Runtime Security Pipeline.
 
+The endpoint is decision-only ([ADR-023](../adr/ADR-023-execution-authorization-grants.md)): it never executes a tool and never returns an execution grant. `resource` and `parameters` are optional and describe the operation being evaluated. When both identify a resource, `resource` must equal `parameters.path`; a contradictory request is denied.
+
 *   **Endpoint:** `POST /agents/{agent_id}/execute`
 *   **Idempotency:** Non-idempotent
 *   **Request Payload:**
@@ -181,6 +183,8 @@ Evaluates a requested tool through the Runtime Security Pipeline.
     {
       "session_id": "session-123",
       "tool_id": "file_read",
+      "resource": "notes.txt",
+      "parameters": {"path": "notes.txt"},
       "user_prompt": "read notes.txt",
       "model_output": "",
       "tool_output": ""

@@ -13,6 +13,7 @@ from app.models.tool_operational import ToolOperational
 from app.models.tool_risk_level import ToolRiskLevel
 from app.policy.policy_engine import PolicyEngine
 from app.registry.tool_registry import ToolRegistry
+from app.runtime.execution_authority import ExecutionAuthority
 from app.services.agent_service import AgentNotFoundError, AgentService
 from app.services.audit_service import AuditService
 from app.services.detection_service import DetectionService
@@ -115,6 +116,7 @@ def bootstrap_runtime_service(
     findings_service: FindingsService | None = None,
     risk_service: RiskService | None = None,
     telemetry_emitter: TelemetryEmitter | None = None,
+    execution_authority: ExecutionAuthority | None = None,
 ) -> RuntimeService:
     """Canonical bootstrapping implementation for RuntimeService and dependencies."""
     register_default_agent(agent_service, agent_id)
@@ -143,4 +145,5 @@ def bootstrap_runtime_service(
         tool_registry=registry,
         findings_service=findings_service,
         telemetry_emitter=telemetry_emitter,
+        execution_authority=execution_authority,
     )

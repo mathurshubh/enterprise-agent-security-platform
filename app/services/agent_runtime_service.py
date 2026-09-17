@@ -1,5 +1,5 @@
 import uuid
-from typing import Protocol
+from typing import Any, Protocol
 
 from app.agents.enterprise_agent import EnterpriseAgent
 from app.agents.ollama_agent import OllamaAgent
@@ -10,6 +10,7 @@ from app.models.audit_event import Decision
 from app.models.runtime_result import RuntimeResult
 from app.providers.provider_factory import ProviderFactory
 from app.registry.tool_registry import ToolRegistry
+from app.runtime.execution_authority import ExecutionAuthority
 from app.runtime.tool_executor import DefaultToolExecutor
 from app.tools.directory_list_tool import DirectoryListTool
 from app.tools.file_read_tool import FileReadTool
@@ -29,12 +30,20 @@ class RuntimeExecutor(Protocol):
         user_prompt: str = "",
         model_output: str = "",
         tool_output: str = "",
+        parameters: dict[str, Any] | None = None,
     ) -> RuntimeResult:
         """Execute the deterministic runtime security pipeline."""
         ...
 
 
 class AgentRuntimeService:
+    """Coordinates intent parsing, security evaluation and governed tool execution.
+
+    ADR-023: the executor is bound to the ExecutionAuthority that issues the
+    runtime's grants, and every execution presents the grant from the decision that
+    covered it. An executor without that authority refuses to run anything.
+    """
+
     _WORKSPACE_ROOT = "demo_workspace"
 
     def __init__(
@@ -44,6 +53,7 @@ class AgentRuntimeService:
         tool_registry: ToolRegistry | None = None,
         executor: DefaultToolExecutor | None = None,
         agent_id: str | None = None,
+        execution_authority: ExecutionAuthority | None = None,
     ) -> None:
         if agent is None:
             effective_id = agent_id or "agent-1"
@@ -57,7 +67,6 @@ class AgentRuntimeService:
             self._agent = agent
 
         self._tool_registry = tool_registry or ToolRegistry()
-        self._executor = executor or DefaultToolExecutor()
 
         if tool_registry is None:
             self._register_executable_tools()
@@ -66,10 +75,15 @@ class AgentRuntimeService:
 
         if runtime_service is not None:
             self._runtime_service = runtime_service
-            return
+        else:
+            from app.api.dependencies import runtime_service as shared_runtime_service
 
-        from app.api.dependencies import runtime_service as shared_runtime_service
-        self._runtime_service = shared_runtime_service
+            self._runtime_service = shared_runtime_service
+
+        authority = execution_authority or getattr(
+            self._runtime_service, "execution_authority", None
+        )
+        self._executor = executor or DefaultToolExecutor(authority=authority)
 
     @property
     def agent(self) -> EnterpriseAgent:
@@ -94,7 +108,8 @@ class AgentRuntimeService:
 
         invocation = self._agent.invoke(query)
 
-        resource = invocation.parameters.get("path")
+        parameters = dict(invocation.parameters)
+        resource = parameters.get("path")
 
         session_id = str(uuid.uuid4())
 
@@ -106,6 +121,7 @@ class AgentRuntimeService:
             user_prompt=query,
             model_output=invocation.model_dump_json(),
             tool_output="",
+            parameters=parameters,
         )
 
         decision = runtime_result.event.decision
@@ -120,7 +136,11 @@ class AgentRuntimeService:
             )
 
         descriptor = self._tool_registry.resolve(invocation.tool_id)
-        output = self._executor.execute_descriptor(descriptor, invocation.parameters)
+        output = self._executor.execute_descriptor(
+            descriptor,
+            parameters,
+            grant=runtime_result.authorization,
+        )
 
         return AgentRuntimeResult(
             decision=decision.value,

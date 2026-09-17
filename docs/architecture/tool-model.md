@@ -68,6 +68,7 @@ ToolDescriptor (Passive Runtime Registration Object)
 - Executes tools with validated parameter mappings.
 - Translates unhandled runtime execution errors into `ToolExecutionError`.
 - Keeps tool lookup/resolution separate from executable tool invocation.
+- Enforces the execution trust boundary ([ADR-023](../adr/ADR-023-execution-authorization-grants.md)): refuses any execution unless an `ExecutionGrant` issued by its bound `ExecutionAuthority` is valid and the requested operation exactly matches the grant's `ExecutionBinding`. An executor with no authority refuses every execution.
 
 ### Implementation Notes
 *   **Source File:** Located at [`app/runtime/tool_executor.py`](../../app/runtime/tool_executor.py).
@@ -103,7 +104,7 @@ Runtime Security Pipeline (RuntimeService.execute)
 
 ↓
 
-Authorization → Policy Evaluation → Detection → Risk Assessment → Response → Audit
+Authorization → Policy Evaluation → Detection → Risk Assessment → Response → Audit → ExecutionGrant (final ALLOW only)
 
 ↓
 
@@ -111,7 +112,7 @@ If ALLOW: AgentRuntimeService resolves ToolRegistry descriptor
 
 ↓
 
-Execution (DefaultToolExecutor.execute_descriptor(descriptor, parameters) -> BaseTool.execute)
+Execution (DefaultToolExecutor.execute_descriptor(descriptor, parameters, grant) → verify grant and exact binding → BaseTool.execute)
 ```
 
 ---

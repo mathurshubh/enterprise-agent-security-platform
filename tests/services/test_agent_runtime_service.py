@@ -7,6 +7,10 @@ from app.models.agent_runtime_result import (
     AgentRuntimeResult,
 )
 from app.models.audit_event import Decision
+from app.models.execution_binding import (
+    ExecutionBinding,
+    ExecutionBindingValidationError,
+)
 from app.models.response_action import (
     ResponseAction,
     ResponseType,
@@ -29,6 +33,11 @@ from app.models.tool_risk_level import ToolRiskLevel
 from app.registry.tool_registry import (
     ToolNotRegisteredError,
     ToolRegistry,
+)
+from app.runtime.execution_authority import (
+    ExecutionAuthority,
+    ExecutionBindingError,
+    ExecutionRefusalReason,
 )
 from app.services.agent_runtime_service import (
     AgentIdentityMismatchError,
@@ -99,10 +108,13 @@ class StubRuntimeService(RuntimeExecutor):
         self,
         decision: Decision = Decision.ALLOW,
         response_type: ResponseType = ResponseType.MONITOR,
+        issue_grants: bool = True,
     ) -> None:
         self._decision = decision
         self._response_type = response_type
-        self.calls: list[dict[str, str | None]] = []
+        self._issue_grants = issue_grants
+        self.execution_authority = ExecutionAuthority()
+        self.calls: list[dict[str, object]] = []
 
     def execute(
         self,
@@ -113,6 +125,7 @@ class StubRuntimeService(RuntimeExecutor):
         user_prompt: str = "",
         model_output: str = "",
         tool_output: str = "",
+        parameters: dict[str, str] | None = None,
     ) -> RuntimeResult:
         self.calls.append(
             {
@@ -123,8 +136,25 @@ class StubRuntimeService(RuntimeExecutor):
                 "user_prompt": user_prompt,
                 "model_output": model_output,
                 "tool_output": tool_output,
+                "parameters": parameters,
             }
         )
+
+        authorization = None
+        if self._issue_grants:
+            try:
+                binding = ExecutionBinding.from_operation(
+                    tool_id=tool_id,
+                    parameters=parameters,
+                    resource=resource,
+                )
+            except ExecutionBindingValidationError:
+                binding = None
+            if binding is not None:
+                authorization = self.execution_authority.issue(
+                    binding,
+                    self._decision,
+                )
 
         return RuntimeResult(
             event=SessionEvent(
@@ -148,6 +178,7 @@ class StubRuntimeService(RuntimeExecutor):
                 response_type=self._response_type,
                 reason="stubbed for test",
             ),
+            authorization=authorization,
         )
 
 
@@ -466,3 +497,76 @@ def test_identity_spoofing_privilege_escalation_attack_denied() -> None:
     with pytest.raises(AgentIdentityMismatchError, match="Agent identity mismatch"):
         service.execute("list files", agent_id="agent-1")
 
+
+
+# ── ADR-023: decision → execution binding ────────────────────────────────────
+
+
+def test_execute_passes_invocation_parameters_to_the_runtime() -> None:
+    registry = ToolRegistry()
+    registry.register(RecordingTool("file_read", "registry output"))
+    runtime_service = AllowingRuntimeService()
+    service = AgentRuntimeService(
+        agent=FakeAgent(),
+        runtime_service=runtime_service,
+        tool_registry=registry,
+    )
+
+    service.execute("read notes.txt")
+
+    assert runtime_service.calls[0]["parameters"] == {"path": "notes.txt"}
+    assert runtime_service.calls[0]["resource"] == "notes.txt"
+
+
+def test_execute_presents_the_decision_grant_and_it_is_consumed() -> None:
+    registry = ToolRegistry()
+    registry.register(RecordingTool("file_read", "registry output"))
+    runtime_service = AllowingRuntimeService()
+    service = AgentRuntimeService(
+        agent=FakeAgent(),
+        runtime_service=runtime_service,
+        tool_registry=registry,
+    )
+
+    result = service.execute("read notes.txt")
+
+    assert result.output == "registry output"
+    assert runtime_service.execution_authority.outstanding_grant_count == 0
+
+
+def test_allow_decision_without_a_grant_is_refused_at_execution() -> None:
+    registry = ToolRegistry()
+    tool = RecordingTool("file_read", "registry output")
+    registry.register(tool)
+    service = AgentRuntimeService(
+        agent=FakeAgent(),
+        runtime_service=StubRuntimeService(
+            decision=Decision.ALLOW,
+            issue_grants=False,
+        ),
+        tool_registry=registry,
+    )
+
+    with pytest.raises(ExecutionBindingError) as exc_info:
+        service.execute("read notes.txt")
+
+    assert exc_info.value.reason is ExecutionRefusalReason.MISSING_GRANT
+    assert tool.parameters is None
+
+
+def test_executor_bound_to_another_authority_refuses_the_runtime_grant() -> None:
+    registry = ToolRegistry()
+    tool = RecordingTool("file_read", "registry output")
+    registry.register(tool)
+    service = AgentRuntimeService(
+        agent=FakeAgent(),
+        runtime_service=AllowingRuntimeService(),
+        tool_registry=registry,
+        execution_authority=ExecutionAuthority(),
+    )
+
+    with pytest.raises(ExecutionBindingError) as exc_info:
+        service.execute("read notes.txt")
+
+    assert exc_info.value.reason is ExecutionRefusalReason.FOREIGN_AUTHORITY
+    assert tool.parameters is None

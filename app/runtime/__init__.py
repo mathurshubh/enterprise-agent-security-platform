@@ -6,6 +6,11 @@ from app.runtime.contracts import (
     ToolFactoryProtocol,
     ToolRegistryProtocol,
 )
+from app.runtime.execution_authority import (
+    ExecutionAuthority,
+    ExecutionBindingError,
+    ExecutionRefusalReason,
+)
 from app.runtime.tool_executor import (
     DefaultToolExecutor,
     ToolDisabledError,
@@ -14,6 +19,9 @@ from app.runtime.tool_executor import (
 
 __all__ = [
     "DefaultToolExecutor",
+    "ExecutionAuthority",
+    "ExecutionBindingError",
+    "ExecutionRefusalReason",
     "RuntimeContext",
     "ToolDisabledError",
     "ToolExecutionError",

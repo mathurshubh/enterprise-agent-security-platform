@@ -11,6 +11,7 @@ from app.models.execution_status import ExecutionStatus
 from app.models.scenario_execution import ScenarioExecution
 from app.models.scenario_execution_result import ScenarioExecutionResult
 from app.registry.tool_registry import ToolNotRegisteredError
+from app.runtime.execution_authority import ExecutionBindingError
 from app.runtime.tool_executor import ToolDisabledError, ToolExecutionError
 from app.services.agent_runtime_service import AgentRuntimeService
 from app.services.runtime_service import RuntimeService
@@ -165,6 +166,7 @@ class ScenarioRunnerService:
             ToolNotRegisteredError,
             ToolExecutionError,
             ToolDisabledError,
+            ExecutionBindingError,
         ) as e:
             # Orchestration fault-isolation boundary: catches narrowly scoped
             # provider network failures, parsing errors, tool execution errors, and
