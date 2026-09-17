@@ -7,6 +7,10 @@ from app.detection.context import DetectionContext
 from app.detection.engine import DetectionEngine
 from app.models.agent import Agent, AgentStatus, RiskTier
 from app.models.audit_event import AuditEvent, Decision
+from app.models.execution_binding import (
+    ExecutionBinding,
+    ExecutionBindingValidationError,
+)
 from app.models.response_action import ResponseType
 from app.models.runtime_context import RuntimeContext
 from app.models.runtime_result import RuntimeResult
@@ -24,6 +28,7 @@ from app.models.tool_metadata import ToolMetadata
 from app.models.tool_operational import ToolOperational
 from app.models.tool_risk_level import ToolRiskLevel
 from app.registry.tool_registry import ToolRegistry
+from app.runtime.execution_authority import ExecutionAuthority
 from app.services.agent_service import AgentService
 from app.services.audit_service import AuditService
 from app.services.detection_service import DetectionService
@@ -48,6 +53,7 @@ class RuntimeService:
         tool_registry: ToolRegistry | None = None,
         findings_service: FindingsService | None = None,
         telemetry_emitter: TelemetryEmitter | None = None,
+        execution_authority: ExecutionAuthority | None = None,
     ) -> None:
         self._authorization_service = authorization_service
         self._session_service = session_service
@@ -59,11 +65,16 @@ class RuntimeService:
         self._tool_registry = tool_registry
         self._findings_service = findings_service
         self._telemetry_emitter = telemetry_emitter
+        self._execution_authority = execution_authority
         self._last_result = None
 
     @property
     def telemetry_emitter(self) -> TelemetryEmitter | None:
         return self._telemetry_emitter
+
+    @property
+    def execution_authority(self) -> ExecutionAuthority | None:
+        return self._execution_authority
 
     def _safe_emit(self, event: BehavioralEvent) -> None:
         if self._telemetry_emitter is not None:
@@ -94,6 +105,7 @@ class RuntimeService:
         cls,
         agent_id: str = "agent-1",
         telemetry_emitter: TelemetryEmitter | None = None,
+        execution_authority: ExecutionAuthority | None = None,
     ) -> "RuntimeService":
         from app.api.dependencies import (
             agent_service,
@@ -112,6 +124,7 @@ class RuntimeService:
             agent_id=agent_id,
             tool_registry=tool_registry,
             telemetry_emitter=telemetry_emitter,
+            execution_authority=execution_authority,
         )
 
     @staticmethod
@@ -206,6 +219,23 @@ class RuntimeService:
         )
         param_hash = compute_parameter_hash(parameters)
 
+        # ADR-023: canonicalise the requested operation once. The binding is what a
+        # final ALLOW decision will cover. An operation that cannot be bound
+        # consistently (for example an explicit resource contradicting its path
+        # parameter) is denied rather than authorized against an ambiguous target.
+        binding_error_code: str | None = None
+        binding: ExecutionBinding | None
+        try:
+            binding = ExecutionBinding.from_operation(
+                tool_id=tool_id,
+                parameters=parameters,
+                resource=resource,
+            )
+            resource = binding.resource
+        except ExecutionBindingValidationError:
+            binding = None
+            binding_error_code = "EXECUTION_BINDING_INVALID"
+
         self._safe_emit(
             BehavioralEvent(
                 event_type=TelemetryEventType.TOOL_INVOCATION_REQUESTED,
@@ -221,11 +251,14 @@ class RuntimeService:
             )
         )
 
-        decision = self._authorization_service.authorize(
-            agent_id,
-            tool_id,
-            resource,
-        )
+        if binding is None:
+            decision = Decision.DENY
+        else:
+            decision = self._authorization_service.authorize(
+                agent_id,
+                tool_id,
+                resource,
+            )
 
         auth_elapsed_ms = int((time.perf_counter() - start_time) * 1000)
         self._safe_emit(
@@ -241,6 +274,7 @@ class RuntimeService:
                 parameter_hash=param_hash,
                 decision=decision,
                 execution_time_ms=auth_elapsed_ms,
+                error_code=binding_error_code,
             )
         )
 
@@ -336,14 +370,26 @@ class RuntimeService:
                 decision=recorded_event.decision,
                 risk_level=risk_assessment.risk_level,
                 execution_time_ms=total_elapsed_ms,
+                error_code=binding_error_code,
             )
         )
+
+        # ADR-023 invariant: only a final ALLOW decision may produce an execution
+        # grant. ExecutionAuthority.issue enforces this as well; it is restated here
+        # so the contract is visible where the decision is finalised.
+        authorization = None
+        if self._execution_authority is not None and binding is not None:
+            authorization = self._execution_authority.issue(
+                binding,
+                recorded_event.decision,
+            )
 
         result = RuntimeResult(
             event=recorded_event,
             findings=findings,
             risk_assessment=risk_assessment,
             response_action=response_action,
+            authorization=authorization,
         )
         self._last_result = result
         return result

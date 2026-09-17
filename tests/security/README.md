@@ -55,10 +55,10 @@ the failure is the signal to promote them.
 | H-2 | Management plane RBAC missing | Reproduced | Role gating plus caller scoping |
 | H-3 | Risk posture resets on session rotation | Reproduced | Posture cannot be relaxed by rotating an identifier |
 | H-4 | Suspension is advisory | Reproduced | `SUSPEND_AGENT` writes durable state |
-| H-5 | Decision/execution divergence | Reproduced | Executed parameters must match authorized parameters |
+| H-5 | Decision/execution divergence | **Fixed** — invariants enforced (ADR-023) | Executed parameters must match authorized parameters |
 | H-6 | Detection evasion | Reproduced (1 of 11 detected) | Normalisation-addressable variants detected |
 | M-1 | Prefix-based path containment | Reproduced | Canonical resolved-path containment |
-| M-2 | API cannot express a resource | Reproduced | API carries the authorized resource |
+| M-2 | API cannot express a resource | **Fixed** — invariants enforced (ADR-023) | API carries the authorized resource |
 | M-3 | Scenario identity and role gate | Reproduced | Caller identity preserved and role enforced |
 | M-4 | Unbounded state growth | Reproduced | Bounded or evictable state |
 | M-5 | Sessions not established or owned | Reproduced | Server-established session ownership |

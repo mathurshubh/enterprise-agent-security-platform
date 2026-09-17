@@ -26,6 +26,7 @@ from app.detection.sensitive_file_access_rule import SensitiveFileAccessRule
 from app.models.agent import Agent, AgentStatus, RiskTier
 from app.policy.policy_engine import PolicyEngine
 from app.registry.tool_registry import ToolRegistry
+from app.runtime.execution_authority import ExecutionAuthority
 from app.services.agent_service import AgentService
 from app.services.audit_service import AuditService
 from app.services.detection_service import DetectionService
@@ -64,6 +65,7 @@ def build_runtime():
         agent_id: str = "corpus-agent",
         status: AgentStatus = AgentStatus.ACTIVE,
         risk_tier: RiskTier = RiskTier.HIGH,
+        execution_authority: ExecutionAuthority | None = None,
     ) -> SimpleNamespace:
         agent_service = AgentService()
         agent_service.register_agent(
@@ -94,6 +96,7 @@ def build_runtime():
         session_service = SessionService()
         findings_service = FindingsService()
         risk_service = RiskService()
+        authority = execution_authority or ExecutionAuthority()
 
         runtime = RuntimeService(
             authorization_service=AuthorizationService(
@@ -109,6 +112,7 @@ def build_runtime():
             audit_service=audit_service,
             tool_registry=tool_registry,
             findings_service=findings_service,
+            execution_authority=authority,
         )
 
         return SimpleNamespace(
@@ -120,6 +124,7 @@ def build_runtime():
             findings_service=findings_service,
             risk_service=risk_service,
             tool_registry=tool_registry,
+            execution_authority=authority,
         )
 
     return _build

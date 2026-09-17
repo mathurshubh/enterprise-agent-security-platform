@@ -15,6 +15,7 @@ from app.detection.registry import DetectionRegistry
 from app.detection.sensitive_file_access_rule import SensitiveFileAccessRule
 from app.registry.scenario_registry import ScenarioRegistry
 from app.registry.tool_registry import ToolRegistry
+from app.runtime.execution_authority import ExecutionAuthority
 from app.services.agent_service import AgentService
 from app.services.attack_scenario_service import AttackScenarioService
 from app.services.audit_service import AuditService
@@ -67,6 +68,10 @@ scenario_registry: ScenarioRegistry = AttackScenarioService().load_registry()
 
 telemetry_dispatcher: InMemoryTelemetryDispatcher = InMemoryTelemetryDispatcher()
 
+# ADR-023: the single issuer of execution grants for this process. Every executor
+# that runs tools on behalf of the shared runtime must verify against it.
+execution_authority: ExecutionAuthority = ExecutionAuthority()
+
 runtime_service: RuntimeService = bootstrap_runtime_service(
     agent_service=agent_service,
     session_service=session_service,
@@ -76,6 +81,7 @@ runtime_service: RuntimeService = bootstrap_runtime_service(
     findings_service=findings_service,
     risk_service=risk_service,
     telemetry_emitter=telemetry_dispatcher,
+    execution_authority=execution_authority,
 )
 
 capability_service: CapabilityService = CapabilityService(

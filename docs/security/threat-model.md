@@ -179,6 +179,20 @@ An untrusted client on the network sends HTTP requests directly to FastAPI endpo
 - **Fail-Closed Verification:** Token verification handles signature invalidity, expiration, and malformed claims structures deterministically without leaking stack traces or credentials.
 - **Fail-Closed Signing Key Configuration:** `get_jwt_secret_key()` refuses to return a key unless `JWT_SECRET_KEY` is explicitly provisioned. There is no development fallback, the retired default shipped up to `74e8c51` is rejected explicitly, and keys shorter than the 32-byte HS256 minimum (RFC 7518 section 3.2) are refused. Because the key is resolved at import time, an unconfigured deployment cannot start rather than starting with a forgeable identity boundary.
 
+### Threat 9: Authorization/Execution Divergence [Elevation of Privilege / Tampering]
+
+#### Threat
+A caller obtains an `ALLOW` decision for one operation and executes a different one — for example authorizing `file_read` on `notes.txt`, then executing it on `secrets.txt` — or replays a single authorization to execute the same operation repeatedly, including after cumulative risk has escalated. Reproduced at `74e8c51` as finding H-5: the decision was not bound to the executed parameters, so containment depended on caller discipline.
+
+#### Mitigations
+- **Canonical Execution Binding ([ADR-023](../adr/ADR-023-execution-authorization-grants.md)):** Every decision is bound to an immutable `ExecutionBinding` of tool, resource and canonically ordered parameters. A request whose explicit resource contradicts its `path` parameter is denied.
+- **Signed, Single-Use, Short-Lived Grants:** Only a final `ALLOW` produces an `ExecutionGrant`, signed with HMAC-SHA256 by a per-process `ExecutionAuthority`, valid for one use within a short time-to-live.
+- **Executor-Side Enforcement:** `DefaultToolExecutor` verifies authority, signature, expiry and single use, and requires an exact tool, resource and parameter match before instantiating or running the tool. Every failure raises `ExecutionBindingError` and executes nothing.
+- **Resource-Aware HTTP Requests (finding M-2):** `ExecuteRequest` carries `resource` and `parameters`, so resource-aware policy evaluates the operation actually requested. The endpoint remains decision-only.
+
+#### Residual Risk
+- Code already executing inside the platform process can obtain a `BaseTool` from `ToolRegistry.get()` and call `execute()` directly. ADR-023 closes the confused-deputy path between components; it is not a defence against malicious in-process code.
+
 ---
 
 ## Threat -> Mitigation Mapping
@@ -194,6 +208,7 @@ An untrusted client on the network sends HTTP requests directly to FastAPI endpo
 | **Temporal Risk Masking & Cross-Agent Collision** | Info Disclosure / Integrity | Cumulative `FindingsService` retrieval + `(session_id, agent_id)` composite keying | `RiskService` composite key isolation + HTTP 400 Bad Request ambiguity protection | Audit Service |
 | **Agent Identity Spoofing** | Elevation of Privilege / Spoofing | Agent Identity Context Validation | `AgentRuntimeService` identity matching + `AgentService` authoritative registry lookup (`Decision.DENY` if unregistered/unauthorized) | Audit Service |
 | **Unauthenticated HTTP Gateway Access & Caller Identity Forgery** | Spoofing / EoP | FastAPI `HTTPBearer` Gateway Dependency (`get_current_principal`) | HTTP 401 Unauthorized for missing/invalid token + HTTP 403 Forbidden for agent identity mismatch | Audit Service |
+| **Authorization/Execution Divergence** | EoP / Tampering | Canonical `ExecutionBinding` + contradictory-binding denial | `DefaultToolExecutor` requires a valid, single-use `ExecutionGrant` exactly matching the executed operation (ADR-023) | Audit Service |
 
 ---
 
