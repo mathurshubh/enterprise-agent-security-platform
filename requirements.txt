@@ -19,7 +19,7 @@ idna==3.19
 iniconfig==2.3.0
 packaging==26.2
 pluggy==1.6.0
-pyasn1==0.6.3
+pyasn1==0.6.4
 pyasn1_modules==0.4.2
 pycparser==3.0
 pydantic==2.13.4
