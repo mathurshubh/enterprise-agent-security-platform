@@ -1,0 +1,9 @@
+# Pinned dependency-management toolchain for scripts/compile-requirements.sh.
+#
+# Not an application dependency: the script installs these into a separate
+# virtualenv, never into the application environment.
+#
+# Versions match the pip-compile toolchain pinned by dependabot-core, so Dependabot
+# regenerates requirements.txt the same way maintainers and CI do.
+pip==26.2.1
+pip-tools==7.6.1

@@ -1,0 +1,27 @@
+# Python dependency input. Human-maintained: list DIRECT dependencies only.
+#
+# requirements.txt is generated from this file by scripts/compile-requirements.sh and
+# pins the complete dependency graph. Never edit requirements.txt by hand.
+# See "Managing Python Dependencies" in docs/development/local-development.md.
+#
+# Versions are pinned in requirements.txt, not here. Add a version constraint only
+# when a range is a deliberate requirement, with a comment explaining why.
+
+# Runtime dependencies
+fastapi
+uvicorn
+pydantic
+PyJWT
+PyYAML
+requests
+google-genai
+
+# Development and test dependencies
+# Installed in the same environment as the runtime dependencies; the application
+# does not import them.
+pytest
+ruff
+# Starlette's TestClient, used throughout the test suite, imports httpx2 when it is
+# installed and otherwise falls back to httpx. No package metadata declares this, so
+# it must be listed explicitly or it silently disappears from the environment.
+httpx2

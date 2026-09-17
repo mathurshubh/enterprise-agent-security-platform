@@ -15,7 +15,7 @@ The CI workflow (`.github/workflows/ci.yml`) executes parallel, isolated jobs:
 ```text
 Pull Request / Push to main (permissions: contents: read)
       │
-      ├──> Job: Backend Quality (Python 3.13, Ruff linter, Pytest suite)
+      ├──> Job: Backend Quality (Python 3.13, requirements reproducibility, Ruff linter, Pytest suite)
       │
       ├──> Job: Frontend Quality (Node 20, ESLint, Vite production build)
       │
@@ -41,7 +41,8 @@ Every pull request must pass all mandatory quality gates before merge eligibilit
 | **Documentation** | `markdownlint-cli` | Project Markdown documentation | 0 Markdownlint violations |
 | **Repository Hygiene** | `git diff --check` | Git patch and formatting | 0 whitespace or patch errors |
 | **Secret Scanning** | `gitleaks` | Git commit history & PR diffs | 0 exposed secrets or credentials |
-| **Dependency Audit** | `npm audit` / `pip-audit` | Python & Node lockfiles | 0 high/critical vulnerability findings |
+| **Dependency Reproducibility** | `scripts/compile-requirements.sh --check` (Python 3.13) | `requirements.in` + committed pins → `requirements.txt` | 0 differences from the committed `requirements.txt`; never upgrades dependencies |
+| **Dependency Audit** | `npm audit` / `pip-audit` | `frontend/package-lock.json` / `requirements.txt` | npm: 0 high/critical findings; pip-audit: 0 known vulnerabilities |
 
 ---
 
@@ -51,6 +52,9 @@ Developers must run quality validation commands locally prior to opening or upda
 
 ### Backend Quality Gates
 ```bash
+# Verify requirements.txt is reproducible from requirements.in
+scripts/compile-requirements.sh --check
+
 # Run Python linter
 .venv/bin/ruff check
 
@@ -87,5 +91,5 @@ The CI/CD pipeline conforms to strict security and supply-chain guarantees:
 - **Least Privilege Permissions:** Top-level and job-level permissions are explicitly declared as `permissions: contents: read`.
 - **Pull Request Trust Boundary:** Untrusted PR validation runs strictly under the unprivileged `pull_request` trigger (never `pull_request_target`), isolating workflow execution from repository secrets.
 - **Zero Secret Requirement:** The quality pipeline operates entirely without requiring production credentials or third-party API keys.
-- **Dependency Locking:** Builds consume locked dependency definitions (`requirements-lock.txt` for Python, `package-lock.json` for Node.js).
+- **Dependency Locking:** Developers, CI and `pip-audit` all use the same locked dependency definitions: `requirements.txt` for Python, generated from `requirements.in` with a pinned pip-tools toolchain, and `package-lock.json` for Node.js. CI fails if `requirements.txt` is not reproducible from `requirements.in`.
 - **Automated Dependency Updates:** GitHub Dependabot (`.github/dependabot.yml`) scans Python (`pip`) and Frontend (`npm`) ecosystems weekly for security advisories.
