@@ -116,6 +116,9 @@ Management API authorization governs access to platform metadata and operational
 ### Implementation Notes
 The FastAPI management router enforces JWT validation at the HTTP boundary using FastAPI dependencies (`get_current_principal`), ensuring all management endpoints require valid Bearer token authentication before accessing service metadata.
 
+> [!NOTE]
+> **Amendment (M3, [ADR-025](ADR-025-management-plane-authorization.md)).** The authorization scopes promised above shipped later than the authentication they were paired with. Until M3 the management router enforced authentication only, which the post-v0.16 review recorded as finding H-2. The management plane is now mounted behind `require_roles(ANALYST, ADMIN)`: it is operator-facing, and an `AGENT` principal is refused. Reinstatement, the one route that modifies runtime state, narrows further to `ADMIN`. The scopes remain independent of Runtime API execution as stated, and ADR-025 supersedes this section on the question of *which* roles those scopes admit.
+
 ---
 
 # Architectural Separation
