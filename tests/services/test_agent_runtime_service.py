@@ -3,6 +3,7 @@ from collections.abc import Mapping
 import pytest
 
 from app.agents.enterprise_agent import EnterpriseAgent
+from app.models.agent import Agent, AgentStatus, RiskTier
 from app.models.agent_runtime_result import (
     AgentRuntimeResult,
 )
@@ -44,6 +45,16 @@ from app.services.agent_runtime_service import (
     AgentRuntimeService,
     RuntimeExecutor,
 )
+from app.services.agent_service import AgentService
+from app.services.audit_service import AuditService
+from app.services.findings_service import FindingsService
+from app.services.risk_service import RiskService
+from app.services.runtime_bootstrap import (
+    bootstrap_runtime_service,
+    create_default_detection_registry,
+)
+from app.services.runtime_service import RuntimeService
+from app.services.session_service import SessionService
 from app.tools.base_tool import BaseTool
 
 
@@ -227,8 +238,43 @@ class RecordingTool(BaseTool):
 
 
 def create_service(agent_id: str = "agent-1") -> AgentRuntimeService:
+    """Build an agent loop over its own isolated pipeline.
+
+    Enforcement posture accumulates per agent across sessions (M2b), which is
+    production behaviour. Sharing the application singletons would therefore let one
+    test's findings decide another test's request, so each test gets its own service
+    graph. Tests that exercise accumulation do so deliberately, against one agent.
+    """
     return AgentRuntimeService(
         agent=FakeAgent(agent_id=agent_id),
+        runtime_service=build_isolated_runtime(agent_id),
+    )
+
+
+def build_isolated_runtime(agent_id: str) -> RuntimeService:
+    """A complete pipeline that shares no state with the live runtime."""
+    agent_service = AgentService()
+    agent_service.register_agent(
+        Agent(
+            agent_id=agent_id,
+            name="Test Agent",
+            owner="security-team",
+            risk_tier=RiskTier.HIGH,
+            approved_tools=["file_read", "directory_list"],
+            status=AgentStatus.ACTIVE,
+        )
+    )
+
+    return bootstrap_runtime_service(
+        agent_service=agent_service,
+        session_service=SessionService(),
+        audit_service=AuditService(),
+        detection_registry=create_default_detection_registry(),
+        agent_id=agent_id,
+        tool_registry=ToolRegistry(),
+        findings_service=FindingsService(),
+        risk_service=RiskService(),
+        execution_authority=ExecutionAuthority(),
     )
 
 

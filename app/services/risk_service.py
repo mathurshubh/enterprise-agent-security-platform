@@ -1,11 +1,40 @@
+from datetime import datetime
 from threading import RLock
 
+from app.models.agent_risk_posture import AgentRiskPosture
 from app.models.finding import Finding, Severity
 from app.models.risk_assessment import RiskAssessment, RiskLevel
+
+SEVERITY_WEIGHTS = {
+    Severity.LOW: 10,
+    Severity.MEDIUM: 25,
+    Severity.HIGH: 50,
+    Severity.CRITICAL: 100,
+}
+
+
+def score_findings(findings: list[Finding]) -> int:
+    """Return the deterministic weighted score for a set of findings."""
+    return sum(SEVERITY_WEIGHTS[finding.severity] for finding in findings)
+
+
+def level_for_score(risk_score: int) -> RiskLevel:
+    """Map a score onto a risk level. Shared by session and agent scopes."""
+    if risk_score >= 100:
+        return RiskLevel.CRITICAL
+    if risk_score >= 50:
+        return RiskLevel.HIGH
+    if risk_score >= 25:
+        return RiskLevel.MEDIUM
+    return RiskLevel.LOW
 
 
 class AmbiguousAssessmentScopeError(ValueError):
     """Raised when an unscoped get_assessment query matches multiple agents for a session."""
+
+
+class FindingScopeError(ValueError):
+    """Raised when a finding presented for assessment belongs to another agent."""
 
 
 class RiskService:
@@ -19,6 +48,7 @@ class RiskService:
     def __init__(self) -> None:
         self._lock = RLock()
         self._assessments: dict[tuple[str, str], RiskAssessment] = {}
+        self._agent_postures: dict[str, AgentRiskPosture] = {}
 
     def assess_session(
         self,
@@ -36,23 +66,8 @@ class RiskService:
             if finding.session_id != session_id or finding.agent_id != agent_id:
                 raise ValueError("All findings must belong to the requested session and agent")
 
-        severity_weights = {
-            Severity.LOW: 10,
-            Severity.MEDIUM: 25,
-            Severity.HIGH: 50,
-            Severity.CRITICAL: 100,
-        }
-
-        risk_score = sum(severity_weights[finding.severity] for finding in findings)
-
-        if risk_score >= 100:
-            risk_level = RiskLevel.CRITICAL
-        elif risk_score >= 50:
-            risk_level = RiskLevel.HIGH
-        elif risk_score >= 25:
-            risk_level = RiskLevel.MEDIUM
-        else:
-            risk_level = RiskLevel.LOW
+        risk_score = score_findings(findings)
+        risk_level = level_for_score(risk_score)
 
         assessment = RiskAssessment(
             session_id=session_id,
@@ -81,6 +96,55 @@ class RiskService:
             agent_id=first_finding.agent_id,
             findings=findings,
         )
+
+    def assess_agent(
+        self,
+        agent_id: str,
+        findings: list[Finding],
+        baseline_at: datetime | None = None,
+    ) -> AgentRiskPosture:
+        """Calculate and store the enforcement posture for one agent.
+
+        Accumulates across every session the agent has used, so a fresh ``session_id``
+        cannot present an accumulated posture as new (finding H-3). Scoring is the same
+        deterministic weighting the session assessment uses.
+
+        ``baseline_at`` is recorded on the posture for attribution. Eligibility itself is
+        applied by the caller through ``FindingsService.list_findings(recorded_after=…)``,
+        because only the evidence store knows when a finding was accepted: detection
+        rules set ``Finding.created_at`` deterministically, so it cannot separate
+        historical evidence from evidence recorded after a reinstatement.
+
+        Raises:
+            FindingScopeError: a finding belongs to a different agent. Rejected rather
+                than filtered, because a mismatch means the caller assembled the
+                security input incorrectly.
+        """
+        for finding in findings:
+            if finding.agent_id != agent_id:
+                raise FindingScopeError(
+                    f"Finding '{finding.finding_id}' belongs to agent "
+                    f"'{finding.agent_id}', not '{agent_id}'"
+                )
+
+        risk_score = score_findings(findings)
+        posture = AgentRiskPosture(
+            agent_id=agent_id,
+            risk_score=risk_score,
+            risk_level=level_for_score(risk_score),
+            finding_count=len(findings),
+            baseline_at=baseline_at,
+        )
+
+        with self._lock:
+            self._agent_postures[agent_id] = posture
+
+        return posture
+
+    def get_agent_posture(self, agent_id: str) -> AgentRiskPosture | None:
+        """Return the last calculated enforcement posture for an agent."""
+        with self._lock:
+            return self._agent_postures.get(agent_id)
 
     def record_assessment(self, assessment: RiskAssessment) -> RiskAssessment:
         """Record a risk assessment directly in process-local state."""
@@ -130,7 +194,8 @@ class RiskService:
             return results
 
     def clear(self) -> None:
-        """Clear process-local risk assessments (useful for testing)."""
+        """Clear process-local risk assessments and postures (useful for testing)."""
         with self._lock:
             self._assessments.clear()
+            self._agent_postures.clear()
 

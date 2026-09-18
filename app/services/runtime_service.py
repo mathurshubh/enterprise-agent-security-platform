@@ -1,11 +1,13 @@
 import time
 import uuid
+from threading import RLock
 from typing import Any
 
 from app.auth.authorization_service import AuthorizationService
 from app.detection.context import DetectionContext
 from app.detection.engine import DetectionEngine
 from app.models.agent import Agent, AgentStatus, RiskTier
+from app.models.agent_risk_posture import AgentRiskPosture
 from app.models.audit_event import AuditEvent, Decision
 from app.models.execution_binding import (
     ExecutionBinding,
@@ -29,7 +31,7 @@ from app.models.tool_operational import ToolOperational
 from app.models.tool_risk_level import ToolRiskLevel
 from app.registry.tool_registry import ToolRegistry
 from app.runtime.execution_authority import ExecutionAuthority
-from app.services.agent_service import AgentService
+from app.services.agent_service import AgentNotFoundError, AgentService
 from app.services.audit_service import AuditService
 from app.services.detection_service import DetectionService
 from app.services.findings_service import FindingsService
@@ -54,6 +56,7 @@ class RuntimeService:
         findings_service: FindingsService | None = None,
         telemetry_emitter: TelemetryEmitter | None = None,
         execution_authority: ExecutionAuthority | None = None,
+        agent_service: AgentService | None = None,
     ) -> None:
         self._authorization_service = authorization_service
         self._session_service = session_service
@@ -66,6 +69,11 @@ class RuntimeService:
         self._findings_service = findings_service
         self._telemetry_emitter = telemetry_emitter
         self._execution_authority = execution_authority
+        self._agent_service = agent_service
+        # One lock per agent, so assessing an agent's posture serialises against other
+        # requests for that agent without serialising the pipeline as a whole.
+        self._posture_locks: dict[str, RLock] = {}
+        self._posture_lock_registry = RLock()
         self._last_result = None
 
     @property
@@ -196,6 +204,56 @@ class RuntimeService:
                 operational=ToolOperational(),
             )
         )
+
+    def _posture_lock(self, agent_id: str) -> RLock:
+        """Return the lock guarding posture assessment for one agent."""
+        with self._posture_lock_registry:
+            lock = self._posture_locks.get(agent_id)
+            if lock is None:
+                lock = RLock()
+                self._posture_locks[agent_id] = lock
+            return lock
+
+    def _assess_agent_posture(self, agent_id: str) -> AgentRiskPosture:
+        """Assess the agent's enforcement posture from every finding recorded for it.
+
+        Findings recorded earlier in this same request are already stored, so the
+        request that crosses a threshold is evaluated against the posture it just
+        produced rather than the previous one.
+
+        Reading the evidence, deriving the posture and publishing it happen under one
+        per-agent lock. Without it, two concurrent requests for the same agent could
+        interleave so that a request holding an older snapshot publishes last, and the
+        stored posture would silently regress below the evidence that already exists.
+        Posture is enforcement state in M2b, so a stale derivation must never overwrite
+        a newer one. Requests for different agents remain concurrent.
+        """
+        with self._posture_lock(agent_id):
+            baseline_at = None
+            if self._agent_service is not None:
+                try:
+                    baseline_at = self._agent_service.get_enforcement_state(
+                        agent_id
+                    ).enforcement_baseline_at
+                except AgentNotFoundError:
+                    # An unregistered agent is already denied by authorization; assess
+                    # what was recorded rather than inventing a baseline.
+                    baseline_at = None
+
+            # Eligibility is a property of when the evidence store accepted a finding,
+            # not of Finding.created_at, which detection rules set deterministically so
+            # findings stay reproducible. Filtering here keeps RiskService responsible
+            # for scoring rather than for deciding what counts as history.
+            agent_findings = self._findings_service.list_findings(
+                agent_id=agent_id,
+                recorded_after=baseline_at,
+            )
+
+            return self._risk_service.assess_agent(
+                agent_id,
+                agent_findings,
+                baseline_at=baseline_at,
+            )
 
     def execute(
         self,
@@ -340,11 +398,25 @@ class RuntimeService:
             findings=accumulated_findings,
         )
 
-        response_action = (
-            self._response_service.recommend(
-                risk_assessment
+        # M2b: enforcement is derived from the agent's accumulated posture, not from
+        # one session's assessment, so rotating to a fresh session_id cannot present an
+        # accumulated posture as new (finding H-3). The session assessment above keeps
+        # its meaning for reporting and attribution.
+        #
+        # The fallback below is compatibility behaviour for partially constructed
+        # runtimes, which exist only in tests that predate this wiring. Production
+        # bootstrapping always supplies both services, so a live request never silently
+        # enforces on the weaker session posture.
+        enforcement_posture = None
+        if self._findings_service is not None and self._agent_service is not None:
+            enforcement_posture = self._assess_agent_posture(agent_id)
+            response_action = self._response_service.recommend_for_level(
+                enforcement_posture.risk_level,
+                session_id=session_id,
+                agent_id=agent_id,
             )
-        )
+        else:
+            response_action = self._response_service.recommend(risk_assessment)
 
         # Enforce Zero Trust response actions on final decision
         if recorded_event.decision == Decision.ALLOW:
@@ -395,6 +467,7 @@ class RuntimeService:
             event=recorded_event,
             findings=findings,
             risk_assessment=risk_assessment,
+            enforcement_posture=enforcement_posture,
             response_action=response_action,
             authorization=authorization,
         )

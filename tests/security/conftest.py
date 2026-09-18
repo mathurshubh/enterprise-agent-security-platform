@@ -113,6 +113,9 @@ def build_runtime():
             tool_registry=tool_registry,
             findings_service=findings_service,
             execution_authority=authority,
+            # M2b: enforcement posture is agent-scoped, so the fixture mirrors
+            # production wiring and supplies the agent registry.
+            agent_service=agent_service,
         )
 
         return SimpleNamespace(

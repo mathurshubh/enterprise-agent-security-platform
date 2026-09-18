@@ -21,6 +21,38 @@ from app.api.dependencies import jwt_service  # noqa: E402
 from app.models.jwt_claims import Role  # noqa: E402
 
 
+def register_test_agent(
+    agent_id: str,
+    approved_tools: list[str] | None = None,
+) -> str:
+    """Register an agent dedicated to one test module, and return its id.
+
+    Enforcement posture accumulates per agent across sessions (M2b), so HTTP tests that
+    expect a quiet agent must not share ``agent-1`` with the modules that deliberately
+    escalate it. Registration is additive: no shared state is cleared, and the
+    accumulation this project now guarantees is left intact.
+    """
+    from app.api.dependencies import agent_service
+    from app.models.agent import Agent, AgentStatus, RiskTier
+    from app.services.agent_service import AgentAlreadyExistsError
+
+    try:
+        agent_service.register_agent(
+            Agent(
+                agent_id=agent_id,
+                name=f"Test Agent ({agent_id})",
+                owner="security-team",
+                risk_tier=RiskTier.HIGH,
+                approved_tools=approved_tools or ["file_read", "directory_list"],
+                status=AgentStatus.ACTIVE,
+            )
+        )
+    except AgentAlreadyExistsError:
+        pass
+
+    return agent_id
+
+
 def create_test_jwt(
     agent_id: str = "admin-agent",
     role: Role = Role.ADMIN,

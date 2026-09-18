@@ -14,7 +14,7 @@ from app.api.dependencies import (
 from app.auth.jwt_service import JWTService
 from app.main import app
 from app.models.jwt_claims import Role
-from tests.conftest import create_test_jwt
+from tests.conftest import create_test_jwt, register_test_agent
 
 client = TestClient(app)
 
@@ -156,15 +156,18 @@ class TestRuntimeAgentIdentityBinding:
             mock_execute.assert_not_called()
 
     def test_matching_agent_allowed_to_invoke_execution(self) -> None:
-        token = create_test_jwt(agent_id="agent-1", role=Role.AGENT, subject="agent-1-sub")
+        # Dedicated agent: the assertion is about identity binding, not about the
+        # enforcement posture agent-1 accumulates across the suite (M2b).
+        agent_id = register_test_agent("jwt-binding-agent", approved_tools=["file_read"])
+        token = create_test_jwt(agent_id=agent_id, role=Role.AGENT, subject="binding-sub")
 
         response = client.post(
-            "/agents/agent-1/execute",
+            f"/agents/{agent_id}/execute",
             headers={"Authorization": f"Bearer {token}"},
             json={"session_id": "sess-1", "tool_id": "file_read"},
         )
         assert response.status_code == 200
-        assert response.json()["agent_id"] == "agent-1"
+        assert response.json()["agent_id"] == agent_id
         assert response.json()["decision"] == "ALLOW"
 
     def test_admin_allowed_to_invoke_execution_for_any_agent(self) -> None:
