@@ -1,8 +1,11 @@
 from pathlib import Path
 
 from app.auth.authorization_service import AuthorizationService
+from app.detection.data_exfiltration_rule import DataExfiltrationRule
 from app.detection.engine import DetectionEngine
+from app.detection.prompt_injection_rule import PromptInjectionRule
 from app.detection.registry import DetectionRegistry
+from app.detection.sensitive_file_access_rule import SensitiveFileAccessRule
 from app.models.agent import Agent, AgentStatus, RiskTier
 from app.models.tool import Tool
 from app.models.tool_capability import ToolCapability
@@ -26,6 +29,23 @@ from app.services.tool_service import ToolNotFoundError, ToolService
 from app.telemetry.contracts import TelemetryEmitter
 from app.tools.directory_list_tool import DirectoryListTool
 from app.tools.file_read_tool import FileReadTool
+
+
+def create_default_detection_registry() -> DetectionRegistry:
+    """
+    Return a DetectionRegistry populated with the platform's active detection rules.
+
+    This function is the single authoritative registration site for all
+    detection rules.  Both RuntimeService (via DetectionEngine) and the
+    Management API (via DetectionRegistry.metadata()) consume the same
+    registry instance, guaranteeing that the management plane always reflects
+    the exact rule set used at runtime.
+    """
+    registry = DetectionRegistry()
+    registry.register(PromptInjectionRule())
+    registry.register(SensitiveFileAccessRule())
+    registry.register(DataExfiltrationRule())
+    return registry
 
 
 def register_default_agent(agent_service: AgentService, agent_id: str = "agent-1") -> None:

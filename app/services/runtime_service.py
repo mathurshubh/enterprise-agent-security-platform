@@ -313,10 +313,17 @@ class RuntimeService:
         session_findings = self._detection_service.detect_excessive_denials(
             session_events
         )
-        findings = content_findings + session_findings
 
-        if self._findings_service and findings:
-            self._findings_service.record_findings(findings)
+        # A threshold detection is evidence of one crossing, not of every request
+        # that follows it. ``record_new_findings`` keeps the original record and
+        # reports only newly recorded evidence, so a crossed threshold cannot raise
+        # cumulative risk again on later requests.
+        if self._findings_service:
+            findings = self._findings_service.record_new_findings(
+                content_findings + session_findings
+            )
+        else:
+            findings = content_findings + session_findings
 
         # Retrieve accumulated historical findings for session + agent scope to calculate cumulative risk posture
         if self._findings_service:

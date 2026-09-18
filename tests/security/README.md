@@ -64,6 +64,17 @@ the failure is the signal to promote them.
 | M-5 | Sessions not established or owned | Reproduced | Server-established session ownership |
 | M-6 | Unsalted parameter hashing | Reproduced | Keyed hashing where confidentiality is required |
 
+## Controls established after the baseline
+
+Some controls were introduced because a later milestone would otherwise turn an
+accounting defect into a security problem. They are covered by
+`security_regression` tests, which must keep passing.
+
+| Control | Milestone | Regression test |
+|---|---|---|
+| A crossed denial threshold is counted once per session, so unrelated traffic cannot inflate cumulative risk into a false containment action | M2a | `test_denial_threshold_is_counted_once_per_session` |
+| Scenario execution runs in an isolated pipeline and cannot mutate live agent, session, findings, risk, audit or telemetry state | M2a | `tests/services/test_scenario_sandbox.py` |
+
 ## Execution
 
 Run the whole suite:

@@ -163,6 +163,8 @@ An agent attempts to read sensitive data and transmit it out of the enterprise b
 3. **Ambiguous Unscoped Session Lookup (H2 API):** Requesting `GET /api/v1/risk-assessments/{session_id}` without `agent_id` when multiple agents used `session_id` returns whichever agent executed last, disclosing posture across agent boundaries.
 
 #### Mitigations
+- **Threshold Evidence Is Counted Once (M2a):** Session threshold detections such as `EXCESSIVE_DENIALS` carry a deterministic identity derived from the crossing (rule, session, agent, threshold). Re-deriving the same crossing on later requests records no new evidence, so unrelated traffic cannot inflate cumulative risk toward a false containment action.
+- **Scenario Execution Isolation (M2a):** Scenario runs execute against a throwaway pipeline ([ADR-013 scenario isolation amendment](../adr/ADR-013-scenario-runner-service-boundaries.md)) with isolated agent, session, findings, risk, audit and execution-grant state, and emit no live behavioural telemetry. A security test cannot raise a live agent's posture or change its status, and cannot pollute live security evidence.
 - **Cumulative Session Risk Evaluation (H1):** `RuntimeService` queries all accumulated findings recorded in `FindingsService` for the active `(session_id, agent_id)` scope before evaluating `RiskService.assess_session()`. Benign tool executions never reset a session's elevated risk posture.
 - **Composite Key Isolation (H2):** `RiskService` indexes process-local assessments using composite key tuples `(session_id, agent_id)`.
 - **Ambiguity Protection API (H2 API):** `RiskService.get_assessment()` and `GET /api/v1/risk-assessments/{session_id}` raise `AmbiguousAssessmentScopeError` and return `HTTP 400 Bad Request` if `agent_id` is omitted when multiple assessments match `session_id`. Zero cross-agent posture disclosure.
@@ -226,6 +228,7 @@ The platform maps threat detections to industry security frameworks through rule
 - **Heuristic Detection Limits:** Detections rely on deterministic rules; complex semantic evasion requires future vector-based classification.
 - **In-Memory State Persistence:** Current process-local state is in-memory; persistent database models are planned for future phases.
 - **Session Registration Boundary:** `session_id` uniqueness validation at the `RuntimeService` boundary is recorded for future backlog.
+- **Containment Enforcement:** `SUSPEND_AGENT` remains advisory and cumulative risk is scoped to a caller-supplied `session_id` (findings H-3, H-4, M-5). Both are being addressed by the M2 enforcement milestone.
 - **External Identity Provider Integration:** Current gateway authentication uses symmetric JWT verification (`HS256`). Asymmetric signing (`RS256`/`ES256`) and dynamic enterprise IdP / OIDC discovery are planned for distributed deployment milestones.
 
 ---

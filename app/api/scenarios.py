@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query
 
-from app.api.dependencies import runtime_service, scenario_registry
+from app.api.dependencies import scenario_registry
 from app.models.api.scenario_execution_response import ScenarioExecutionResponse
 from app.models.api.scenario_response import ScenarioResponse
 from app.models.attack_scenario import AttackScenario
@@ -101,7 +101,9 @@ def execute_scenario(scenario_id: str) -> ScenarioExecutionResponse:
             status_code=404, detail=f"Scenario '{scenario_id}' not found"
         ) from err
 
-    runner = ScenarioRunnerService(runtime_service=runtime_service)
+    # ADR-013 (scenario isolation amendment): a scenario runs against a throwaway
+    # pipeline, so a security test can never mutate live runtime state.
+    runner = ScenarioRunnerService()
     execution = runner.run(scenario)
 
     passed: bool | None = None
