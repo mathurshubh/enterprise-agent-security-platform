@@ -139,27 +139,52 @@ cd ..
 
 ---
 
-## 6. Run Backend Service
+## 6. Start the Development Environment
 
-The platform fails closed when the JWT signing key is not provisioned: there is no
-development fallback, and the application will not start without `JWT_SECRET_KEY`.
-Export an explicit secret of at least 32 bytes first.
-
-> [!NOTE]
-> `.env` files are **not** loaded by the application. The variable must be exported
-> in the shell that starts the server.
+One command starts the backend and the console together and handles local development
+authentication:
 
 ```bash
-# Generate and export a signing key for this shell session
-export JWT_SECRET_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')"
-
-# Start backend server using python -m uvicorn (defaults to http://127.0.0.1:8000)
-.venv/bin/python -m uvicorn app.main:app --reload --port 8000
+scripts/dev-start.sh
 ```
 
-Verify backend health by visiting:
-- Healthcheck Endpoint: `http://127.0.0.1:8000/health`
-- OpenAPI Documentation: `http://127.0.0.1:8000/docs`
+It generates an **ephemeral** JWT signing secret, mints one development token from that
+exact secret, starts the backend with the secret and the console with the token, and
+verifies the pair before handing over. You never generate, copy or export credentials
+yourself. Both values are passed through the process environment rather than command-line
+arguments, so they are not exposed in the process argument list, and neither is written to
+disk.
+
+```text
+scripts/dev-start.sh
+  ├── ephemeral JWT_SECRET_KEY ─────────▶ FastAPI      (verifies with this secret)
+  └── ANALYST token from that secret ───▶ Vite proxy   (sends it to FastAPI)
+```
+
+- **Console:** `http://localhost:3000`
+- **Backend:** `http://127.0.0.1:8000` (health at `/health`, API docs at `/docs`)
+- **Stop:** press `Ctrl+C`. Both processes stop, and the secret and token cease to exist,
+  so the token cannot be replayed against a backend started later.
+
+Before starting, the script checks the virtual environment, the Python version, backend
+and frontend dependencies and the ports, and explains what to fix when a check fails. It
+then confirms that an authenticated request to `/api/v1/agents` returns `200` and that an
+unauthenticated one still returns `401`. Neither the secret nor the token is ever printed.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `BACKEND_PORT` / `FRONTEND_PORT` | `8000` / `3000` | Ports to bind. The console is pointed at the backend the script started |
+| `EASP_DEV_TOKEN_ROLE` | `ANALYST` | Set to `ADMIN` only when testing admin or runtime-execution endpoints. No other role is accepted |
+| `EASP_DEV_TOKEN_LIFETIME_MINUTES` | `1440` | Token lifetime, bounded by the ephemeral secret |
+| `EASP_DEV_RELOAD` | unset | `1` runs the backend with `--reload` |
+
+`scripts/dev-start.sh --dry-run` runs the checks and credential setup without starting
+anything.
+
+> [!IMPORTANT]
+> Never commit a development secret or token, and never put either in a `.env` file. The
+> script keeps both in process environment variables only. The application does not load
+> `.env` files.
 
 ---
 
@@ -186,7 +211,27 @@ FastAPI ── JWT authentication, unchanged
 - Non-browser tools on your machine that send neither header, such as `curl`, also receive the token.
 - With a token set, the development server refuses to start if it is explicitly exposed beyond loopback (for example `npm run dev -- --host`) or configured with `server.allowedHosts: true`, because anyone reaching the proxy would act as the token's principal.
 
-In a separate terminal, export the same `JWT_SECRET_KEY` the backend is running with (section 6), then generate a short-lived `ANALYST` token from the repository root without printing it:
+### Starting the processes separately — advanced troubleshooting only
+
+> [!WARNING]
+> `scripts/dev-start.sh` is the supported workflow. Starting the processes by hand
+> requires transferring the same signing secret between two processes yourself, which is
+> exactly the coordination this script exists to remove. Use it only when troubleshooting
+> the environment itself.
+
+**The token must be minted from the same secret the backend runs with.** A mismatch is
+the usual cause of a `401` reading `Invalid token: Signature verification failed`, while a
+missing token reads `Missing authorization credentials`.
+
+In one terminal, export a signing key and start the backend:
+
+```bash
+export JWT_SECRET_KEY="$(.venv/bin/python -c 'import secrets; print(secrets.token_urlsafe(48))')"
+.venv/bin/python -m uvicorn app.main:app --reload --port 8000
+```
+
+In a second terminal, export **the same** `JWT_SECRET_KEY`, then mint a token from it
+without printing it:
 
 ```bash
 export EASP_DEV_API_TOKEN="$(.venv/bin/python -c '
@@ -202,7 +247,7 @@ print(JWTService(secret_key=get_jwt_secret_key()).create_token(
 ')"
 ```
 
-Start the Vite development server from the same terminal, so it inherits the variable:
+Start the Vite development server from that second terminal, so it inherits the variable:
 
 ```bash
 cd frontend
@@ -212,7 +257,8 @@ npm run dev
 The console will be accessible at `http://127.0.0.1:3000`. API requests to `/api/*` are proxied to the backend at `http://127.0.0.1:8000` with the token attached.
 
 - Use an `ANALYST` token for the console, not `ADMIN`, so it runs with the least-privileged management role.
-- Tokens expire after 60 minutes. When the console reports `401`, generate a new token and restart `npm run dev`.
+- A hand-minted token expires after 60 minutes by default. When the console reports `401`, mint a new one and restart `npm run dev`.
+- `EASP_DEV_API_TARGET` points the proxy at a backend on another port; it must stay on this machine, because the proxy attaches credentials to everything it forwards.
 - Without `EASP_DEV_API_TOKEN`, the proxy forwards requests unchanged and the backend returns `401`.
 - The token is a credential. Do not commit it or paste it into shared logs.
 

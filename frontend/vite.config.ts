@@ -16,6 +16,47 @@ const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 
  */
 const DEV_API_TOKEN_ENV = 'EASP_DEV_API_TOKEN'
 
+/**
+ * Backend origin the dev proxy forwards `/api` requests to.
+ *
+ * `scripts/dev-start.sh` sets this so the console follows the backend it started, on
+ * whichever port. Like the token, it is deliberately not a `VITE_*` variable.
+ */
+const DEV_API_TARGET_ENV = 'EASP_DEV_API_TARGET'
+const DEFAULT_API_TARGET = 'http://127.0.0.1:8000'
+
+// Hostnames that resolve to this machine, as they appear in a URL.
+const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]', '::1'])
+
+/**
+ * Resolve the backend origin, refusing any target off this machine.
+ *
+ * The proxy attaches a credential to everything it forwards, so a target beyond
+ * loopback would send development credentials to another host.
+ */
+function resolveApiTarget(): string {
+  const configured = process.env[DEV_API_TARGET_ENV]?.trim()
+  if (!configured) {
+    return DEFAULT_API_TARGET
+  }
+
+  let hostname: string
+  try {
+    hostname = new URL(configured).hostname
+  } catch {
+    throw new Error(`${DEV_API_TARGET_ENV} is not a valid URL: ${configured}`)
+  }
+
+  if (!LOOPBACK_HOSTNAMES.has(hostname)) {
+    throw new Error(
+      `${DEV_API_TARGET_ENV} must point at this machine, but is ${configured}. ` +
+        'The dev proxy attaches local development credentials to every request it forwards.',
+    )
+  }
+
+  return configured
+}
+
 // `server.host` values that keep the dev server on loopback. Vite treats both an
 // unset host and `false` as localhost.
 const LOOPBACK_HOSTS = new Set<string | boolean | undefined>([
@@ -144,7 +185,7 @@ export default defineConfig({
     port: 3000,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8000',
+        target: resolveApiTarget(),
         changeOrigin: true,
       },
     },
