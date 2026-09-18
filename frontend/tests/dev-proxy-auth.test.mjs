@@ -18,6 +18,7 @@ import { build, resolveConfig } from 'vite'
 const FRONTEND_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const CONFIG_FILE = path.join(FRONTEND_ROOT, 'vite.config.ts')
 const TOKEN_ENV = 'EASP_DEV_API_TOKEN'
+const TARGET_ENV = 'EASP_DEV_API_TARGET'
 const SENTINEL = 'sentinel-dev-token-not-a-real-jwt-6f1d2c'
 const BACKEND_TARGET = 'http://127.0.0.1:8000'
 const CREDENTIAL = { Authorization: `Bearer ${SENTINEL}` }
@@ -41,7 +42,20 @@ function setToken(value) {
   }
 }
 
-afterEach(() => setToken(originalToken))
+const originalTarget = process.env[TARGET_ENV]
+
+function setTarget(value) {
+  if (value === undefined) {
+    delete process.env[TARGET_ENV]
+  } else {
+    process.env[TARGET_ENV] = value
+  }
+}
+
+afterEach(() => {
+  setToken(originalToken)
+  setTarget(originalTarget)
+})
 
 function resolveFor({ command = 'serve', isPreview = false, server } = {}) {
   return resolveConfig(
@@ -125,6 +139,50 @@ describe('local development console authentication proxy', () => {
       setToken('   ')
 
       assertCarriesNoCredential(await resolveFor())
+    })
+  })
+
+  describe('backend target', () => {
+    test('defaults to the loopback backend', async () => {
+      setToken(SENTINEL)
+      setTarget(undefined)
+
+      const config = await resolveFor()
+
+      assert.equal(config.server.proxy['/api'].target, BACKEND_TARGET)
+    })
+
+    test('follows the backend the developer started', async () => {
+      setToken(SENTINEL)
+      setTarget('http://127.0.0.1:8010')
+
+      const config = await resolveFor()
+
+      assert.equal(config.server.proxy['/api'].target, 'http://127.0.0.1:8010')
+      assert.deepEqual(headersSentBy(config.server.proxy['/api']), CREDENTIAL)
+    })
+
+    test('refuses to forward credentials off this machine', async () => {
+      setToken(SENTINEL)
+
+      for (const target of ['http://backend.example:8000', 'https://10.0.0.5:8000']) {
+        await assert.rejects(
+          (setTarget(target), resolveFor()),
+          (error) => {
+            assert.match(error.message, /must point at this machine/)
+            assert.ok(!error.message.includes(SENTINEL))
+            return true
+          },
+          target,
+        )
+      }
+    })
+
+    test('refuses a malformed target', async () => {
+      setToken(SENTINEL)
+      setTarget('not-a-url')
+
+      await assert.rejects(resolveFor(), /is not a valid URL/)
     })
   })
 

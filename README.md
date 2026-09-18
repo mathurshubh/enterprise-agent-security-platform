@@ -212,6 +212,21 @@ export JWT_SECRET_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe
 .venv/bin/python -m pytest
 ```
 
+### Start the development environment
+
+One command starts the backend and the Enterprise Security Console together, generating
+an ephemeral signing secret and a matching development token so no credentials are
+created or copied by hand:
+
+```bash
+scripts/dev-start.sh
+```
+
+The console is served at `http://localhost:3000` and the backend at
+`http://127.0.0.1:8000`. `Ctrl+C` stops both, and the development credentials cease to
+exist. See [Local Development](docs/development/local-development.md) for options and the
+manual alternative.
+
 ### 3. Frontend Setup
 
 ```bash
