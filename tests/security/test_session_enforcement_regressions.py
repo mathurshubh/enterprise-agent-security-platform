@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from app.models.agent import AgentStatus
+from app.models.agent import Agent, AgentStatus, RiskTier
 from app.models.audit_event import Decision
 from app.models.response_action import ResponseType
 from app.models.risk_assessment import RiskLevel
@@ -263,28 +263,30 @@ def test_invariant_suspension_withdraws_outstanding_execution_authority(
     assert refusal.value.reason == ExecutionRefusalReason.REVOKED
 
 
-@pytest.mark.security_baseline
-def test_baseline_sessions_are_never_established_or_owned(
+@pytest.mark.security_regression
+def test_session_ownership_is_established_on_first_use(
     build_runtime, security_workspace: Path
 ) -> None:
-    """A caller-invented session id is accepted and never registered."""
+    """A session is registered and owned from the first request that uses it.
+
+    Before M2b the identifier was a caller-supplied label that no component owned, so
+    nothing tied the evidence gathered under it to the agent that produced it.
+    """
     env = build_runtime(workspace=security_workspace)
 
     env.runtime.execute(
-        session_id="corpus-m5-unregistered",
+        session_id="corpus-m5-first-use",
         agent_id=env.agent_id,
         tool_id="file_read",
+        resource=BENIGN_FILE,
         user_prompt="read the notes file",
     )
 
-    assert env.session_service.list_sessions() == []
+    session = env.session_service.get_session("corpus-m5-first-use")
+    assert session.agent_id == env.agent_id
 
 
 @pytest.mark.security_invariant
-@pytest.mark.xfail(
-    strict=True,
-    reason="M-5: SessionService.create_session() has no caller in app/ (M2)",
-)
 def test_invariant_session_must_be_established_and_owned(
     build_runtime, security_workspace: Path
 ) -> None:
@@ -300,6 +302,61 @@ def test_invariant_session_must_be_established_and_owned(
     sessions = {s.session_id: s for s in env.session_service.list_sessions()}
     assert "corpus-m5-invariant" in sessions
     assert sessions["corpus-m5-invariant"].agent_id == env.agent_id
+
+
+@pytest.mark.security_invariant
+def test_invariant_another_agent_cannot_poison_a_session(
+    build_runtime, security_workspace: Path
+) -> None:
+    """NEW-002: session hopping must not let one agent drive another toward suspension.
+
+    Agent-scoped enforcement made this reachable: evidence recorded under a session is
+    attributed to an agent, and that agent's posture decides containment. A request
+    from a non-owner is therefore refused before any session state is touched.
+    """
+    env = build_runtime(workspace=security_workspace)
+    env.agent_service.register_agent(
+        Agent(
+            agent_id="corpus-attacker",
+            name="Attacker",
+            owner="unknown",
+            risk_tier=RiskTier.HIGH,
+            approved_tools=["file_read"],
+            status=AgentStatus.ACTIVE,
+        )
+    )
+
+    env.runtime.execute(
+        session_id="corpus-victim-session",
+        agent_id=env.agent_id,
+        tool_id="file_read",
+        resource=BENIGN_FILE,
+        user_prompt="read the notes file",
+    )
+    victim_findings = env.findings_service.list_findings(agent_id=env.agent_id)
+
+    for _ in range(4):
+        refused = env.runtime.execute(
+            session_id="corpus-victim-session",
+            agent_id="corpus-attacker",
+            tool_id="file_read",
+            user_prompt=CRITICAL_PAYLOAD,
+        )
+        assert refused.event.decision == Decision.DENY
+        assert refused.findings == []
+        assert refused.authorization is None
+
+    assert env.findings_service.list_findings(agent_id=env.agent_id) == victim_findings
+    assert env.agent_service.get_agent(env.agent_id).status == AgentStatus.ACTIVE
+
+    still_allowed = env.runtime.execute(
+        session_id="corpus-victim-session",
+        agent_id=env.agent_id,
+        tool_id="file_read",
+        resource=BENIGN_FILE,
+        user_prompt="read the notes file",
+    )
+    assert still_allowed.event.decision == Decision.ALLOW
 
 
 @pytest.mark.security_regression

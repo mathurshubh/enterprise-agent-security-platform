@@ -61,6 +61,14 @@ def execute(
         tool_output=request.tool_output,
     )
 
+    assessment = result.risk_assessment
+    posture = result.enforcement_posture
+    response = result.response_action
+
+    # A request refused at a trust boundary (for example a session owned by another
+    # agent) never reaches assessment. Those fields are null rather than zero, so a
+    # consumer cannot read a refusal as a benign evaluation, and refusal_reason names
+    # the boundary that refused it.
     return {
         "session_id": result.event.session_id,
         "agent_id": result.event.agent_id,
@@ -68,23 +76,20 @@ def execute(
         "decision": result.event.decision.value,
         "findings": result.findings,
         # Session-scoped assessment: unchanged meaning for existing consumers.
-        "risk_score": result.risk_assessment.risk_score,
-        "risk_level": result.risk_assessment.risk_level.value,
+        "risk_score": assessment.risk_score if assessment is not None else None,
+        "risk_level": assessment.risk_level.value if assessment is not None else None,
         # Agent-scoped posture the decision was derived from (M2b).
         "enforcement_risk_score": (
-            result.enforcement_posture.risk_score
-            if result.enforcement_posture is not None
-            else result.risk_assessment.risk_score
+            posture.risk_score
+            if posture is not None
+            else (assessment.risk_score if assessment is not None else None)
         ),
         "enforcement_risk_level": (
-            result.enforcement_posture.risk_level.value
-            if result.enforcement_posture is not None
-            else result.risk_assessment.risk_level.value
+            posture.risk_level.value
+            if posture is not None
+            else (assessment.risk_level.value if assessment is not None else None)
         ),
-        "response_type": (
-            result.response_action.response_type.value
-        ),
-        "response_reason": (
-            result.response_action.reason
-        ),
+        "response_type": response.response_type.value if response is not None else None,
+        "response_reason": response.reason if response is not None else None,
+        "refusal_reason": result.refusal_reason,
     }

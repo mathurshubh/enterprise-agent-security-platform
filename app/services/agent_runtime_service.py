@@ -7,6 +7,7 @@ from app.models.agent_runtime_result import (
     AgentRuntimeResult,
 )
 from app.models.audit_event import Decision
+from app.models.response_action import ResponseType
 from app.models.runtime_result import RuntimeResult
 from app.providers.provider_factory import ProviderFactory
 from app.registry.tool_registry import ToolRegistry
@@ -126,7 +127,13 @@ class AgentRuntimeService:
 
         decision = runtime_result.event.decision
 
-        response_type = runtime_result.response_action.response_type
+        # A request refused before assessment carries no response recommendation; report
+        # it as monitoring so the caller sees the denial, not a fabricated escalation.
+        response_type = (
+            runtime_result.response_action.response_type
+            if runtime_result.response_action is not None
+            else ResponseType.MONITOR
+        )
 
         if decision != Decision.ALLOW:
             return AgentRuntimeResult(

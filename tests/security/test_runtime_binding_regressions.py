@@ -71,6 +71,7 @@ ORIGINAL_RESPONSE_FIELDS = {
     "enforcement_risk_level",
     "response_type",
     "response_reason",
+    "refusal_reason",
 }
 
 

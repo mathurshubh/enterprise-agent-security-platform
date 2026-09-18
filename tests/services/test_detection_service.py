@@ -98,6 +98,43 @@ def test_ignore_non_deny_events():
     assert not findings
 
 
+def test_denials_are_attributed_per_agent_not_per_session():
+    """Ownership is authoritative state, never inferred from whichever event is first.
+
+    Grouping by session alone would credit the aggregate to the agent of the earliest
+    denial, letting interleaved activity be attributed to another agent (NEW-002).
+    """
+    service = DetectionService()
+    events = [
+        create_event(Decision.DENY, "session-1", "agent-a"),
+        create_event(Decision.DENY, "session-1", "agent-b"),
+        create_event(Decision.DENY, "session-1", "agent-a"),
+        create_event(Decision.DENY, "session-1", "agent-b"),
+    ]
+
+    findings = service.detect_excessive_denials(events)
+
+    # Two denials each: neither agent reaches the threshold on its own.
+    assert findings == []
+
+
+def test_only_the_agent_that_crossed_the_threshold_is_reported():
+    service = DetectionService()
+    events = [
+        create_event(Decision.DENY, "session-1", "agent-a"),
+        create_event(Decision.DENY, "session-1", "agent-b"),
+        create_event(Decision.DENY, "session-1", "agent-a"),
+        create_event(Decision.DENY, "session-1", "agent-b"),
+        create_event(Decision.DENY, "session-1", "agent-b"),
+    ]
+
+    findings = service.detect_excessive_denials(events)
+
+    assert len(findings) == 1
+    assert findings[0].agent_id == "agent-b"
+    assert findings[0].session_id == "session-1"
+
+
 def test_multiple_sessions_generate_findings():
     service = DetectionService()
     events = [
