@@ -53,15 +53,15 @@ the failure is the signal to promote them.
 |---|---|---|---|
 | H-1 | Committed default JWT secret | **Fixed** — invariants enforced | Missing secret fails closed; legacy-signed tokens rejected |
 | H-2 | Management plane RBAC missing | Reproduced | Role gating plus caller scoping |
-| H-3 | Risk posture resets on session rotation | Reproduced | Posture cannot be relaxed by rotating an identifier |
-| H-4 | Suspension is advisory | Reproduced | `SUSPEND_AGENT` writes durable state |
+| H-3 | Risk posture resets on session rotation | **Fixed** — invariants enforced (ADR-024) | Posture cannot be relaxed by rotating an identifier |
+| H-4 | Suspension is advisory | **Fixed** — invariants enforced (ADR-024) | `SUSPEND_AGENT` writes durable state |
 | H-5 | Decision/execution divergence | **Fixed** — invariants enforced (ADR-023) | Executed parameters must match authorized parameters |
 | H-6 | Detection evasion | Reproduced (1 of 11 detected) | Normalisation-addressable variants detected |
 | M-1 | Prefix-based path containment | Reproduced | Canonical resolved-path containment |
 | M-2 | API cannot express a resource | **Fixed** — invariants enforced (ADR-023) | API carries the authorized resource |
 | M-3 | Scenario identity and role gate | Reproduced | Caller identity preserved and role enforced |
 | M-4 | Unbounded state growth | Reproduced | Bounded or evictable state |
-| M-5 | Sessions not established or owned | Reproduced | Server-established session ownership |
+| M-5 | Sessions not established or owned | **Fixed** — invariants enforced (ADR-024) | Server-established session ownership |
 | M-6 | Unsalted parameter hashing | Reproduced | Keyed hashing where confidentiality is required |
 
 ## Controls established after the baseline
@@ -74,6 +74,9 @@ accounting defect into a security problem. They are covered by
 |---|---|---|
 | A crossed denial threshold is counted once per session, so unrelated traffic cannot inflate cumulative risk into a false containment action | M2a | `test_denial_threshold_is_counted_once_per_session` |
 | Scenario execution runs in an isolated pipeline and cannot mutate live agent, session, findings, risk, audit or telemetry state | M2a | `tests/services/test_scenario_sandbox.py` |
+| One agent cannot contribute evidence to another agent's enforcement posture through a session it does not own (NEW-002, found by an independent review of M2b) | M2b | `test_invariant_another_agent_cannot_poison_a_session`, `tests/services/test_session_ownership.py` |
+| A request refused at a trust boundary reports no risk assessment and no response, so a refusal cannot be read as a benign evaluation | M2b | `TestRefusalContract` |
+| Runtime enforcement is one-way: no runtime path reinstates an agent or reopens grant issuance | M2b | `tests/services/test_enforcement_coordinator.py` |
 
 ## Execution
 

@@ -98,7 +98,9 @@ The platform maintains the following immutable architectural guarantees:
 5. **Tool Registry is the only authority for registered executable tools:** The Agent Runtime resolves approved tool invocations through the Tool Registry.
 6. **Security decisions remain deterministic:** Security results are calculated by code services, never by AI model prompts.
 7. **Later security stages may only increase restrictions:** Pipeline checks can deny or hold requests, but they cannot override earlier denials.
-8. **Findings represent authoritative evidence; Risk Assessments represent derived posture:** `FindingsService` persists authoritative findings, while `RiskService` evaluates derived posture for composite `(session_id, agent_id)` keys.
+8. **Findings represent authoritative evidence; derived posture is scoped by purpose:** `FindingsService` persists authoritative findings. `RiskService` derives a session-scoped `RiskAssessment` for reporting and attribution, and an agent-scoped `AgentRiskPosture` that enforcement decisions are made from ([ADR-024](../adr/ADR-024-agent-enforcement-state.md)).
+9. **Runtime enforcement is one-way:** the runtime may contain an agent — suspending it and withdrawing its execution authority — but no runtime path returns one to service. Recovery requires an authorized, attributed administrative action.
+10. **A session is security-owned by exactly one agent:** a request from any other agent is refused before any session state is read or written, so no agent can contribute evidence to another agent's enforcement posture.
 
 ---
 
@@ -165,7 +167,7 @@ An agent attempts to read sensitive data and transmit it out of the enterprise b
 #### Mitigations
 - **Threshold Evidence Is Counted Once (M2a):** Session threshold detections such as `EXCESSIVE_DENIALS` carry a deterministic identity derived from the crossing (rule, session, agent, threshold). Re-deriving the same crossing on later requests records no new evidence, so unrelated traffic cannot inflate cumulative risk toward a false containment action.
 - **Scenario Execution Isolation (M2a):** Scenario runs execute against a throwaway pipeline ([ADR-013 scenario isolation amendment](../adr/ADR-013-scenario-runner-service-boundaries.md)) with isolated agent, session, findings, risk, audit and execution-grant state, and emit no live behavioural telemetry. A security test cannot raise a live agent's posture or change its status, and cannot pollute live security evidence.
-- **Cumulative Session Risk Evaluation (H1):** `RuntimeService` queries all accumulated findings recorded in `FindingsService` for the active `(session_id, agent_id)` scope before evaluating `RiskService.assess_session()`. Benign tool executions never reset a session's elevated risk posture.
+- **Cumulative Session Risk Evaluation (H1):** `RuntimeService` queries all accumulated findings recorded in `FindingsService` before evaluating risk, so benign tool executions never reset an elevated posture. Since [ADR-024](../adr/ADR-024-agent-enforcement-state.md) the posture that *enforcement* is derived from is scoped to the agent rather than the session, so presenting a new `session_id` cannot present an accumulated agent as new (finding H-3). The session-scoped assessment is retained for reporting and attribution.
 - **Composite Key Isolation (H2):** `RiskService` indexes process-local assessments using composite key tuples `(session_id, agent_id)`.
 - **Ambiguity Protection API (H2 API):** `RiskService.get_assessment()` and `GET /api/v1/risk-assessments/{session_id}` raise `AmbiguousAssessmentScopeError` and return `HTTP 400 Bad Request` if `agent_id` is omitted when multiple assessments match `session_id`. Zero cross-agent posture disclosure.
 
@@ -195,6 +197,28 @@ A caller obtains an `ALLOW` decision for one operation and executes a different 
 #### Residual Risk
 - Code already executing inside the platform process can obtain a `BaseTool` from `ToolRegistry.get()` and call `execute()` directly. ADR-023 closes the confused-deputy path between components; it is not a defence against malicious in-process code.
 
+### Threat 10: Enforcement Evasion and Poisoning [Elevation of Privilege / Tampering / Denial of Service]
+
+#### Threat
+
+An agent evades or subverts containment in one of four ways: rotating `session_id` so accumulated risk is evaluated as new (finding H-3); relying on containment being advisory, since `SUSPEND_AGENT` downgraded one decision and was then discarded (finding H-4); writing into a session another agent owns, so the evidence gathered there is attributed to the victim and drives the victim toward suspension (finding NEW-002, a confused-deputy path into the containment mechanism); or inducing containment of a legitimate agent through inflated evidence.
+
+#### Mitigations
+
+- **Agent-Scoped Enforcement Posture (H-3):** enforcement is derived from `AgentRiskPosture`, accumulated across every session the agent has used. A fresh identifier inherits the agent's posture.
+- **Containment as State (H-4):** a final `SUSPEND_AGENT` writes `AgentStatus.SUSPENDED`, which `PolicyEngine` denies at the authorization stage of every later request, and withdraws execution authority.
+- **Execution Authority Withdrawal:** suspension closes a per-agent issuance gate and revokes outstanding grants atomically, so a request that passed authorization moments earlier cannot still obtain authority. Revoked grants are refused as `REVOKED`.
+- **Session Ownership (M-5, NEW-002):** `SessionService.bind_or_validate()` establishes ownership on first use under one lock and refuses any other agent. `RuntimeService` settles ownership before reading or writing session state, so a refused request records no session event, produces no finding, changes no posture, triggers no enforcement and issues no grant.
+- **Attributed Evidence (defence in depth):** threshold detections group by session *and* agent, so ownership is never inferred from which denial happened to be recorded first.
+- **False Containment Resistance:** threshold evidence is counted once per crossing, so unrelated traffic cannot inflate an agent toward suspension; scenario execution is isolated ([ADR-013](../adr/ADR-013-scenario-runner-service-boundaries.md) amendment) so a security test cannot contain a live agent.
+- **Attributed Recovery:** reinstatement is ADMIN-only, requires a reason, records the acting principal, and establishes an enforcement baseline so historical evidence does not immediately re-contain the agent.
+
+#### Residual Risk
+
+- **Session identifier squatting.** While callers choose identifiers, an agent may claim one another agent intended to use, denying the victim that identifier. It yields no access to an established session, its evidence, or another agent's posture. Server-issued unpredictable identifiers close it.
+- **In-flight execution.** Revocation cannot stop a request that has already passed grant verification and entered tool execution.
+- **Decision and audit consistency.** Under concurrency a request may be audited `ALLOW` and then obtain no grant because the gate closed in between. Execution stays closed; the audit record is the inconsistency.
+
 ---
 
 ## Threat -> Mitigation Mapping
@@ -211,6 +235,7 @@ A caller obtains an `ALLOW` decision for one operation and executes a different 
 | **Agent Identity Spoofing** | Elevation of Privilege / Spoofing | Agent Identity Context Validation | `AgentRuntimeService` identity matching + `AgentService` authoritative registry lookup (`Decision.DENY` if unregistered/unauthorized) | Audit Service |
 | **Unauthenticated HTTP Gateway Access & Caller Identity Forgery** | Spoofing / EoP | FastAPI `HTTPBearer` Gateway Dependency (`get_current_principal`) | HTTP 401 Unauthorized for missing/invalid token + HTTP 403 Forbidden for agent identity mismatch | Audit Service |
 | **Authorization/Execution Divergence** | EoP / Tampering | Canonical `ExecutionBinding` + contradictory-binding denial | `DefaultToolExecutor` requires a valid, single-use `ExecutionGrant` exactly matching the executed operation (ADR-023) | Audit Service |
+| **Enforcement Evasion & Poisoning** | EoP / Tampering / DoS | Agent-scoped `AgentRiskPosture`; session ownership; per-agent threshold attribution | `AgentStatus.SUSPENDED` denied by `PolicyEngine`; issuance gate closed and outstanding grants revoked; non-owner requests refused before any session state changes (ADR-024) | Audit Service + enforcement transition history |
 
 ---
 
@@ -227,8 +252,10 @@ The platform maps threat detections to industry security frameworks through rule
 
 - **Heuristic Detection Limits:** Detections rely on deterministic rules; complex semantic evasion requires future vector-based classification.
 - **In-Memory State Persistence:** Current process-local state is in-memory; persistent database models are planned for future phases.
-- **Session Registration Boundary:** `session_id` uniqueness validation at the `RuntimeService` boundary is recorded for future backlog.
-- **Containment Enforcement:** `SUSPEND_AGENT` remains advisory and cumulative risk is scoped to a caller-supplied `session_id` (findings H-3, H-4, M-5). Both are being addressed by the M2 enforcement milestone.
+- **Session Registration Boundary:** resolved. Sessions are established and owned on first use, and a request from a non-owner is refused before any session state changes ([ADR-024](../adr/ADR-024-agent-enforcement-state.md)).
+- **Containment Durability:** enforcement state is process-local. A restart clears suspensions and enforcement baselines until persistent state exists ([ADR-016](../adr/ADR-016-behavioral-event-store-and-data-model.md)).
+- **Caller-Chosen Session Identifiers:** sessions are owned from first use, but identifiers are still supplied by callers, so squatting remains possible as an availability concern. Server-issued session identifiers are the target model.
+- **Execution Identity at the Executor:** a grant is bearer-like within the process: `DefaultToolExecutor` verifies the grant, not the identity of the caller presenting it. Binding execution to a trusted caller identity is a separate design question.
 - **External Identity Provider Integration:** Current gateway authentication uses symmetric JWT verification (`HS256`). Asymmetric signing (`RS256`/`ES256`) and dynamic enterprise IdP / OIDC discovery are planned for distributed deployment milestones.
 
 ---
