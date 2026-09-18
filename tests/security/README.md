@@ -47,19 +47,41 @@ assertion. That transition is the evidence the milestone produced.
 Baseline tests are the mirror image: when a fix lands they begin to fail, and
 the failure is the signal to promote them.
 
+### Two cases the markers do not signal
+
+Both were found during M3 and are worth checking for in every milestone.
+
+**A test that stays green while its claim goes stale.** The signal only fires when
+a fix changes the asserted value. A test asserting something incidental — that a
+helper is callable, or that a role still receives `200` — keeps passing while the
+docstring around it becomes false, and the corpus then carries a claim nobody has
+verified. M3 had three: the "the RBAC helper is unused" baseline, the
+enforcement-visibility test, and the analyst scenario baseline. They have to be
+found by reading, not by running.
+
+**An invariant whose premise a later milestone removes.** An invariant states a
+security property, not an immutable historical choice. M-3 asserted that `ANALYST`
+must be refused scenario execution, which was correct while a scenario drove the
+live pipeline; M2a sandboxed scenario execution and the escalation it guarded
+against ceased to exist. The invariant was **rewritten rather than deleted**, to
+state the permission together with the isolation that makes it safe, with the
+reversal and its cause recorded in the test. Deleting it would have erased the
+finding; keeping it unchanged would have preserved an implementation accident as
+though it were a security property.
+
 ## Findings covered
 
 | ID | Finding | Current status | Future invariant |
 |---|---|---|---|
 | H-1 | Committed default JWT secret | **Fixed** — invariants enforced | Missing secret fails closed; legacy-signed tokens rejected |
-| H-2 | Management plane RBAC missing | Reproduced | Role gating plus caller scoping |
+| H-2 | Management plane RBAC missing | **Fixed** — invariants enforced (ADR-025) | Every plane declares a role set; no plane admits a role it does not declare |
 | H-3 | Risk posture resets on session rotation | **Fixed** — invariants enforced (ADR-024) | Posture cannot be relaxed by rotating an identifier |
 | H-4 | Suspension is advisory | **Fixed** — invariants enforced (ADR-024) | `SUSPEND_AGENT` writes durable state |
 | H-5 | Decision/execution divergence | **Fixed** — invariants enforced (ADR-023) | Executed parameters must match authorized parameters |
 | H-6 | Detection evasion | Reproduced (1 of 11 detected) | Normalisation-addressable variants detected |
 | M-1 | Prefix-based path containment | Reproduced | Canonical resolved-path containment |
 | M-2 | API cannot express a resource | **Fixed** — invariants enforced (ADR-023) | API carries the authorized resource |
-| M-3 | Scenario identity and role gate | Reproduced | Caller identity preserved and role enforced |
+| M-3 | Scenario identity and role gate | **Fixed** — invariants enforced (ADR-025) | Operators may execute scenarios; execution stays isolated and its identity is sandbox-local |
 | M-4 | Unbounded state growth | Reproduced | Bounded or evictable state |
 | M-5 | Sessions not established or owned | **Fixed** — invariants enforced (ADR-024) | Server-established session ownership |
 | M-6 | Unsalted parameter hashing | Reproduced | Keyed hashing where confidentiality is required |
@@ -75,6 +97,10 @@ accounting defect into a security problem. They are covered by
 | A crossed denial threshold is counted once per session, so unrelated traffic cannot inflate cumulative risk into a false containment action | M2a | `test_denial_threshold_is_counted_once_per_session` |
 | Scenario execution runs in an isolated pipeline and cannot mutate live agent, session, findings, risk, audit or telemetry state | M2a | `tests/services/test_scenario_sandbox.py` |
 | One agent cannot contribute evidence to another agent's enforcement posture through a session it does not own (NEW-002, found by an independent review of M2b) | M2b | `test_invariant_another_agent_cannot_poison_a_session`, `tests/services/test_session_ownership.py` |
+| No principal may execute as an agent other than itself, and a refused attempt leaves the target's findings, posture, session events and status unchanged | M3 | `TestImpersonationProducesNoEvidence` in `tests/api/test_plane_authorization.py` |
+| A route narrows its plane's role set but can never widen it, so adding a route cannot grant access its plane does not already allow | M3 | `TestRouteNarrowingIsAnIntersection` |
+| The scenario execution response exposes no agent identity, so adding attribution later cannot reintroduce a live one | M3 | `test_the_scenario_response_exposes_no_agent_identity` |
+| Scenario permission and scenario isolation are separate controls: the sandbox is the boundary, and the sandbox-local identity removes a namespace collision within it rather than creating it. Widening the role gate and losing the sandbox are independently detected | M3 | `test_invariant_analyst_may_execute_scenarios_in_isolation`, `test_invariant_scenario_activity_is_never_attributed_to_a_live_agent` |
 | A request refused at a trust boundary reports no risk assessment and no response, so a refusal cannot be read as a benign evaluation | M2b | `TestRefusalContract` |
 | Runtime enforcement is one-way: no runtime path reinstates an agent or reopens grant issuance | M2b | `tests/services/test_enforcement_coordinator.py` |
 

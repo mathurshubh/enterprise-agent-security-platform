@@ -170,16 +170,46 @@ class TestRuntimeAgentIdentityBinding:
         assert response.json()["agent_id"] == agent_id
         assert response.json()["decision"] == "ALLOW"
 
-    def test_admin_allowed_to_invoke_execution_for_any_agent(self) -> None:
+    def test_admin_cannot_invoke_execution_for_another_agent(self) -> None:
+        """Until M3 an ADMIN could execute as any agent. That is now refused.
+
+        Managing an agent is not acting as one. Activity attributed to an agent
+        accumulates into that agent's enforcement posture and can contain it
+        (ADR-024), so administrative impersonation was the ability to generate
+        behavioural evidence against a subject the operator does not own — with an
+        audit trail that records the principal as ADMIN and the behaviour as the
+        agent's. Administrators evaluate agents through the scenario sandbox instead.
+        """
         token = create_test_jwt(agent_id="admin-agent", role=Role.ADMIN, subject="admin-sub")
 
-        response = client.post(
-            "/agents/agent-1/execute",
-            headers={"Authorization": f"Bearer {token}"},
-            json={"session_id": "sess-admin", "tool_id": "file_read"},
-        )
-        assert response.status_code == 200
-        assert response.json()["agent_id"] == "agent-1"
+        with patch.object(runtime_service, "execute") as mock_execute:
+            response = client.post(
+                "/agents/agent-1/execute",
+                headers={"Authorization": f"Bearer {token}"},
+                json={"session_id": "sess-admin", "tool_id": "file_read"},
+            )
+            assert response.status_code == 403
+            assert "admin" in response.json()["detail"].lower()
+            mock_execute.assert_not_called()
+
+    def test_the_placeholder_agent_id_in_an_operator_token_is_not_an_identity(self) -> None:
+        """``agent_id`` is an execution identity only for AGENT principals.
+
+        Operator tokens carry the claim because the schema requires it, so an ADMIN
+        token minted with ``agent_id="admin-agent"`` must not be able to execute as
+        ``admin-agent`` either. The refusal is about the role, not about a mismatch.
+        """
+        token = create_test_jwt(agent_id="admin-agent", role=Role.ADMIN, subject="admin-sub")
+
+        with patch.object(runtime_service, "execute") as mock_execute:
+            response = client.post(
+                "/agents/admin-agent/execute",
+                headers={"Authorization": f"Bearer {token}"},
+                json={"session_id": "sess-admin", "tool_id": "file_read"},
+            )
+            assert response.status_code == 403
+            assert "mismatch" not in response.json()["detail"].lower()
+            mock_execute.assert_not_called()
 
 
 class TestOpenAPISecurityScheme:

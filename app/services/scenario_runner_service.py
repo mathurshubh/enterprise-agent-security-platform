@@ -32,6 +32,7 @@ class ScenarioRunnerService:
     in which case the caller owns the isolation decision.
     """
 
+    # Sandbox-local: never a live agent identifier (see ``scenario_sandbox``).
     _RUNTIME_AGENT_ID = SCENARIO_AGENT_ID
 
     def __init__(

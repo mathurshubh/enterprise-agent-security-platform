@@ -153,10 +153,24 @@ class TestEnforcementVisibility:
 
         assert response.status_code == 404
 
-    def test_visibility_requires_authentication_only(self) -> None:
-        """Governance history is read-only; it is not gated on ADMIN (H-2 unchanged)."""
+    def test_an_analyst_may_read_governance_history(self) -> None:
+        """Reading enforcement history is an operator capability, not an administrative one.
+
+        Since M3 the management plane admits ANALYST and ADMIN and refuses AGENT. This
+        route is deliberately not narrowed to ADMIN: investigating why an agent was
+        contained is analyst work, while *undoing* it is not.
+        """
         response = client.get(
             "/api/v1/agents/agent-1/enforcement", headers=auth_headers(role=Role.ANALYST)
         )
 
         assert response.status_code == 200
+
+    def test_an_agent_may_not_read_governance_history(self) -> None:
+        """Including its own: an agent is a workload, not an operator (M3 Decision 1)."""
+        response = client.get(
+            "/api/v1/agents/agent-1/enforcement",
+            headers=auth_headers(agent_id="agent-1", role=Role.AGENT),
+        )
+
+        assert response.status_code == 403

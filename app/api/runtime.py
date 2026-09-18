@@ -1,9 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from app.api.auth import get_current_principal
+from app.api.auth import require_execution_identity
 from app.api.dependencies import runtime_service
-from app.models.jwt_claims import JWTClaims, Role
 
 router = APIRouter()
 
@@ -26,30 +25,25 @@ class ExecuteRequest(BaseModel):
     tool_output: str = ""
 
 
-@router.post("/agents/{agent_id}/execute")
+@router.post(
+    "/agents/{agent_id}/execute",
+    dependencies=[Depends(require_execution_identity)],
+)
 def execute(
     agent_id: str,
     request: ExecuteRequest,
-    principal: JWTClaims = Depends(get_current_principal),
 ) -> dict:
     """Evaluate an operation through the runtime security pipeline.
 
     Decision-only by design (ADR-023): this endpoint never executes a tool and never
     returns an execution grant. Grants are in-process authority and do not leave
     the platform.
+
+    Authorization is entirely in dependencies (M3): the mount admits only AGENT
+    principals, and ``require_execution_identity`` binds the execution to the
+    authenticated agent's own identity. Nothing reaches this body that has not
+    already been authorized, so the handler makes no security decision.
     """
-    if principal.role == Role.AGENT and principal.agent_id != agent_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Agent identity mismatch: token agent_id '{principal.agent_id}' does not match path agent_id '{agent_id}'",
-        )
-
-    if principal.role == Role.ANALYST:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Role 'ANALYST' is not authorized to execute agent runtime actions",
-        )
-
     result = runtime_service.execute(
         session_id=request.session_id,
         agent_id=agent_id,

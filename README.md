@@ -26,7 +26,7 @@ It is **not** an AI agent framework or orchestration tool.
 
 Instead, it provides deterministic security controls around AI agents, including:
 
-- Authentication (FastAPI HTTPBearer JWT, Agent Identity Binding, RBAC)
+- Authentication (FastAPI HTTPBearer JWT) and plane authorization (role-gated API surfaces, execution identity bound to the authenticated agent)
 - Resource-Aware Authorization
 - Policy Enforcement
 - Threat Detection & Behavioral Intelligence
@@ -138,7 +138,7 @@ The `RuntimeService` executes a deterministic security pipeline for every incomi
 
 ### Security & Governance
 - JWT authentication
-- Role-Based Access Control (RBAC)
+- Plane authorization: each API surface declares the roles it admits, and a route may narrow its plane but never widen it
 - Agent authorization service
 - Resource-aware Policy Engine
 - Session management (`SessionService`)

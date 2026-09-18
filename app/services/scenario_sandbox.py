@@ -26,9 +26,15 @@ from app.services.runtime_bootstrap import (
 from app.services.runtime_service import RuntimeService
 from app.services.session_service import SessionService
 
-# Scenario activity is attributed to the platform's default agent identifier, but the
-# agent record itself belongs to the sandbox and never reaches the live registry.
-SCENARIO_AGENT_ID = "agent-1"
+# Scenario activity is attributed to a sandbox-local identity that no live agent uses
+# (M3 Step 2). This identifier previously matched the platform's default agent,
+# "agent-1". Isolation already kept a scenario from touching live state, and the
+# execution response carries no agent field, so nothing was misreported to an API
+# caller. The hazard was in the records a run produces — session events, findings and
+# audit events attributed to a name that also belongs to a real agent — and in
+# anything downstream that reads them. The isolation is now visible in the data
+# rather than only in the architecture.
+SCENARIO_AGENT_ID = "scenario-sandbox-agent"
 
 
 @dataclass(frozen=True)
