@@ -38,9 +38,12 @@ from app.services.detection_service import DetectionService
 from app.services.findings_service import FindingsService
 from app.services.response_service import ResponseService
 from app.services.risk_service import RiskService
-from app.services.session_service import SessionService
+from app.services.session_service import SessionBindingError, SessionService
 from app.services.tool_service import ToolService
 from app.telemetry.contracts import TelemetryEmitter
+
+# Telemetry error code for a request that named a session owned by another agent.
+SESSION_BINDING_INVALID = "SESSION_BINDING_INVALID"
 
 
 class RuntimeService:
@@ -206,6 +209,73 @@ class RuntimeService:
             )
         )
 
+    def _refuse_session_binding(
+        self,
+        session_id: str,
+        agent_id: str,
+        tool_id: str,
+        resource: str | None,
+        param_hash: str | None,
+        trace_id: str | None,
+        principal: str | None,
+        tenant_id: str | None,
+        started_at: float,
+    ) -> RuntimeResult:
+        """Refuse a request for a session owned by another agent.
+
+        The refusal is deliberately inert. Nothing about this request may reach the
+        owner's security state, so it records no session event, runs no detection,
+        creates no finding, changes no posture, triggers no enforcement and issues no
+        execution grant. Only the audit record and telemetry describe the attempt, which
+        is what makes it investigable.
+        """
+        event = SessionEvent(
+            session_id=session_id,
+            agent_id=agent_id,
+            tool_id=tool_id,
+            decision=Decision.DENY,
+        )
+
+        audit_event = AuditEvent(
+            event_id=f"evt-{uuid.uuid4()}",
+            agent_id=agent_id,
+            tool_id=tool_id,
+            decision=Decision.DENY,
+        )
+        self._audit_service.record_event(audit_event)
+
+        elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+        self._safe_emit(
+            BehavioralEvent(
+                event_type=TelemetryEventType.GOVERNANCE_DECISION_FINALIZED,
+                session_id=session_id,
+                agent_id=agent_id,
+                trace_id=trace_id,
+                principal=principal,
+                tenant_id=tenant_id,
+                tool_id=tool_id,
+                resource_target=resource,
+                parameter_hash=param_hash,
+                decision=Decision.DENY,
+                execution_time_ms=elapsed_ms,
+                error_code=SESSION_BINDING_INVALID,
+            )
+        )
+
+        # No assessment was performed: this request never reached detection or risk, so
+        # it reports no risk and no response rather than a benign-looking LOW one.
+        result = RuntimeResult(
+            event=event,
+            findings=[],
+            risk_assessment=None,
+            enforcement_posture=None,
+            response_action=None,
+            refusal_reason=SESSION_BINDING_INVALID,
+            authorization=None,
+        )
+        self._last_result = result
+        return result
+
     def _suspend_agent(
         self,
         agent_id: str,
@@ -351,6 +421,25 @@ class RuntimeService:
                 execution_time_ms=0,
             )
         )
+
+        # M2b: a session is security-owned by exactly one agent. Ownership is settled
+        # before any session state is read or written, because evidence gathered in a
+        # session feeds that agent's enforcement posture: a request from another agent
+        # must not be able to add denials, findings or risk to someone else's session.
+        try:
+            self._session_service.bind_or_validate(session_id, agent_id)
+        except SessionBindingError:
+            return self._refuse_session_binding(
+                session_id=session_id,
+                agent_id=agent_id,
+                tool_id=tool_id,
+                resource=resource,
+                param_hash=param_hash,
+                trace_id=trace_id,
+                principal=principal,
+                tenant_id=tenant_id,
+                started_at=start_time,
+            )
 
         if binding is None:
             decision = Decision.DENY

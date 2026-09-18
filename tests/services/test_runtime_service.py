@@ -152,14 +152,16 @@ def test_execute_authorized_request():
 def test_create_default_preserves_default_authorization():
     service = RuntimeService.create_default()
 
+    # Sessions are owned by one agent (M2b), and this test shares the application
+    # singletons, so it uses identifiers no other module claims.
     allowed_result = service.execute(
-        session_id="session-1",
+        session_id="create-default-allowed",
         agent_id="agent-1",
         tool_id="file_read",
         resource="notes.txt",
     )
     denied_result = service.execute(
-        session_id="session-2",
+        session_id="create-default-denied",
         agent_id="agent-1",
         tool_id="file_read",
         resource="secrets.txt",

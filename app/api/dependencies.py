@@ -17,6 +17,7 @@ from app.services.agent_service import AgentService
 from app.services.attack_scenario_service import AttackScenarioService
 from app.services.audit_service import AuditService
 from app.services.capability_service import CapabilityService
+from app.services.enforcement_coordinator import EnforcementCoordinator
 from app.services.findings_service import FindingsService
 from app.services.risk_service import RiskService
 from app.services.runtime_bootstrap import (
@@ -63,6 +64,13 @@ runtime_service: RuntimeService = bootstrap_runtime_service(
     findings_service=findings_service,
     risk_service=risk_service,
     telemetry_emitter=telemetry_dispatcher,
+    execution_authority=execution_authority,
+)
+
+# M2b: recovery from containment runs only through this coordinator. The runtime may
+# contain an agent; it never returns one to service.
+enforcement_coordinator: EnforcementCoordinator = EnforcementCoordinator(
+    agent_service=agent_service,
     execution_authority=execution_authority,
 )
 

@@ -10,14 +10,24 @@ from app.models.session_event import SessionEvent
 
 
 class RuntimeResult(BaseModel):
+    """The outcome of one runtime security evaluation.
+
+    A request refused at a trust boundary never reaches assessment, so the derived
+    fields are absent rather than zero-valued: ``None`` means "not assessed", which a
+    reader must not mistake for "assessed and found benign". ``refusal_reason`` names
+    the boundary that refused it.
+    """
+
     event: SessionEvent
     findings: list[Finding]
     # Session-scoped, for reporting and attribution (unchanged meaning).
-    risk_assessment: RiskAssessment
+    risk_assessment: RiskAssessment | None = None
     # Agent-scoped posture the response decision was derived from (M2b). Absent only
     # for partially constructed runtimes; see RuntimeService.execute.
     enforcement_posture: AgentRiskPosture | None = None
-    response_action: ResponseAction
+    response_action: ResponseAction | None = None
+    # Set when the request was refused before evaluation, e.g. SESSION_BINDING_INVALID.
+    refusal_reason: str | None = None
     # ADR-023: present only when the final decision is ALLOW. It is the only
     # authority a DefaultToolExecutor accepts for executing this operation.
     authorization: ExecutionGrant | None = None

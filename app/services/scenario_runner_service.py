@@ -118,6 +118,12 @@ class ScenarioRunnerService:
             ]
 
             observed_decision = runtime_result.event.decision.value
+            # A scenario refused at a trust boundary produces no assessment to grade.
+            if runtime_result.response_action is None or runtime_result.risk_assessment is None:
+                raise ValueError(
+                    "Scenario request was refused before evaluation: "
+                    f"{runtime_result.refusal_reason or 'unknown reason'}"
+                )
             observed_response = runtime_result.response_action.response_type.value
             observed_risk_level = runtime_result.risk_assessment.risk_level.value
 

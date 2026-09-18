@@ -41,24 +41,27 @@ class DetectionService:
         self,
         events: list[SessionEvent],
     ) -> list[Finding]:
-        """Report sessions whose denial count has reached the threshold.
+        """Report agents whose denial count in a session has reached the threshold.
+
+        Evidence is grouped by session *and* agent. Grouping by session alone would let
+        the agent of whichever denial happened to be recorded first own the aggregate,
+        which is an unsafe inference: ownership is authoritative state held by
+        ``SessionService``, never something detection infers from the event order.
 
         The returned finding carries the identity of the threshold crossing, so
         recording it more than once is a no-op for the findings store.
         """
-        denied_events: dict[str, list[SessionEvent]] = defaultdict(list)
+        denied_events: dict[tuple[str, str], list[SessionEvent]] = defaultdict(list)
 
         for event in events:
             if event.decision == Decision.DENY:
-                denied_events[event.session_id].append(event)
+                denied_events[(event.session_id, event.agent_id)].append(event)
 
         findings: list[Finding] = []
 
-        for session_id, session_denials in denied_events.items():
+        for (session_id, agent_id), session_denials in denied_events.items():
             if len(session_denials) < EXCESSIVE_DENIAL_THRESHOLD:
                 continue
-
-            agent_id = session_denials[0].agent_id
 
             findings.append(
                 Finding(

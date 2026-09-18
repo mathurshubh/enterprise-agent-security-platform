@@ -25,7 +25,7 @@ The platform's technical design is governed by the following core principles:
 * **Least Privilege Access:** Agents are restricted to the minimal set of approved tools and resource parameters necessary for their defined business roles.
 * **Separation of Reasoning & Enforcement:** The Agent Runtime is strictly isolated from the Runtime Security Pipeline (gatekeeper), preventing model behaviors from overriding security decisions.
 * **Authoritative Evidence vs Derived Posture:** `Finding` objects recorded in `FindingsService` represent authoritative security evidence. `RiskAssessment` objects in `RiskService` represent derived process-local posture indexed by composite `(session_id, agent_id)` keys.
-* **Cumulative Risk Posture:** Dynamic risk calculation aggregates all authoritative findings recorded for a session and agent scope. Subsequent benign tool executions maintain the session's cumulative risk level.
+* **Cumulative Risk Posture:** Dynamic risk calculation aggregates all authoritative findings. Reporting is session-scoped; **enforcement** is derived from the agent-scoped `AgentRiskPosture`, so a new `session_id` cannot present an accumulated agent as new ([ADR-024](../adr/ADR-024-agent-enforcement-state.md)). Subsequent benign tool executions maintain the accumulated level.
 * **Complete Auditability:** Every tool request, authorization decision, policy evaluation, finding, risk score, and mitigation action is logged as an immutable, append-only audit record suitable for ingestion by enterprise SIEM platforms.
 * **Provider-Agnostic Design:** LLM providers are treated as interchangeable backend utilities. The platform abstracts provider-specific interfaces behind clean adapters, ensuring security logic is unaffected by model swaps.
 

@@ -251,7 +251,7 @@ The Tool Registry acts as the authoritative control plane for all executable cap
 
 `RiskAssessment` represents derived process-local security posture. It is calculated by `RiskService` summing fixed severity weights (`LOW=10`, `MEDIUM=25`, `HIGH=50`, `CRITICAL=100`) over all accumulated authoritative findings for a specific `(session_id, agent_id)` scope.
 
-`RiskAssessment` is indexed internally by composite tuple key `(session_id, agent_id)` to isolate risk posture across agents.
+`RiskAssessment` is indexed internally by composite tuple key `(session_id, agent_id)` to isolate risk posture across agents. `AgentRiskPosture` is a separate, agent-scoped derivation used for enforcement decisions, counting only evidence the store recorded after the agent's `enforcement_baseline_at` ([ADR-024](../adr/ADR-024-agent-enforcement-state.md)).
 
 ```json
 {

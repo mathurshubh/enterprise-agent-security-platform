@@ -1,20 +1,28 @@
 """
-Enterprise Management API — read-only control plane.
+Enterprise Management API — observability and administrative control plane.
 
-This router exposes registered platform state for observability and
-administration.  It never invokes RuntimeService, executes tools, calls
-LLM providers, evaluates authorization, or modifies runtime state.
+This router exposes registered platform state for observability and administration. It
+never invokes RuntimeService, executes tools, or calls LLM providers.
+
+It is read-only with one deliberate exception: agent reinstatement (M2b). Runtime
+enforcement is one-way — the pipeline may contain an agent, and only an authorized
+administrative request returns one to service — so that recovery has to enter somewhere,
+and it enters here, gated on the ADMIN role and routed through EnforcementCoordinator.
+That single role-gated route is not management-plane RBAC; the rest of this API still
+enforces authentication only (finding H-2).
 
 All service instances are imported from app.api.dependencies so that this
 router and the Runtime API share a single, consistent in-memory state.
 """
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from app.api.auth import get_current_principal, require_roles
 from app.api.dependencies import (
     agent_service,
     audit_service,
     detection_registry,
+    enforcement_coordinator,
     findings_service,
     risk_service,
     session_service,
@@ -27,12 +35,20 @@ from app.models.api.detection_rule_response import (
     DetectionRuleResponse,
     SecurityControlReferenceResponse,
 )
+from app.models.api.enforcement_response import (
+    EnforcementStateResponse,
+    EnforcementTransitionResponse,
+)
 from app.models.api.finding_response import FindingResponse
+from app.models.api.reinstate_request import ReinstateRequest
 from app.models.api.risk_assessment_response import RiskAssessmentResponse
 from app.models.api.session_response import SessionResponse
 from app.models.api.tool_response import ToolResponse
 from app.models.finding import Finding, FindingCategory, FindingStatus, Severity
+from app.models.jwt_claims import JWTClaims, Role
 from app.models.risk_assessment import RiskAssessment, RiskLevel
+from app.services.agent_service import AgentNotFoundError, AgentNotSuspendedError
+from app.services.enforcement_coordinator import ReinstatementIncompleteError
 from app.services.risk_service import AmbiguousAssessmentScopeError
 
 router = APIRouter(tags=["Management"])
@@ -59,6 +75,118 @@ def list_agents() -> list[AgentResponse]:
         )
         for agent in agent_service.list_agents()
     ]
+
+
+@router.get(
+    "/agents/{agent_id}/enforcement",
+    response_model=EnforcementStateResponse,
+    summary="Get an agent's enforcement state and history",
+)
+def get_agent_enforcement(agent_id: str) -> EnforcementStateResponse:
+    """Return current containment state and how the agent reached it.
+
+    Read-only governance visibility. Enforcement transitions are a different kind of
+    record from ``AuditEvent``, which describes tool decisions, so they are exposed
+    here rather than folded into the audit trail.
+    """
+    try:
+        agent = agent_service.get_agent(agent_id)
+    except AgentNotFoundError as err:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Agent '{agent_id}' not found",
+        ) from err
+
+    state = agent_service.get_enforcement_state(agent_id)
+
+    return EnforcementStateResponse(
+        agent_id=agent_id,
+        status=agent.status.value,
+        suspended_at=state.suspended_at,
+        suspension_reason=state.suspension_reason,
+        enforcement_baseline_at=state.enforcement_baseline_at,
+        last_transition_at=state.last_transition_at,
+        transitions=[
+            EnforcementTransitionResponse(
+                transition_id=transition.transition_id,
+                agent_id=transition.agent_id,
+                action=transition.action.value,
+                actor=transition.actor,
+                reason=transition.reason,
+                previous_status=transition.previous_status.value,
+                new_status=transition.new_status.value,
+                occurred_at=transition.occurred_at,
+                trigger_session_id=(
+                    transition.trigger.session_id if transition.trigger else None
+                ),
+                trigger_risk_level=(
+                    transition.trigger.risk_level.value
+                    if transition.trigger and transition.trigger.risk_level
+                    else None
+                ),
+                trigger_risk_score=(
+                    transition.trigger.risk_score if transition.trigger else None
+                ),
+                trigger_finding_ids=list(
+                    transition.trigger.finding_ids if transition.trigger else ()
+                ),
+            )
+            for transition in agent_service.list_transitions(agent_id)
+        ],
+    )
+
+
+@router.post(
+    "/agents/{agent_id}/reinstate",
+    response_model=AgentResponse,
+    summary="Return a contained agent to service",
+    dependencies=[Depends(require_roles(Role.ADMIN))],
+)
+def reinstate_agent(
+    agent_id: str,
+    request: ReinstateRequest,
+    principal: JWTClaims = Depends(get_current_principal),
+) -> AgentResponse:
+    """Reinstate a suspended agent (M2b).
+
+    Runtime enforcement is one-way: the pipeline may contain an agent, and only this
+    authorized administrative workflow returns one to service. The acting principal is
+    taken from the token, and the reason is required, so every recovery is attributable.
+
+    Authorization is evaluated before the agent is looked up, so an unauthorized caller
+    cannot use this route to learn which agent identifiers exist.
+    """
+    try:
+        agent = enforcement_coordinator.reinstate(
+            agent_id,
+            actor=principal.sub,
+            reason=request.reason,
+        )
+    except AgentNotFoundError as err:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Agent '{agent_id}' not found",
+        ) from err
+    except AgentNotSuspendedError as err:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Agent '{agent_id}' is not suspended",
+        ) from err
+    except ReinstatementIncompleteError as err:
+        # Fail-closed and repairable: the agent is active but still cannot execute.
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(err),
+        ) from err
+
+    return AgentResponse(
+        agent_id=agent.agent_id,
+        name=agent.name,
+        owner=agent.owner,
+        risk_tier=agent.risk_tier.value,
+        status=agent.status.value,
+        approved_tools=agent.approved_tools,
+    )
 
 
 # ── Tools ────────────────────────────────────────────────────────────────────

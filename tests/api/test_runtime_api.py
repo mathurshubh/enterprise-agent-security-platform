@@ -44,6 +44,8 @@ def test_execute_request_received():
         "response_reason": (
             "LOW risk requires monitor"
         ),
+        # Null unless the request was refused before evaluation (M2b Step 4).
+        "refusal_reason": None,
     }
 
 
