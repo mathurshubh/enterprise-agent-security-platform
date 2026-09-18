@@ -36,6 +36,26 @@ class TestFindingsService:
         assert recorded == finding
         assert service.get_finding("f-1") == finding
 
+    def test_record_new_findings_skips_known_identifiers(self) -> None:
+        service = FindingsService()
+        original = make_finding(description="first crossing")
+        repeat = make_finding(description="re-derived crossing")
+
+        assert service.record_new_findings([original]) == [original]
+        # The repeat carries the same identity, so it is neither recorded nor reported.
+        assert service.record_new_findings([repeat]) == []
+        assert len(service.list_findings()) == 1
+        assert service.get_finding("f-1").description == "first crossing"
+
+    def test_record_new_findings_returns_only_new_entries(self) -> None:
+        service = FindingsService()
+        known = make_finding(finding_id="f-known")
+        service.record_new_findings([known])
+
+        fresh = make_finding(finding_id="f-fresh")
+        assert service.record_new_findings([known, fresh]) == [fresh]
+        assert len(service.list_findings()) == 2
+
     def test_record_findings(self) -> None:
         service = FindingsService()
         f1 = make_finding("f-1")

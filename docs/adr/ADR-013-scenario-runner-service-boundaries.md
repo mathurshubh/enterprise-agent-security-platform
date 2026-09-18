@@ -10,6 +10,7 @@
 **Implementation Status:**
 - Architecture Approved
 - Implementation: Pending (PR #59)
+- Amended by the scenario isolation amendment below (M2a): scenario runs execute against an isolated throwaway pipeline
 
 ---
 
@@ -250,6 +251,55 @@ This layered trust model ensures that security enforcement remains deterministic
 - Principle 8 – Defense in Depth
 - Principle 11 – Separation of Responsibilities
 - Principle 16 – Security Through Composition
+
+---
+
+# Amendment: Scenario Execution Isolation (M2a)
+
+**Status:** Accepted
+
+**Date:** 2026-09-18
+
+**Amends:** the `ScenarioRunnerService` boundary defined above, which allowed a scenario to run against the live runtime pipeline.
+
+## Context
+
+A scenario deliberately drives the platform into the states it is designed to punish: denial thresholds, critical risk, and agent suspension. While the response to those states was advisory, running a scenario against the live pipeline only added records. Once M2 makes containment a real state transition, the same run would suspend the live agent that serves production traffic, and recovery would require a restart.
+
+Three of the registered scenarios (`DEX-001`, `DEX-002`, `DEX-003`) expect `SUSPEND_AGENT`, all attributed to the shared `agent-1`, and scenario execution is reachable over HTTP by any authenticated principal until management-plane authorization lands (finding M-3). A security test must therefore never be able to mutate live security state.
+
+## Decision
+
+**Scenario executions run against an isolated, throwaway security pipeline and must not mutate live runtime state.**
+
+`ScenarioRunnerService` builds a fresh `ScenarioSandbox` for each run through `app/services/scenario_sandbox.py`. A caller may still inject a specific `runtime_service`, in which case the caller owns the isolation decision; the HTTP scenario endpoint never does.
+
+```text
+Scenario Request
+      │
+      ▼
+Scenario Sandbox ── agent · session · findings · risk · audit · tools · execution authority
+      │
+      ▼
+Scenario Result ──▶ caller
+```
+
+## Consequences
+
+- The sandbox registers the same logical `agent-1` identifier, so scenario attribution is unchanged; the agent record belongs to the sandbox.
+- Agent, session, findings, risk, audit, tool registry and execution-grant state are isolated per run.
+- Scenario results, including observed findings, decisions and risk, are returned to the caller as before.
+- Scenario activity no longer enters live management state, so scenario-generated findings, sessions and audit events are not visible in the management API or console.
+- Scenario activity no longer enters the live behavioural telemetry stream (ADR-015). Mixing synthetic security-test activity with production telemetry would leave consumers unable to distinguish the two; classified synthetic telemetry is deferred to the telemetry evolution.
+- Every run starts from a fresh sandbox, so repeated runs of the same scenario grade identically instead of accumulating state under a reused `scenario-run-{scenario_id}` session.
+- Prompt-mode scenarios keep their existing model and provider behaviour; only the pipeline they evaluate against is isolated.
+- `RuntimeService` remains the single security decision authority. Isolation changes which instance a scenario evaluates against, never who decides.
+
+## Related
+
+- [ADR-015: Behavioral Telemetry Architecture](ADR-015-behavioral-telemetry-architecture.md)
+- [Threat Model](../security/threat-model.md) — Threat 7 and the scenario execution boundary
+- Adversarial regression corpus: `tests/security/README.md`
 
 ---
 

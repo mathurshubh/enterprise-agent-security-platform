@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Callable
 from datetime import datetime, timezone
 from json import JSONDecodeError
 
@@ -15,22 +16,51 @@ from app.runtime.execution_authority import ExecutionBindingError
 from app.runtime.tool_executor import ToolDisabledError, ToolExecutionError
 from app.services.agent_runtime_service import AgentRuntimeService
 from app.services.runtime_service import RuntimeService
+from app.services.scenario_sandbox import (
+    SCENARIO_AGENT_ID,
+    ScenarioSandbox,
+    build_scenario_sandbox,
+)
 
 
 class ScenarioRunnerService:
-    """Orchestrates scenario execution and evaluates outcomes against expectations."""
+    """Orchestrates scenario execution and evaluates outcomes against expectations.
 
-    _RUNTIME_AGENT_ID = "agent-1"
+    Scenario runs are isolated by default (ADR-013, scenario isolation amendment):
+    each run builds a throwaway pipeline through ``sandbox_factory`` and mutates only
+    that state. A caller may still inject a specific ``runtime_service`` — tests do —
+    in which case the caller owns the isolation decision.
+    """
+
+    _RUNTIME_AGENT_ID = SCENARIO_AGENT_ID
 
     def __init__(
         self,
-        runtime_service: RuntimeService,
+        runtime_service: RuntimeService | None = None,
         agent_runtime_service: AgentRuntimeService | None = None,
+        sandbox_factory: Callable[[], ScenarioSandbox] = build_scenario_sandbox,
     ) -> None:
         self._runtime_service = runtime_service
-        self._agent_runtime_service = agent_runtime_service or AgentRuntimeService(
-            runtime_service=runtime_service
+        self._agent_runtime_service = agent_runtime_service
+        self._sandbox_factory = sandbox_factory
+
+    def _resolve_pipeline(self) -> tuple[RuntimeService, AgentRuntimeService]:
+        """Return the runtime and agent loop this run executes against."""
+        if self._runtime_service is not None:
+            runtime = self._runtime_service
+            agent_runtime = self._agent_runtime_service or AgentRuntimeService(
+                runtime_service=runtime
+            )
+            return runtime, agent_runtime
+
+        sandbox = self._sandbox_factory()
+        agent_runtime = self._agent_runtime_service or AgentRuntimeService(
+            runtime_service=sandbox.runtime,
+            tool_registry=sandbox.tool_registry,
+            agent_id=self._RUNTIME_AGENT_ID,
+            execution_authority=sandbox.execution_authority,
         )
+        return sandbox.runtime, agent_runtime
 
     def run(
         self,
@@ -39,6 +69,7 @@ class ScenarioRunnerService:
         started_at = datetime.now(timezone.utc)
         execution_id = f"exec-{uuid.uuid4()}"
         session_id = f"scenario-run-{scenario.scenario_id}"
+        runtime_service, agent_runtime_service = self._resolve_pipeline()
 
         # Determine Execution Mode: tool_sequence takes precedence for deterministic replays
         execution_mode = (
@@ -57,8 +88,8 @@ class ScenarioRunnerService:
 
             if execution_mode == ExecutionMode.PROMPT:
                 # Prompt Mode: route through the agent loop
-                self._agent_runtime_service.execute(scenario.user_prompt)
-                runtime_result = getattr(self._runtime_service, "_last_result", None)
+                agent_runtime_service.execute(scenario.user_prompt)
+                runtime_result = getattr(runtime_service, "_last_result", None)
                 if runtime_result is None:
                     raise ValueError(
                         "Failed to capture runtime execution results from agent run"
@@ -72,7 +103,7 @@ class ScenarioRunnerService:
                     )
 
                 for tool_id in scenario.tool_sequence:
-                    runtime_result = self._runtime_service.execute(
+                    runtime_result = runtime_service.execute(
                         session_id=session_id,
                         agent_id=self._RUNTIME_AGENT_ID,
                         tool_id=tool_id,
@@ -109,7 +140,7 @@ class ScenarioRunnerService:
             # C. Assert Tool ID (if expected)
             if scenario.expected_tool_id is not None:
                 # Verify if the expected tool was invoked in the session events
-                events = self._runtime_service._session_service.list_events(session_id)
+                events = runtime_service._session_service.list_events(session_id)
                 invoked_tools = [e.tool_id for e in events]
                 if scenario.expected_tool_id not in invoked_tools:
                     mismatches.append(

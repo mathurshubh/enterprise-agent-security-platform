@@ -24,6 +24,7 @@ from app.models.agent import AgentStatus
 from app.models.audit_event import Decision
 from app.models.response_action import ResponseType
 from app.models.risk_assessment import RiskLevel
+from tests.security.conftest import BENIGN_FILE
 
 # Triggers PROMPT_INJECTION + SENSITIVE_FILE_ACCESS + DATA_EXFILTRATION
 # (50 + 50 + 50 = 150) which maps to CRITICAL and a SUSPEND_AGENT response.
@@ -163,6 +164,48 @@ def test_invariant_session_must_be_established_and_owned(
     sessions = {s.session_id: s for s in env.session_service.list_sessions()}
     assert "corpus-m5-invariant" in sessions
     assert sessions["corpus-m5-invariant"].agent_id == env.agent_id
+
+
+@pytest.mark.security_regression
+def test_denial_threshold_is_counted_once_per_session(
+    build_runtime, security_workspace: Path
+) -> None:
+    """A crossed denial threshold is one piece of evidence, not one per later request.
+
+    Before M2a the threshold detection re-raised a new finding on every subsequent
+    request, so harmless traffic inflated cumulative risk until the session reached
+    CRITICAL and recommended SUSPEND_AGENT. Under M2 enforcement that would suspend a
+    legitimate agent, so the accounting is a security control, not a tidiness fix.
+    """
+    env = build_runtime(workspace=security_workspace)
+
+    for _ in range(3):
+        denied = env.runtime.execute(
+            session_id="corpus-denial-accounting",
+            agent_id=env.agent_id,
+            tool_id="unauthorized_tool",
+        )
+        assert denied.event.decision == Decision.DENY
+
+    crossing_risk = denied.risk_assessment.risk_score
+    assert [f.rule_name for f in denied.findings] == ["EXCESSIVE_DENIALS"]
+
+    for _ in range(3):
+        benign = env.runtime.execute(
+            session_id="corpus-denial-accounting",
+            agent_id=env.agent_id,
+            tool_id="file_read",
+            resource=BENIGN_FILE,
+            user_prompt="read the notes file",
+        )
+
+        assert benign.findings == []
+        assert benign.risk_assessment.risk_score == crossing_risk
+        assert benign.response_action.response_type != ResponseType.SUSPEND_AGENT
+        assert benign.event.decision == Decision.ALLOW
+
+    stored = env.findings_service.list_findings(session_id="corpus-denial-accounting")
+    assert [f.rule_name for f in stored] == ["EXCESSIVE_DENIALS"]
 
 
 @pytest.mark.security_baseline

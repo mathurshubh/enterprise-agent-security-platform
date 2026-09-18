@@ -9,10 +9,7 @@ instances with diverging state.
 
 from app.auth.jwt_service import JWTService
 from app.config.settings import get_jwt_secret_key
-from app.detection.data_exfiltration_rule import DataExfiltrationRule
-from app.detection.prompt_injection_rule import PromptInjectionRule
 from app.detection.registry import DetectionRegistry
-from app.detection.sensitive_file_access_rule import SensitiveFileAccessRule
 from app.registry.scenario_registry import ScenarioRegistry
 from app.registry.tool_registry import ToolRegistry
 from app.runtime.execution_authority import ExecutionAuthority
@@ -22,29 +19,14 @@ from app.services.audit_service import AuditService
 from app.services.capability_service import CapabilityService
 from app.services.findings_service import FindingsService
 from app.services.risk_service import RiskService
-from app.services.runtime_bootstrap import bootstrap_runtime_service
+from app.services.runtime_bootstrap import (
+    bootstrap_runtime_service,
+    create_default_detection_registry,
+)
 from app.services.runtime_service import RuntimeService
 from app.services.session_service import SessionService
 from app.services.tool_inventory_service import ToolInventoryService
 from app.telemetry.dispatcher import InMemoryTelemetryDispatcher
-
-
-def create_default_detection_registry() -> DetectionRegistry:
-    """
-    Return a DetectionRegistry populated with the platform's active detection rules.
-
-    This function is the single authoritative registration site for all
-    detection rules.  Both RuntimeService (via DetectionEngine) and the
-    Management API (via DetectionRegistry.metadata()) consume the same
-    registry instance, guaranteeing that the management plane always reflects
-    the exact rule set used at runtime.
-    """
-    registry = DetectionRegistry()
-    registry.register(PromptInjectionRule())
-    registry.register(SensitiveFileAccessRule())
-    registry.register(DataExfiltrationRule())
-    return registry
-
 
 # ── Shared singletons ────────────────────────────────────────────────────────
 

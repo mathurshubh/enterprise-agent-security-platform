@@ -23,6 +23,23 @@ class FindingsService:
                 self._findings[finding.finding_id] = finding
             return findings
 
+    def record_new_findings(self, findings: list[Finding]) -> list[Finding]:
+        """Record only findings whose identifier is not already stored.
+
+        Threshold detections re-derive the same finding on every later request in a
+        session (see ``DetectionService.session_finding_id``). Storing the repeat
+        would add a second piece of evidence for one behaviour and inflate cumulative
+        risk, so already-known findings are skipped and the original record is kept.
+        """
+        with self._lock:
+            recorded: list[Finding] = []
+            for finding in findings:
+                if finding.finding_id in self._findings:
+                    continue
+                self._findings[finding.finding_id] = finding
+                recorded.append(finding)
+            return recorded
+
     def list_findings(
         self,
         session_id: str | None = None,

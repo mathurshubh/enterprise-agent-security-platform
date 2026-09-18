@@ -3,7 +3,11 @@ from uuid import UUID
 from app.models.audit_event import Decision
 from app.models.finding import Severity
 from app.models.session_event import SessionEvent
-from app.services.detection_service import DetectionService
+from app.services.detection_service import (
+    EXCESSIVE_DENIAL_THRESHOLD,
+    DetectionService,
+    session_finding_id,
+)
 
 
 def create_event(
@@ -37,7 +41,35 @@ def test_detect_excessive_denials():
     assert findings[0].description == (
         "Session contains 3 denied actions"
     )
-    assert UUID(findings[0].finding_id).version == 4
+    # Identity is derived from the threshold crossing, not random, so re-deriving the
+    # same crossing yields the same finding (M2a).
+    assert UUID(findings[0].finding_id).version == 5
+    assert findings[0].finding_id == session_finding_id(
+        "EXCESSIVE_DENIALS", "session-1", "agent-1", EXCESSIVE_DENIAL_THRESHOLD
+    )
+
+
+def test_threshold_crossing_identity_is_stable_and_scoped():
+    service = DetectionService()
+    denials = [create_event(Decision.DENY) for _ in range(EXCESSIVE_DENIAL_THRESHOLD)]
+
+    first = service.detect_excessive_denials(denials)[0]
+    # Re-deriving from a longer history of the same session is the same evidence.
+    repeated = service.detect_excessive_denials(denials + [create_event(Decision.DENY)])[0]
+
+    assert first.finding_id == repeated.finding_id
+
+    other_session = service.detect_excessive_denials(
+        [create_event(Decision.DENY, "session-2") for _ in range(EXCESSIVE_DENIAL_THRESHOLD)]
+    )[0]
+    other_agent = service.detect_excessive_denials(
+        [
+            create_event(Decision.DENY, "session-1", "agent-2")
+            for _ in range(EXCESSIVE_DENIAL_THRESHOLD)
+        ]
+    )[0]
+
+    assert len({first.finding_id, other_session.finding_id, other_agent.finding_id}) == 3
 
 
 def test_no_findings_below_threshold():
