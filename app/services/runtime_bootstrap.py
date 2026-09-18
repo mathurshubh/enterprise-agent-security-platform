@@ -166,4 +166,7 @@ def bootstrap_runtime_service(
         findings_service=findings_service,
         telemetry_emitter=telemetry_emitter,
         execution_authority=execution_authority,
+        # M2b: enforcement posture is agent-scoped, so the pipeline needs the agent
+        # registry that owns enforcement state.
+        agent_service=agent_service,
     )

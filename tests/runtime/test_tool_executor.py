@@ -56,6 +56,7 @@ def _grant_for(authority: ExecutionAuthority, tool_id: str, parameters: dict[str
     return authority.issue(
         ExecutionBinding.from_operation(tool_id, parameters),
         Decision.ALLOW,
+        agent_id="agent-1",
     )
 
 

@@ -67,8 +67,20 @@ def execute(
         "tool_id": result.event.tool_id,
         "decision": result.event.decision.value,
         "findings": result.findings,
+        # Session-scoped assessment: unchanged meaning for existing consumers.
         "risk_score": result.risk_assessment.risk_score,
         "risk_level": result.risk_assessment.risk_level.value,
+        # Agent-scoped posture the decision was derived from (M2b).
+        "enforcement_risk_score": (
+            result.enforcement_posture.risk_score
+            if result.enforcement_posture is not None
+            else result.risk_assessment.risk_score
+        ),
+        "enforcement_risk_level": (
+            result.enforcement_posture.risk_level.value
+            if result.enforcement_posture is not None
+            else result.risk_assessment.risk_level.value
+        ),
         "response_type": (
             result.response_action.response_type.value
         ),

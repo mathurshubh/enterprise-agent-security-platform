@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 
 from app.models.finding import Finding, FindingCategory, FindingStatus, Severity
 from app.services.findings_service import FindingsService
@@ -26,6 +27,70 @@ def make_finding(
         status=status,
         description=description,
     )
+
+
+class TestEvidenceRecordingTime:
+    """When the store accepted a finding, which is what a reinstatement baseline uses.
+
+    Detection rules stamp ``Finding.created_at`` deterministically (the three rules use
+    a fixed epoch), so enforcement eligibility cannot be derived from it.
+    """
+
+    def test_recording_time_is_independent_of_the_finding_timestamp(self) -> None:
+        service = FindingsService()
+        epoch_finding = make_finding().model_copy(
+            update={"created_at": datetime(1970, 1, 1, tzinfo=timezone.utc)}
+        )
+
+        before = datetime.now(timezone.utc)
+        service.record_new_findings([epoch_finding])
+
+        recorded_at = service.recorded_at("f-1")
+        assert recorded_at is not None
+        assert recorded_at >= before
+
+    def test_recorded_after_excludes_evidence_accepted_at_or_before_the_baseline(
+        self,
+    ) -> None:
+        service = FindingsService()
+        service.record_new_findings([make_finding(finding_id="historical")])
+
+        baseline = service.recorded_at("historical")
+
+        # Strictly after: the finding that established the baseline is historical.
+        assert service.list_findings(recorded_after=baseline) == []
+
+    def test_recorded_after_includes_evidence_accepted_later(self) -> None:
+        service = FindingsService()
+        service.record_new_findings([make_finding(finding_id="historical")])
+        baseline = datetime.now(timezone.utc)
+        service.record_new_findings([make_finding(finding_id="fresh")])
+
+        remaining = service.list_findings(recorded_after=baseline)
+
+        assert [finding.finding_id for finding in remaining] == ["fresh"]
+
+    def test_recorded_after_combines_with_other_filters(self) -> None:
+        service = FindingsService()
+        baseline = datetime.now(timezone.utc)
+        service.record_new_findings(
+            [
+                make_finding(finding_id="mine", agent_id="agent-1"),
+                make_finding(finding_id="theirs", agent_id="agent-2"),
+            ]
+        )
+
+        mine = service.list_findings(agent_id="agent-1", recorded_after=baseline)
+
+        assert [finding.finding_id for finding in mine] == ["mine"]
+
+    def test_clear_forgets_recording_times(self) -> None:
+        service = FindingsService()
+        service.record_new_findings([make_finding()])
+
+        service.clear()
+
+        assert service.recorded_at("f-1") is None
 
 
 class TestFindingsService:
