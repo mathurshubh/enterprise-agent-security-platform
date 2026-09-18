@@ -96,7 +96,7 @@ def test_runtime_result_authorization_defaults_to_none():
 
 def test_runtime_result_exposes_the_authorized_binding_and_parameters():
     binding = ExecutionBinding.from_operation("file_read", {"path": "notes.txt"})
-    grant = ExecutionAuthority().issue(binding, Decision.ALLOW)
+    grant = ExecutionAuthority().issue(binding, Decision.ALLOW, agent_id="agent-1")
 
     result = _minimal_result(authorization=grant)
 

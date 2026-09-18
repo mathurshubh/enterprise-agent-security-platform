@@ -25,6 +25,7 @@ import time
 from collections.abc import Callable
 from enum import Enum
 from threading import RLock
+from typing import NamedTuple
 from uuid import uuid4
 
 from app.models.audit_event import Decision
@@ -32,6 +33,13 @@ from app.models.execution_binding import ExecutionBinding
 from app.models.execution_grant import ExecutionGrant
 
 DEFAULT_GRANT_TTL_SECONDS = 30.0
+
+
+class _OutstandingGrant(NamedTuple):
+    """An issued, unconsumed grant and the agent it was issued for."""
+
+    expires_at: float
+    agent_id: str
 
 
 class ExecutionRefusalReason(str, Enum):
@@ -44,6 +52,7 @@ class ExecutionRefusalReason(str, Enum):
     INVALID_SIGNATURE = "INVALID_SIGNATURE"
     EXPIRED = "EXPIRED"
     CONSUMED = "CONSUMED"
+    REVOKED = "REVOKED"
     TOOL_MISMATCH = "TOOL_MISMATCH"
     RESOURCE_MISMATCH = "RESOURCE_MISMATCH"
     PARAMETER_MISMATCH = "PARAMETER_MISMATCH"
@@ -89,8 +98,15 @@ class ExecutionAuthority:
         self._ttl_seconds = ttl_seconds
         self._clock = clock
         self._lock = RLock()
-        # Issued, unconsumed, unexpired grants: grant_id -> expires_at.
-        self._outstanding: dict[str, float] = {}
+        # Issued, unconsumed, unexpired grants: grant_id -> outstanding record.
+        self._outstanding: dict[str, _OutstandingGrant] = {}
+        # Grants withdrawn before use: grant_id -> expires_at. Kept until expiry so a
+        # revoked grant is refused as REVOKED rather than as an unknown CONSUMED one.
+        self._revoked: dict[str, float] = {}
+        # Agents whose grant issuance is closed. M2b: a suspended agent must not be
+        # able to obtain new authority, including from a request that passed
+        # authorization moments before the suspension was written.
+        self._issuance_suspended: set[str] = set()
 
     @property
     def authority_id(self) -> str:
@@ -106,12 +122,24 @@ class ExecutionAuthority:
         self,
         binding: ExecutionBinding,
         decision: Decision,
+        *,
+        agent_id: str,
     ) -> ExecutionGrant | None:
-        """Issue a grant for ``binding`` if and only if ``decision`` is a final ALLOW."""
+        """Issue a grant for ``binding`` if and only if it may be authorized.
+
+        Two conditions must hold: ``decision`` is a final ALLOW, and issuance for
+        ``agent_id`` is open. Issuance closes when the agent is suspended, so a request
+        that passed authorization just before the suspension cannot still obtain
+        authority afterwards. Every grant is attributable to an agent; there is no
+        unattributed issuance path.
+        """
         if decision != Decision.ALLOW:
             return None
 
         with self._lock:
+            if agent_id in self._issuance_suspended:
+                return None
+
             now = self._clock()
             self._prune(now)
 
@@ -124,7 +152,7 @@ class ExecutionAuthority:
                 now,
                 expires_at,
             )
-            self._outstanding[grant_id] = expires_at
+            self._outstanding[grant_id] = _OutstandingGrant(expires_at, agent_id)
 
         return ExecutionGrant(
             grant_id=grant_id,
@@ -192,6 +220,13 @@ class ExecutionAuthority:
                 self._outstanding.pop(grant.grant_id, None)
                 raise ExecutionBindingError(ExecutionRefusalReason.EXPIRED, tool_id)
 
+            if grant.grant_id in self._revoked:
+                raise ExecutionBindingError(
+                    ExecutionRefusalReason.REVOKED,
+                    tool_id,
+                    "grant was revoked before use",
+                )
+
             if grant.grant_id not in self._outstanding:
                 raise ExecutionBindingError(
                     ExecutionRefusalReason.CONSUMED,
@@ -201,6 +236,43 @@ class ExecutionAuthority:
 
             self._require_exact_match(grant.binding, requested)
             del self._outstanding[grant.grant_id]
+
+    def suspend_issuance(self, agent_id: str) -> int:
+        """Close grant issuance for an agent and revoke its outstanding grants.
+
+        Both halves happen under one lock, so a concurrent request cannot slip a newly
+        issued grant past the revocation: either it is issued before the gate closes and
+        is revoked here, or it is refused at issuance.
+
+        Returns:
+            The number of outstanding grants revoked.
+        """
+        with self._lock:
+            self._issuance_suspended.add(agent_id)
+
+            revoked = [
+                grant_id
+                for grant_id, outstanding in self._outstanding.items()
+                if outstanding.agent_id == agent_id
+            ]
+            for grant_id in revoked:
+                self._revoked[grant_id] = self._outstanding.pop(grant_id).expires_at
+
+            return len(revoked)
+
+    def resume_issuance(self, agent_id: str) -> None:
+        """Reopen grant issuance after an agent is reinstated.
+
+        Grants revoked while the agent was suspended stay revoked: reinstatement
+        restores the ability to obtain new authority, not the old authority itself.
+        """
+        with self._lock:
+            self._issuance_suspended.discard(agent_id)
+
+    def issuance_suspended(self, agent_id: str) -> bool:
+        """Whether grant issuance is currently closed for an agent."""
+        with self._lock:
+            return agent_id in self._issuance_suspended
 
     @staticmethod
     def _require_exact_match(
@@ -257,8 +329,16 @@ class ExecutionAuthority:
     def _prune(self, now: float) -> None:
         expired = [
             grant_id
-            for grant_id, expires_at in self._outstanding.items()
-            if expires_at <= now
+            for grant_id, outstanding in self._outstanding.items()
+            if outstanding.expires_at <= now
         ]
         for grant_id in expired:
             del self._outstanding[grant_id]
+
+        expired_revoked = [
+            grant_id
+            for grant_id, expires_at in self._revoked.items()
+            if expires_at <= now
+        ]
+        for grant_id in expired_revoked:
+            del self._revoked[grant_id]

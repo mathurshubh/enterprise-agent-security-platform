@@ -7,6 +7,7 @@ from app.auth.authorization_service import AuthorizationService
 from app.detection.context import DetectionContext
 from app.detection.engine import DetectionEngine
 from app.models.agent import Agent, AgentStatus, RiskTier
+from app.models.agent_enforcement import EnforcementTrigger
 from app.models.agent_risk_posture import AgentRiskPosture
 from app.models.audit_event import AuditEvent, Decision
 from app.models.execution_binding import (
@@ -204,6 +205,48 @@ class RuntimeService:
                 operational=ToolOperational(),
             )
         )
+
+    def _suspend_agent(
+        self,
+        agent_id: str,
+        session_id: str,
+        posture: AgentRiskPosture | None,
+        findings: list,
+    ) -> None:
+        """Suspend an agent and withdraw its execution authority.
+
+        Issuance is closed first: a concurrent request that already passed
+        authorization must not be able to obtain a grant in the window between the
+        status write and the revocation. Closing the gate and revoking outstanding
+        grants happen atomically inside the authority, so after this returns the agent
+        holds no usable authority and can obtain none.
+
+        Suspension is monotonic here by construction: the runtime only ever escalates,
+        and ``AgentService.suspend_agent`` is idempotent.
+        """
+        if self._execution_authority is not None:
+            self._execution_authority.suspend_issuance(agent_id)
+
+        if self._agent_service is None:
+            return
+
+        trigger = EnforcementTrigger(
+            session_id=session_id,
+            risk_level=posture.risk_level if posture is not None else None,
+            risk_score=posture.risk_score if posture is not None else None,
+            finding_ids=tuple(finding.finding_id for finding in findings),
+        )
+
+        try:
+            self._agent_service.suspend_agent(
+                agent_id,
+                reason="Runtime enforcement: risk posture requires suspension",
+                trigger=trigger,
+            )
+        except AgentNotFoundError:
+            # An unregistered agent is already denied by authorization; there is no
+            # registry record to transition.
+            pass
 
     def _posture_lock(self, agent_id: str) -> RLock:
         """Return the lock guarding posture assessment for one agent."""
@@ -425,6 +468,17 @@ class RuntimeService:
             elif response_action.response_type == ResponseType.REQUIRE_APPROVAL:
                 recorded_event.decision = Decision.APPROVAL_REQUIRED
 
+        # M2b: containment is a state transition, not a recommendation. A response of
+        # SUSPEND_AGENT suspends the agent and withdraws its execution authority, so the
+        # next request is denied by policy before detection or issuance is reached.
+        if response_action.response_type == ResponseType.SUSPEND_AGENT:
+            self._suspend_agent(
+                agent_id=agent_id,
+                session_id=session_id,
+                posture=enforcement_posture,
+                findings=findings,
+            )
+
         # Record audit event matching the final decision
         audit_event = AuditEvent(
             event_id=f"evt-{uuid.uuid4()}",
@@ -461,6 +515,7 @@ class RuntimeService:
             authorization = self._execution_authority.issue(
                 binding,
                 recorded_event.decision,
+                agent_id=agent_id,
             )
 
         result = RuntimeResult(

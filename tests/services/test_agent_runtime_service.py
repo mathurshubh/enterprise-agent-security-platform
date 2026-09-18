@@ -165,6 +165,7 @@ class StubRuntimeService(RuntimeExecutor):
                 authorization = self.execution_authority.issue(
                     binding,
                     self._decision,
+                    agent_id=agent_id,
                 )
 
         return RuntimeResult(

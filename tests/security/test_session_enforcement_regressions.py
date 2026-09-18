@@ -24,6 +24,10 @@ from app.models.agent import AgentStatus
 from app.models.audit_event import Decision
 from app.models.response_action import ResponseType
 from app.models.risk_assessment import RiskLevel
+from app.runtime.execution_authority import (
+    ExecutionBindingError,
+    ExecutionRefusalReason,
+)
 from tests.security.conftest import BENIGN_FILE
 
 # Triggers PROMPT_INJECTION + SENSITIVE_FILE_ACCESS + DATA_EXFILTRATION
@@ -151,32 +155,41 @@ def test_invariant_posture_does_not_cross_agents(
     assert unaffected.event.decision == Decision.ALLOW
 
 
-@pytest.mark.security_baseline
-def test_baseline_suspend_response_does_not_change_agent_state(
+@pytest.mark.security_regression
+def test_suspension_denies_every_later_request_in_any_session(
     build_runtime, security_workspace: Path
 ) -> None:
-    """SUSPEND_AGENT downgrades one decision and is then discarded."""
+    """Containment survives the request that triggered it.
+
+    Before M2b, SUSPEND_AGENT downgraded one decision and was then discarded, so the
+    next request — in the same session or a fresh one — was evaluated as though nothing
+    had happened.
+    """
     env = build_runtime(workspace=security_workspace)
 
-    result = env.runtime.execute(
+    triggering = env.runtime.execute(
         session_id="corpus-h4-suspend",
         agent_id=env.agent_id,
         tool_id="file_read",
         user_prompt=CRITICAL_PAYLOAD,
     )
+    assert triggering.response_action.response_type == ResponseType.SUSPEND_AGENT
+    assert triggering.event.decision == Decision.DENY
+    assert triggering.authorization is None
 
-    assert result.response_action.response_type == ResponseType.SUSPEND_AGENT
-    assert result.event.decision == Decision.DENY
+    later = env.runtime.execute(
+        session_id="corpus-h4-after-suspension",
+        agent_id=env.agent_id,
+        tool_id="file_read",
+        resource=BENIGN_FILE,
+        user_prompt="read the notes file",
+    )
 
-    agent = env.agent_service.get_agent(env.agent_id)
-    assert agent.status == AgentStatus.ACTIVE
+    assert later.event.decision == Decision.DENY
+    assert later.authorization is None
 
 
 @pytest.mark.security_invariant
-@pytest.mark.xfail(
-    strict=True,
-    reason="H-4: no code path writes AgentStatus.SUSPENDED; suspension is advisory (M2)",
-)
 def test_invariant_suspend_response_must_persist_agent_state(
     build_runtime, security_workspace: Path
 ) -> None:
@@ -191,6 +204,63 @@ def test_invariant_suspend_response_must_persist_agent_state(
 
     agent = env.agent_service.get_agent(env.agent_id)
     assert agent.status == AgentStatus.SUSPENDED
+
+
+@pytest.mark.security_invariant
+def test_invariant_suspension_is_attributable(
+    build_runtime, security_workspace: Path
+) -> None:
+    """A containment action must record what caused it."""
+    env = build_runtime(workspace=security_workspace)
+
+    env.runtime.execute(
+        session_id="corpus-h4-attribution",
+        agent_id=env.agent_id,
+        tool_id="file_read",
+        user_prompt=CRITICAL_PAYLOAD,
+    )
+
+    transitions = env.agent_service.list_transitions(env.agent_id)
+    assert len(transitions) == 1
+
+    transition = transitions[0]
+    assert transition.new_status == AgentStatus.SUSPENDED
+    assert transition.actor == "runtime"
+    assert transition.reason
+    assert transition.trigger is not None
+    assert transition.trigger.session_id == "corpus-h4-attribution"
+    assert transition.trigger.risk_level == RiskLevel.CRITICAL
+    assert transition.trigger.finding_ids
+
+
+@pytest.mark.security_invariant
+def test_invariant_suspension_withdraws_outstanding_execution_authority(
+    build_runtime, security_workspace: Path
+) -> None:
+    """A grant issued before containment must not remain usable afterwards (ADR-023)."""
+    env = build_runtime(workspace=security_workspace)
+
+    allowed = env.runtime.execute(
+        session_id="corpus-h4-outstanding",
+        agent_id=env.agent_id,
+        tool_id="file_read",
+        resource=BENIGN_FILE,
+        user_prompt="read the notes file",
+    )
+    grant = allowed.authorization
+    assert grant is not None
+
+    env.runtime.execute(
+        session_id="corpus-h4-outstanding",
+        agent_id=env.agent_id,
+        tool_id="file_read",
+        user_prompt=CRITICAL_PAYLOAD,
+    )
+
+    with pytest.raises(ExecutionBindingError) as refusal:
+        env.runtime.execution_authority.verify_and_consume(grant, grant.binding)
+
+    assert refusal.value.reason == ExecutionRefusalReason.REVOKED
 
 
 @pytest.mark.security_baseline
