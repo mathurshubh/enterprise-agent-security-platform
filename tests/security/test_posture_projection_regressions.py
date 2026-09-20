@@ -25,6 +25,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from app.models.agent import Agent, AgentStatus, RiskTier
 from app.models.agent_risk_posture import AgentRiskPosture, PostureState
 from app.models.audit_event import Decision
 from app.models.finding import Finding, FindingCategory, Severity
@@ -394,3 +395,124 @@ class TestPostureStateIsNotAnAssessment:
         assert watermark.model_config["frozen"] is True
         with pytest.raises(ValidationError):
             watermark.baseline_sequence = 9
+
+
+class TestProjectionIntegrityFailsClosed:
+    """CI-1 at the authorization boundary (M5-B.3).
+
+    A projection whose cursor precedes its baseline is not stale evidence awaiting a
+    rebuild — it describes a state that cannot be true. Before this control it
+    reported `HEALTHY` and authorized normally:
+
+        baseline=50, cursor=3  ->  snapshot HEALTHY  ->  decision ALLOW
+
+    which is worse than it looks. In that state B-5 skips every finding up to the
+    baseline as "historical" while the cursor says none of it was ever applied, so the
+    evidence between the two is discarded rather than summarised. The projection is
+    then confidently reporting a risk level derived from evidence it silently dropped.
+
+    Refused rather than repaired: reconciliation would rebuild a consistent projection
+    and conceal that the violation ever occurred.
+    """
+
+    def corrupt_projection(self, env) -> None:
+        """Reach the invalid state the way a defective mutator would leave it."""
+        aggregate = env.risk_aggregator._projections[env.agent_id]
+        aggregate.baseline_sequence = 50
+        aggregate.last_applied_sequence = 3
+
+    @pytest.mark.security_invariant
+    def test_invariant_a_projection_violating_its_own_invariants_authorizes_nothing(
+        self, build_runtime, security_workspace: Path
+    ) -> None:
+        env = build_runtime(workspace=security_workspace)
+        assert execute(env, "integrity-seed").event.decision == Decision.ALLOW
+
+        self.corrupt_projection(env)
+        result = execute(env, "integrity-violated")
+
+        assert result.event.decision == Decision.DENY
+        assert result.refusal_reason == POSTURE_RECONCILIATION_FAILED
+
+    @pytest.mark.security_invariant
+    def test_invariant_an_integrity_violation_yields_no_assessment_and_no_grant(
+        self, build_runtime, security_workspace: Path
+    ) -> None:
+        """Same refusal contract as any other untrustworthy posture (ADR-026).
+
+        No separate refusal reason is introduced: the externally meaningful security
+        state is identical — the runtime cannot establish a trustworthy posture — and
+        widening the public refusal taxonomy would imply a distinction consumers have
+        no action to take on.
+        """
+        env = build_runtime(workspace=security_workspace)
+        execute(env, "integrity-contract-seed")
+        self.corrupt_projection(env)
+
+        result = execute(env, "integrity-contract")
+
+        assert result.risk_assessment is None
+        assert result.enforcement_posture is None
+        assert result.response_action is None
+        assert result.authorization is None
+
+    @pytest.mark.security_regression
+    def test_the_violated_projection_is_not_silently_repaired(
+        self, build_runtime, security_workspace: Path
+    ) -> None:
+        """A rebuild would produce a plausible projection and erase the evidence that
+        anything was ever wrong. The invalid state must survive the refusal."""
+        env = build_runtime(workspace=security_workspace)
+        execute(env, "integrity-norepair-seed")
+        self.corrupt_projection(env)
+
+        execute(env, "integrity-norepair")
+
+        aggregate = env.risk_aggregator._projections[env.agent_id]
+        assert aggregate.baseline_sequence == 50
+        assert aggregate.last_applied_sequence == 3
+
+    @pytest.mark.security_regression
+    def test_the_refusal_persists_until_the_projection_is_corrected(
+        self, build_runtime, security_workspace: Path
+    ) -> None:
+        """Not a transient error a retry walks past."""
+        env = build_runtime(workspace=security_workspace)
+        execute(env, "integrity-persist-seed")
+        self.corrupt_projection(env)
+
+        for index in range(3):
+            result = execute(env, f"integrity-persist-{index}")
+            assert result.event.decision == Decision.DENY
+            assert result.refusal_reason == POSTURE_RECONCILIATION_FAILED
+
+    @pytest.mark.security_regression
+    def test_one_agents_corrupt_projection_does_not_deny_another_agent(
+        self, build_runtime, security_workspace: Path
+    ) -> None:
+        """Fail-closed is scoped to the agent whose projection is untrustworthy."""
+        env = build_runtime(workspace=security_workspace)
+        execute(env, "integrity-isolation-seed")
+        self.corrupt_projection(env)
+
+        other = "integrity-other-agent"
+        env.agent_service.register_agent(
+            Agent(
+                agent_id=other,
+                name="Unaffected",
+                owner="security-team",
+                risk_tier=RiskTier.HIGH,
+                approved_tools=["file_read", "directory_list"],
+                status=AgentStatus.ACTIVE,
+            )
+        )
+
+        result = env.runtime.execute(
+            session_id="integrity-isolation-other",
+            agent_id=other,
+            tool_id="file_read",
+            resource=BENIGN_FILE,
+        )
+
+        assert result.event.decision == Decision.ALLOW
+        assert result.refusal_reason is None
