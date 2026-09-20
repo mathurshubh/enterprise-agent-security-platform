@@ -215,6 +215,7 @@ class ExecutionAuthority:
 
         with self._lock:
             now = self._clock()
+            self._prune(now)
 
             if now >= grant.expires_at:
                 self._outstanding.pop(grant.grant_id, None)

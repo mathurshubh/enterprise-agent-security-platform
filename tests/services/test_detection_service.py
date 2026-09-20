@@ -1,9 +1,13 @@
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
+
+import pytest
 
 from app.models.audit_event import Decision
 from app.models.finding import Severity
 from app.models.session_event import SessionEvent
 from app.services.detection_service import (
+    DEFAULT_EXCESSIVE_DENIALS_WINDOW_SECONDS,
     EXCESSIVE_DENIAL_THRESHOLD,
     DetectionService,
     session_finding_id,
@@ -14,13 +18,17 @@ def create_event(
     decision: Decision,
     session_id: str = "session-1",
     agent_id: str = "agent-1",
+    timestamp: datetime | None = None,
 ) -> SessionEvent:
-    return SessionEvent(
-        session_id=session_id,
-        agent_id=agent_id,
-        tool_id="file_read",
-        decision=decision,
-    )
+    kwargs = {
+        "session_id": session_id,
+        "agent_id": agent_id,
+        "tool_id": "file_read",
+        "decision": decision,
+    }
+    if timestamp is not None:
+        kwargs["timestamp"] = timestamp
+    return SessionEvent(**kwargs)
 
 
 def test_detect_excessive_denials():
@@ -153,3 +161,138 @@ def test_multiple_sessions_generate_findings():
         "session-1",
         "session-2",
     }
+
+
+class TestExcessiveDenialsTemporalSemantics:
+    """M4 Step 2C-A: Excessive denials temporal sliding window and cumulative semantics."""
+
+    def test_cumulative_semantics_with_intervening_decisions(self) -> None:
+        """Intervening ALLOW and APPROVAL_REQUIRED do not reset the cumulative denial counter."""
+        service = DetectionService()
+        now = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+        events = [
+            create_event(Decision.DENY, timestamp=now - timedelta(seconds=100)),
+            create_event(Decision.ALLOW, timestamp=now - timedelta(seconds=80)),
+            create_event(Decision.DENY, timestamp=now - timedelta(seconds=60)),
+            create_event(Decision.APPROVAL_REQUIRED, timestamp=now - timedelta(seconds=40)),
+            create_event(Decision.DENY, timestamp=now - timedelta(seconds=20)),
+        ]
+
+        findings = service.detect_excessive_denials(events, now_utc=now)
+
+        assert len(findings) == 1
+        assert findings[0].rule_name == "EXCESSIVE_DENIALS"
+        assert findings[0].description == "Session contains 3 denied actions"
+
+    def test_cross_agent_isolation_with_interleaved_denials(self) -> None:
+        """Interleaved denials for different agents are partitioned by agent_id."""
+        service = DetectionService()
+        now = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+        events = [
+            create_event(
+                Decision.DENY,
+                "session-1",
+                "agent-A",
+                timestamp=now - timedelta(seconds=40),
+            ),
+            create_event(
+                Decision.DENY,
+                "session-1",
+                "agent-A",
+                timestamp=now - timedelta(seconds=30),
+            ),
+            create_event(
+                Decision.DENY,
+                "session-1",
+                "agent-B",
+                timestamp=now - timedelta(seconds=20),
+            ),
+            create_event(
+                Decision.DENY,
+                "session-1",
+                "agent-A",
+                timestamp=now - timedelta(seconds=10),
+            ),
+        ]
+
+        findings = service.detect_excessive_denials(events, now_utc=now)
+
+        assert len(findings) == 1
+        assert findings[0].agent_id == "agent-A"
+        assert findings[0].session_id == "session-1"
+
+    def test_boundary_timestamp_inclusion_and_exclusion(self) -> None:
+        """Boundary test: event exactly at now - T is included; strictly older (< now - T) is excluded."""
+        t_window = 1800.0
+        service = DetectionService(excessive_denials_window_seconds=t_window)
+        now = datetime(2026, 1, 1, 12, 30, 0, tzinfo=timezone.utc)
+        exact_boundary = now - timedelta(seconds=t_window)
+        older_than_boundary = now - timedelta(seconds=t_window + 1)
+
+        # Case 1: First denial is exactly on the boundary (included) -> 3 denials in window -> triggers
+        events_on_boundary = [
+            create_event(Decision.DENY, timestamp=exact_boundary),
+            create_event(Decision.DENY, timestamp=now - timedelta(seconds=60)),
+            create_event(Decision.DENY, timestamp=now - timedelta(seconds=10)),
+        ]
+        findings_included = service.detect_excessive_denials(
+            events_on_boundary, now_utc=now
+        )
+        assert len(findings_included) == 1
+
+        # Case 2: First denial is strictly older than boundary (excluded) -> only 2 denials in window -> no finding
+        events_older = [
+            create_event(Decision.DENY, timestamp=older_than_boundary),
+            create_event(Decision.DENY, timestamp=now - timedelta(seconds=60)),
+            create_event(Decision.DENY, timestamp=now - timedelta(seconds=10)),
+        ]
+        findings_excluded = service.detect_excessive_denials(
+            events_older, now_utc=now
+        )
+        assert len(findings_excluded) == 0
+
+    def test_all_denials_expired_produces_no_findings(self) -> None:
+        """Denials occurring entirely outside the sliding window are disregarded."""
+        service = DetectionService(excessive_denials_window_seconds=1800.0)
+        now = datetime(2026, 1, 1, 14, 0, 0, tzinfo=timezone.utc)
+
+        # 3 denials that occurred 2 hours ago
+        events = [
+            create_event(Decision.DENY, timestamp=now - timedelta(hours=2)),
+            create_event(
+                Decision.DENY, timestamp=now - timedelta(hours=2, seconds=-10)
+            ),
+            create_event(
+                Decision.DENY, timestamp=now - timedelta(hours=2, seconds=-20)
+            ),
+        ]
+
+        findings = service.detect_excessive_denials(events, now_utc=now)
+        assert len(findings) == 0
+
+    def test_configurable_window_and_validation(self) -> None:
+        """Window is configurable, defaults to 1800s, and rejects non-positive durations."""
+        default_service = DetectionService()
+        assert (
+            default_service.excessive_denials_window_seconds
+            == DEFAULT_EXCESSIVE_DENIALS_WINDOW_SECONDS
+        )
+        assert (
+            default_service.get_rule_horizon("EXCESSIVE_DENIALS")
+            == DEFAULT_EXCESSIVE_DENIALS_WINDOW_SECONDS
+        )
+
+        with pytest.raises(ValueError, match="positive"):
+            DetectionService(excessive_denials_window_seconds=0)
+
+        with pytest.raises(ValueError, match="positive"):
+            DetectionService(excessive_denials_window_seconds=-60.0)
+
+        custom_service = DetectionService(excessive_denials_window_seconds=60.0)
+        assert custom_service.excessive_denials_window_seconds == 60.0
+        assert custom_service.get_rule_horizon("EXCESSIVE_DENIALS") == 60.0
+
+        with pytest.raises(KeyError, match="Unknown detection rule"):
+            custom_service.get_rule_horizon("UNKNOWN_RULE")

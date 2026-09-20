@@ -9,6 +9,7 @@ from app.models.agent_enforcement import (
     EnforcementTransition,
     EnforcementTrigger,
 )
+from app.models.watermark import BaselineWatermark
 
 # Suspension is written by the deterministic runtime pipeline, never by an operator
 # request. Reinstatement is the opposite: it always names the operator who performed it.
@@ -100,12 +101,13 @@ class AgentService:
         *,
         actor: str,
         reason: str,
+        watermark: BaselineWatermark | None = None,
     ) -> Agent:
-        """Return a suspended agent to service under a new enforcement baseline.
+        """Return a suspended agent to active status (recovery path).
 
-        This is the only transition out of ``SUSPENDED``. It preserves every finding
-        and every recorded transition: the baseline changes which evidence still drives
-        enforcement, not what the platform observed.
+        Reinstatement establishes a new enforcement baseline: findings accepted before
+        this moment remain in the evidence repository for audit and attribution, but no
+        longer drive automated enforcement.
 
         Raises:
             AgentNotFoundError: the agent is not registered.
@@ -132,6 +134,21 @@ class AgentService:
                 actor=actor,
                 reason=reason,
                 trigger=None,
+                watermark=watermark,
+            )
+
+    def get_current_baseline(self, agent_id: str) -> BaselineWatermark:
+        """Return the current enforcement baseline watermark for an agent (B-10).
+
+        Reads the stored enforcement_baseline_at and enforcement_baseline_sequence.
+        Never derives or recomputes a new baseline from findings.
+        """
+        with self._lock:
+            state = self.get_enforcement_state(agent_id)
+            return BaselineWatermark(
+                agent_id=agent_id,
+                baseline_at=state.enforcement_baseline_at,
+                baseline_sequence=state.enforcement_baseline_sequence,
             )
 
     def get_enforcement_state(self, agent_id: str) -> AgentEnforcementState:
@@ -165,6 +182,7 @@ class AgentService:
         actor: str,
         reason: str,
         trigger: EnforcementTrigger | None,
+        watermark: BaselineWatermark | None = None,
     ) -> Agent:
         """Apply one enforcement transition atomically under the service lock."""
         now = datetime.now(timezone.utc)
@@ -186,11 +204,18 @@ class AgentService:
                 }
             )
         else:
+            baseline_at = (
+                watermark.baseline_at
+                if watermark and watermark.baseline_at is not None
+                else now
+            )
+            baseline_seq = watermark.baseline_sequence if watermark else 0
             state = state.model_copy(
                 update={
                     "suspended_at": None,
                     "suspension_reason": None,
-                    "enforcement_baseline_at": now,
+                    "enforcement_baseline_at": baseline_at,
+                    "enforcement_baseline_sequence": baseline_seq,
                     "last_transition_at": now,
                 }
             )

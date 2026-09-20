@@ -2,6 +2,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 from app.models.finding import Finding, FindingCategory, FindingStatus, Severity
+from app.models.watermark import UNASSIGNED_SEQUENCE
 from app.services.findings_service import FindingsService
 
 
@@ -15,6 +16,7 @@ def make_finding(
     category: FindingCategory = FindingCategory.PROMPT_INJECTION,
     status: FindingStatus = FindingStatus.OPEN,
     description: str = "Test prompt injection finding",
+    evidence_sequence: int = UNASSIGNED_SEQUENCE,
 ) -> Finding:
     return Finding(
         finding_id=finding_id,
@@ -26,6 +28,7 @@ def make_finding(
         category=category,
         status=status,
         description=description,
+        evidence_sequence=evidence_sequence,
     )
 
 
@@ -98,15 +101,19 @@ class TestFindingsService:
         service = FindingsService()
         finding = make_finding()
         recorded = service.record_finding(finding)
-        assert recorded == finding
-        assert service.get_finding("f-1") == finding
+        assert recorded.finding_id == finding.finding_id
+        assert recorded.evidence_sequence == 1
+        assert service.get_finding("f-1") == recorded
 
     def test_record_new_findings_skips_known_identifiers(self) -> None:
         service = FindingsService()
         original = make_finding(description="first crossing")
         repeat = make_finding(description="re-derived crossing")
 
-        assert service.record_new_findings([original]) == [original]
+        recorded = service.record_new_findings([original])
+        assert len(recorded) == 1
+        assert recorded[0].finding_id == original.finding_id
+        assert recorded[0].evidence_sequence == 1
         # The repeat carries the same identity, so it is neither recorded nor reported.
         assert service.record_new_findings([repeat]) == []
         assert len(service.list_findings()) == 1
@@ -118,7 +125,10 @@ class TestFindingsService:
         service.record_new_findings([known])
 
         fresh = make_finding(finding_id="f-fresh")
-        assert service.record_new_findings([known, fresh]) == [fresh]
+        recorded = service.record_new_findings([known, fresh])
+        assert len(recorded) == 1
+        assert recorded[0].finding_id == fresh.finding_id
+        assert recorded[0].evidence_sequence == 2
         assert len(service.list_findings()) == 2
 
     def test_record_findings(self) -> None:
@@ -223,3 +233,128 @@ class TestFindingsService:
             list(executor.map(record, range(100)))
 
         assert len(service.list_findings()) == 100
+
+
+class TestFindingsAuthoritativeSequencing:
+    """Validates monotonic sequence assignment, bootstrap, and baseline watermarking (B-10, B-12, B-14)."""
+
+    def test_pre_m5_findings_receive_deterministic_sequences(self) -> None:
+        """Pre-M5 findings with evidence_sequence == 0 are assigned monotonic sequences (B-14)."""
+        f1 = make_finding(finding_id="f-1", agent_id="agent-1", evidence_sequence=0)
+        f2 = make_finding(finding_id="f-2", agent_id="agent-1", evidence_sequence=0)
+        f3 = make_finding(finding_id="f-3", agent_id="agent-2", evidence_sequence=0)
+
+        service = FindingsService(initial_findings=[f1, f2, f3])
+
+        stored_f1 = service.get_finding("f-1")
+        stored_f2 = service.get_finding("f-2")
+        stored_f3 = service.get_finding("f-3")
+
+        assert stored_f1 is not None and stored_f1.evidence_sequence == 1
+        assert stored_f2 is not None and stored_f2.evidence_sequence == 2
+        assert stored_f3 is not None and stored_f3.evidence_sequence == 1
+
+        # Next finding for agent-1 continues at 3
+        f4 = service.record_finding(make_finding(finding_id="f-4", agent_id="agent-1"))
+        assert f4.evidence_sequence == 3
+
+        # Next finding for agent-2 continues at 2
+        f5 = service.record_finding(make_finding(finding_id="f-5", agent_id="agent-2"))
+        assert f5.evidence_sequence == 2
+
+        # Bootstrap is idempotent when called again
+        service.bootstrap_sequences()
+        assert service.get_finding("f-1").evidence_sequence == 1
+        assert service.get_finding("f-2").evidence_sequence == 2
+        assert service.get_finding("f-4").evidence_sequence == 3
+
+    def test_monotonic_sequence_assignment(self) -> None:
+        """New findings receive monotonic 1-based sequences (B-12)."""
+        service = FindingsService()
+        f1 = service.record_finding(make_finding(finding_id="f-1", agent_id="agent-A"))
+        f2 = service.record_finding(make_finding(finding_id="f-2", agent_id="agent-A"))
+        f3 = service.record_finding(make_finding(finding_id="f-3", agent_id="agent-A"))
+
+        assert f1.evidence_sequence == 1
+        assert f2.evidence_sequence == 2
+        assert f3.evidence_sequence == 3
+        assert service.get_agent_sequence("agent-A") == 3
+
+    def test_separate_agent_sequence_counters(self) -> None:
+        """Sequence counters are isolated per agent."""
+        service = FindingsService()
+        f_a1 = service.record_finding(make_finding(finding_id="fa-1", agent_id="agent-A"))
+        f_b1 = service.record_finding(make_finding(finding_id="fb-1", agent_id="agent-B"))
+        f_a2 = service.record_finding(make_finding(finding_id="fa-2", agent_id="agent-A"))
+
+        assert f_a1.evidence_sequence == 1
+        assert f_b1.evidence_sequence == 1
+        assert f_a2.evidence_sequence == 2
+        assert service.get_agent_sequence("agent-A") == 2
+        assert service.get_agent_sequence("agent-B") == 1
+
+    def test_deduplication_does_not_burn_sequences(self) -> None:
+        """Deduplicated findings via record_new_findings do not advance sequence counter (B-3)."""
+        service = FindingsService()
+        f1 = make_finding(finding_id="f-1", agent_id="agent-A")
+        service.record_new_findings([f1])
+        assert service.get_agent_sequence("agent-A") == 1
+
+        # Attempt to record the same finding ID again
+        repeat = make_finding(finding_id="f-1", agent_id="agent-A", description="duplicate")
+        recorded = service.record_new_findings([repeat])
+        assert recorded == []
+        assert service.get_agent_sequence("agent-A") == 1
+
+        # Next fresh finding gets sequence 2
+        f2 = make_finding(finding_id="f-2", agent_id="agent-A")
+        new_recorded = service.record_new_findings([f2])
+        assert len(new_recorded) == 1
+        assert new_recorded[0].evidence_sequence == 2
+        assert service.get_agent_sequence("agent-A") == 2
+
+    def test_capture_baseline_watermark(self) -> None:
+        """capture_baseline creates an atomic BaselineWatermark covering evidence up to baseline_at (B-10)."""
+        service = FindingsService()
+        t1 = datetime(2026, 9, 20, 10, 0, 0, tzinfo=timezone.utc)
+        t2 = datetime(2026, 9, 20, 11, 0, 0, tzinfo=timezone.utc)
+        t3 = datetime(2026, 9, 20, 12, 0, 0, tzinfo=timezone.utc)
+
+        # Record findings with controlled recorded_at
+        f1 = make_finding(finding_id="f-1", agent_id="agent-A")
+        f2 = make_finding(finding_id="f-2", agent_id="agent-A")
+        f3 = make_finding(finding_id="f-3", agent_id="agent-A")
+
+        service.record_finding(f1)
+        service._recorded_at["f-1"] = t1
+        service.record_finding(f2)
+        service._recorded_at["f-2"] = t2
+        service.record_finding(f3)
+        service._recorded_at["f-3"] = t3
+
+        # Watermark at t2 should include f1 and f2 (sequence 2), excluding f3 (sequence 3)
+        wm = service.capture_baseline("agent-A", baseline_at=t2)
+        assert wm.agent_id == "agent-A"
+        assert wm.baseline_at == t2
+        assert wm.baseline_sequence == 2
+
+        # Watermark before any findings should have sequence 0
+        t0 = datetime(2026, 9, 20, 9, 0, 0, tzinfo=timezone.utc)
+        wm0 = service.capture_baseline("agent-A", baseline_at=t0)
+        assert wm0.baseline_sequence == 0
+
+    def test_b14_sequence_continuity_across_reconstruction(self) -> None:
+        """Service initialized with partially sequenced findings continues from max sequence (B-14)."""
+        f1 = make_finding(finding_id="f-1", agent_id="agent-A", evidence_sequence=5)
+        f2 = make_finding(finding_id="f-2", agent_id="agent-A", evidence_sequence=0)
+
+        service = FindingsService(initial_findings=[f1, f2])
+
+        # f1 was 5, f2 (unassigned) receives 6
+        assert service.get_finding("f-1").evidence_sequence == 5
+        assert service.get_finding("f-2").evidence_sequence == 6
+        assert service.get_agent_sequence("agent-A") == 6
+
+        # Next finding is 7
+        f3 = service.record_finding(make_finding(finding_id="f-3", agent_id="agent-A"))
+        assert f3.evidence_sequence == 7

@@ -8,12 +8,13 @@ from app.detection.context import DetectionContext
 from app.detection.engine import DetectionEngine
 from app.models.agent import Agent, AgentStatus, RiskTier
 from app.models.agent_enforcement import EnforcementTrigger
-from app.models.agent_risk_posture import AgentRiskPosture
+from app.models.agent_risk_posture import AgentRiskPosture, PostureState
 from app.models.audit_event import AuditEvent, Decision
 from app.models.execution_binding import (
     ExecutionBinding,
     ExecutionBindingValidationError,
 )
+from app.models.finding import Finding
 from app.models.response_action import ResponseType
 from app.models.runtime_context import RuntimeContext
 from app.models.runtime_result import RuntimeResult
@@ -30,13 +31,16 @@ from app.models.tool_identity import ToolIdentity
 from app.models.tool_metadata import ToolMetadata
 from app.models.tool_operational import ToolOperational
 from app.models.tool_risk_level import ToolRiskLevel
+from app.models.watermark import BaselineWatermark
 from app.registry.tool_registry import ToolRegistry
 from app.runtime.execution_authority import ExecutionAuthority
+from app.services.agent_lock_manager import AgentLockManager
 from app.services.agent_service import AgentNotFoundError, AgentService
 from app.services.audit_service import AuditService
 from app.services.detection_service import DetectionService
 from app.services.findings_service import FindingsService
 from app.services.response_service import ResponseService
+from app.services.risk_aggregator import RiskAggregator
 from app.services.risk_service import RiskService
 from app.services.session_service import SessionBindingError, SessionService
 from app.services.tool_service import ToolService
@@ -44,6 +48,12 @@ from app.telemetry.contracts import TelemetryEmitter
 
 # Telemetry error code for a request that named a session owned by another agent.
 SESSION_BINDING_INVALID = "SESSION_BINDING_INVALID"
+# Error code for a request refused because an agent's posture could not be reconciled.
+POSTURE_RECONCILIATION_FAILED = "POSTURE_RECONCILIATION_FAILED"
+
+
+class PostureReconciliationError(Exception):
+    """Raised when an agent's posture cannot be reconciled into HEALTHY state."""
 
 
 class RuntimeService:
@@ -61,6 +71,8 @@ class RuntimeService:
         telemetry_emitter: TelemetryEmitter | None = None,
         execution_authority: ExecutionAuthority | None = None,
         agent_service: AgentService | None = None,
+        risk_aggregator: RiskAggregator | None = None,
+        lock_manager: AgentLockManager | None = None,
     ) -> None:
         self._authorization_service = authorization_service
         self._session_service = session_service
@@ -74,10 +86,10 @@ class RuntimeService:
         self._telemetry_emitter = telemetry_emitter
         self._execution_authority = execution_authority
         self._agent_service = agent_service
-        # One lock per agent, so assessing an agent's posture serialises against other
-        # requests for that agent without serialising the pipeline as a whole.
-        self._posture_locks: dict[str, RLock] = {}
-        self._posture_lock_registry = RLock()
+        self._risk_aggregator = risk_aggregator
+        self._lock_manager = (
+            lock_manager if lock_manager is not None else AgentLockManager()
+        )
         self._last_result = None
 
     @property
@@ -276,6 +288,70 @@ class RuntimeService:
         self._last_result = result
         return result
 
+    def _refuse_posture_reconciliation(
+        self,
+        session_id: str,
+        agent_id: str,
+        tool_id: str,
+        resource: str | None,
+        param_hash: str,
+        trace_id: str | None,
+        principal: str | None,
+        tenant_id: str | None,
+        started_at: float,
+        findings: list[Finding],
+    ) -> RuntimeResult:
+        """Fail closed when an agent's posture cannot be reconciled.
+
+        The request is denied at the authorization/execution boundary without fabricating
+        a synthetic CRITICAL risk score. This preserves the distinction between active
+        risk evidence and security-state availability.
+        """
+        event = SessionEvent(
+            session_id=session_id,
+            agent_id=agent_id,
+            tool_id=tool_id,
+            decision=Decision.DENY,
+        )
+
+        audit_event = AuditEvent(
+            event_id=f"evt-{uuid.uuid4()}",
+            agent_id=agent_id,
+            tool_id=tool_id,
+            decision=Decision.DENY,
+        )
+        self._audit_service.record_event(audit_event)
+
+        elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+        self._safe_emit(
+            BehavioralEvent(
+                event_type=TelemetryEventType.GOVERNANCE_DECISION_FINALIZED,
+                session_id=session_id,
+                agent_id=agent_id,
+                trace_id=trace_id,
+                principal=principal,
+                tenant_id=tenant_id,
+                tool_id=tool_id,
+                resource_target=resource,
+                parameter_hash=param_hash,
+                decision=Decision.DENY,
+                execution_time_ms=elapsed_ms,
+                error_code=POSTURE_RECONCILIATION_FAILED,
+            )
+        )
+
+        result = RuntimeResult(
+            event=event,
+            findings=findings,
+            risk_assessment=None,
+            enforcement_posture=None,
+            response_action=None,
+            refusal_reason=POSTURE_RECONCILIATION_FAILED,
+            authorization=None,
+        )
+        self._last_result = result
+        return result
+
     def _suspend_agent(
         self,
         agent_id: str,
@@ -319,28 +395,77 @@ class RuntimeService:
             pass
 
     def _posture_lock(self, agent_id: str) -> RLock:
-        """Return the lock guarding posture assessment for one agent."""
-        with self._posture_lock_registry:
-            lock = self._posture_locks.get(agent_id)
-            if lock is None:
-                lock = RLock()
-                self._posture_locks[agent_id] = lock
-            return lock
+        """Return the coordination lock for one agent."""
+        return self._lock_manager.get_lock(agent_id)
 
     def _assess_agent_posture(self, agent_id: str) -> AgentRiskPosture:
-        """Assess the agent's enforcement posture from every finding recorded for it.
+        """Assess the agent's enforcement posture.
 
-        Findings recorded earlier in this same request are already stored, so the
-        request that crosses a threshold is evaluated against the posture it just
-        produced rather than the previous one.
+        When RiskAggregator is available (M5-B):
+        - HEALTHY posture is returned in O(1) time without scanning FindingsService.
+        - UNINITIALIZED or STALE postures trigger authoritative deterministic reconciliation
+          under the per-agent coordination lock against the stored baseline watermark and
+          authoritative findings.
+        - If reconciliation fails, raises PostureReconciliationError to fail closed.
 
-        Reading the evidence, deriving the posture and publishing it happen under one
-        per-agent lock. Without it, two concurrent requests for the same agent could
-        interleave so that a request holding an older snapshot publishes last, and the
-        stored posture would silently regress below the evidence that already exists.
-        Posture is enforcement state in M2b, so a stale derivation must never overwrite
-        a newer one. Requests for different agents remain concurrent.
+        When RiskAggregator is absent (legacy fallback):
+        - Scans findings under the per-agent lock via RiskService.assess_agent.
         """
+        if self._risk_aggregator is not None:
+            posture = self._risk_aggregator.get_posture(agent_id)
+            if posture.state == PostureState.HEALTHY:
+                return posture
+
+            # Posture is UNINITIALIZED or STALE: perform authoritative reconciliation
+            with self._posture_lock(agent_id):
+                # Re-check under lock in case another thread reconciled it
+                posture = self._risk_aggregator.get_posture(agent_id)
+                if posture.state == PostureState.HEALTHY:
+                    return posture
+
+                # Obtain current stored baseline watermark (never call capture_baseline)
+                if self._agent_service is not None:
+                    try:
+                        watermark = self._agent_service.get_current_baseline(agent_id)
+                    except AgentNotFoundError:
+                        watermark = BaselineWatermark(
+                            agent_id=agent_id,
+                            baseline_at=None,
+                            baseline_sequence=0,
+                        )
+                else:
+                    watermark = BaselineWatermark(
+                        agent_id=agent_id,
+                        baseline_at=None,
+                        baseline_sequence=0,
+                    )
+
+                # Authoritative evidence scan for reconciliation
+                authoritative_findings: list[Finding] = []
+                if self._findings_service is not None:
+                    authoritative_findings = self._findings_service.list_findings(
+                        agent_id=agent_id
+                    )
+
+                try:
+                    reconciled = self._risk_aggregator.reconcile_agent(
+                        agent_id=agent_id,
+                        findings=authoritative_findings,
+                        watermark=watermark,
+                    )
+                except Exception as exc:
+                    raise PostureReconciliationError(
+                        f"Failed to reconcile posture for agent '{agent_id}': {exc}"
+                    ) from exc
+
+                if reconciled.state != PostureState.HEALTHY:
+                    raise PostureReconciliationError(
+                        f"Failed to reconcile posture for agent '{agent_id}' (state={reconciled.state})"
+                    )
+
+                return reconciled
+
+        # Legacy fallback when RiskAggregator is not wired
         with self._posture_lock(agent_id):
             baseline_at = None
             if self._agent_service is not None:
@@ -508,10 +633,19 @@ class RuntimeService:
         # that follows it. ``record_new_findings`` keeps the original record and
         # reports only newly recorded evidence, so a crossed threshold cannot raise
         # cumulative risk again on later requests.
+        findings: list[Finding] = []
         if self._findings_service:
-            findings = self._findings_service.record_new_findings(
-                content_findings + session_findings
-            )
+            with self._posture_lock(agent_id):
+                findings = self._findings_service.record_new_findings(
+                    content_findings + session_findings
+                )
+                if self._risk_aggregator is not None:
+                    for f in findings:
+                        try:
+                            self._risk_aggregator.ingest_finding(f)
+                        except Exception:
+                            self._risk_aggregator.mark_stale(agent_id)
+                            # Projection failed closed to STALE; do not roll back authoritative evidence
         else:
             findings = content_findings + session_findings
 
@@ -541,7 +675,21 @@ class RuntimeService:
         # enforces on the weaker session posture.
         enforcement_posture = None
         if self._findings_service is not None and self._agent_service is not None:
-            enforcement_posture = self._assess_agent_posture(agent_id)
+            try:
+                enforcement_posture = self._assess_agent_posture(agent_id)
+            except PostureReconciliationError:
+                return self._refuse_posture_reconciliation(
+                    session_id=session_id,
+                    agent_id=agent_id,
+                    tool_id=tool_id,
+                    resource=resource,
+                    param_hash=param_hash,
+                    trace_id=trace_id,
+                    principal=principal,
+                    tenant_id=tenant_id,
+                    started_at=start_time,
+                    findings=findings,
+                )
             response_action = self._response_service.recommend_for_level(
                 enforcement_posture.risk_level,
                 session_id=session_id,
