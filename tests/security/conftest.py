@@ -27,11 +27,14 @@ from app.models.agent import Agent, AgentStatus, RiskTier
 from app.policy.policy_engine import PolicyEngine
 from app.registry.tool_registry import ToolRegistry
 from app.runtime.execution_authority import ExecutionAuthority
+from app.services.agent_lock_manager import AgentLockManager
 from app.services.agent_service import AgentService
 from app.services.audit_service import AuditService
 from app.services.detection_service import DetectionService
+from app.services.enforcement_coordinator import EnforcementCoordinator
 from app.services.findings_service import FindingsService
 from app.services.response_service import ResponseService
+from app.services.risk_aggregator import RiskAggregator
 from app.services.risk_service import RiskService
 from app.services.runtime_bootstrap import register_default_tools
 from app.services.runtime_service import RuntimeService
@@ -66,6 +69,7 @@ def build_runtime():
         status: AgentStatus = AgentStatus.ACTIVE,
         risk_tier: RiskTier = RiskTier.HIGH,
         execution_authority: ExecutionAuthority | None = None,
+        risk_aggregator: RiskAggregator | None = None,
     ) -> SimpleNamespace:
         agent_service = AgentService()
         agent_service.register_agent(
@@ -97,6 +101,8 @@ def build_runtime():
         findings_service = FindingsService()
         risk_service = RiskService()
         authority = execution_authority or ExecutionAuthority()
+        aggregator = risk_aggregator or RiskAggregator()
+        lock_manager = AgentLockManager()
 
         runtime = RuntimeService(
             authorization_service=AuthorizationService(
@@ -116,6 +122,12 @@ def build_runtime():
             # M2b: enforcement posture is agent-scoped, so the fixture mirrors
             # production wiring and supplies the agent registry.
             agent_service=agent_service,
+            # M5-B: the corpus must exercise the path production executes. Without
+            # these two, RuntimeService takes its legacy fallback branch, and every
+            # enforcement invariant below would be verified against a code path that
+            # `app/api/dependencies.py` no longer uses.
+            risk_aggregator=aggregator,
+            lock_manager=lock_manager,
         )
 
         return SimpleNamespace(
@@ -128,6 +140,14 @@ def build_runtime():
             risk_service=risk_service,
             tool_registry=tool_registry,
             execution_authority=authority,
+            risk_aggregator=aggregator,
+            lock_manager=lock_manager,
+            enforcement_coordinator=EnforcementCoordinator(
+                agent_service=agent_service,
+                execution_authority=authority,
+                findings_service=findings_service,
+                risk_aggregator=aggregator,
+            ),
         )
 
     return _build
