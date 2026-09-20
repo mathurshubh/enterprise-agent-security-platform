@@ -24,6 +24,7 @@ from app.detection.prompt_injection_rule import PromptInjectionRule
 from app.detection.registry import DetectionRegistry
 from app.detection.sensitive_file_access_rule import SensitiveFileAccessRule
 from app.models.agent import Agent, AgentStatus, RiskTier
+from app.models.detection_retention import DetectionRetentionPolicy
 from app.policy.policy_engine import PolicyEngine
 from app.registry.tool_registry import ToolRegistry
 from app.runtime.execution_authority import ExecutionAuthority
@@ -97,7 +98,17 @@ def build_runtime():
         detection_registry.register(DataExfiltrationRule())
 
         audit_service = AuditService()
-        session_service = SessionService()
+        # M5-B.4: the corpus must exercise the retention semantics production runs.
+        # `runtime_bootstrap` derives the policy from the detection service's own
+        # evaluation horizon rather than an arbitrary TTL, so the fixture derives it
+        # the same way — a shorter test window would exercise pruning but not the
+        # production contract.
+        detection_service = DetectionService()
+        session_service = SessionService(
+            retention_policy=DetectionRetentionPolicy.from_detection_service(
+                detection_service
+            )
+        )
         findings_service = FindingsService()
         risk_service = RiskService()
         authority = execution_authority or ExecutionAuthority()
@@ -112,7 +123,7 @@ def build_runtime():
             ),
             session_service=session_service,
             detection_engine=DetectionEngine(detection_registry.rules()),
-            detection_service=DetectionService(),
+            detection_service=detection_service,
             risk_service=risk_service,
             response_service=ResponseService(),
             audit_service=audit_service,
@@ -140,6 +151,7 @@ def build_runtime():
             risk_service=risk_service,
             tool_registry=tool_registry,
             execution_authority=authority,
+            retention_policy=session_service.retention_policy,
             risk_aggregator=aggregator,
             lock_manager=lock_manager,
             enforcement_coordinator=EnforcementCoordinator(

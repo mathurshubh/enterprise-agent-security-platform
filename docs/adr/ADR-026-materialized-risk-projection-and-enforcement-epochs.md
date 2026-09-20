@@ -274,8 +274,8 @@ M5-B projection
 
 M4 session retention
     production       -> DetectionRetentionPolicy supplied
-    security corpus  -> currently missing, pruning is not exercised
-                     -> remains open
+    security corpus  -> initially missing, pruning was not exercised
+                     -> corrected in M5-B.4
 ```
 
 That is a repeatable class of verification failure, not an isolated mistake. When production and corpus wiring diverge, the corpus keeps passing and reports assurance it is no longer providing — the failure is silent by construction, because nothing about a green suite indicates which implementation produced it.
@@ -284,7 +284,7 @@ One limit is worth stating explicitly: **fixture parity is not production parity
 
 ## Residual Risks
 
-- **Session-event retention is not yet exercised by the corpus.** The corpus constructs `SessionService` without a retention policy while production always supplies one, so pruning behaviour has no security-corpus coverage. Open under the parity requirement above.
+- **Audit and risk-assessment growth remain unbounded.** Session-event retention is now exercised by the corpus (M5-B.4), and its isolation from security-authoritative state is enforced there. The other two stores M-4 measures have no lifecycle, and audit is not a store an eviction policy can be applied to without weakening security invariant 4.
 - **Reconciliation cost under sustained divergence** is unbounded relative to evidence volume for the affected agent.
 - **Durability.** Projections, baselines and sequences are process-local. A restart loses the projection, which is recoverable by reconciliation, and loses the enforcement state it reconciles against, which is not (ADR-024, ADR-016).
 - **Sequence assignment is single-process.** `FindingsService` is the sole sequence authority; a multi-process deployment needs a distributed sequence authority before this design holds.
@@ -299,7 +299,7 @@ One limit is worth stating explicitly: **fixture parity is not production parity
 | B-5 pre-baseline guard | Retain as defence-in-depth | Done — CI-1 enforced (M5-B.3) |
 | Session-event retention | Keep as an M5-B contribution | M-4 decomposition |
 | Execution receipts | Implemented capability, not a production feature | Wire the production execution path |
-| Corpus / production fixture parity | Standing requirement | Add retention-policy parity |
+| Corpus / production fixture parity | Standing requirement | Done — retention parity closed (M5-B.4) |
 | M-4 | Remains open, decomposed store by store | Define per-store lifecycle semantics |
 | NEW-003 | Remains open | Production evidence wiring plus corpus verification |
 
