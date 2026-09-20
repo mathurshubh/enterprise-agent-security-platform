@@ -392,3 +392,101 @@ class TestBoundedState:
         clock.advance(5.0)
 
         assert authority.outstanding_grant_count == 0
+
+    def test_verify_and_consume_prunes_expired_outstanding_and_revoked_grants(self) -> None:
+        """M4-EA-1: verify_and_consume opportunistically cleans expired outstanding and revoked state."""
+        clock = FakeClock()
+        authority = ExecutionAuthority(ttl_seconds=10.0, clock=clock)
+
+        # 1. Issue grant A and grant B
+        authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1")
+        authority.issue(NOTES, Decision.ALLOW, agent_id="agent-2")
+        assert len(authority._outstanding) == 2
+
+        # Revoke grant B
+        authority.suspend_issuance("agent-2")
+        assert len(authority._revoked) == 1
+        assert len(authority._outstanding) == 1
+
+        # Issue grant C at t=0
+        authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1")
+        assert len(authority._outstanding) == 2
+
+        # Advance clock past TTL (t=10.1)
+        clock.advance(10.1)
+
+        # Now at t=10.1, issue grant D (valid until 20.1)
+        grant_d = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1")
+        # grant A, B, C are expired. grant D is active.
+
+        # verify_and_consume on grant_d should prune expired grants A, B, C under lock
+        authority.verify_and_consume(grant_d, NOTES)
+
+        # Grant D is consumed (deleted from _outstanding)
+        assert len(authority._outstanding) == 0
+        # Revoked grant B was expired, so pruned from _revoked
+        assert len(authority._revoked) == 0
+
+    def test_unexpired_revoked_grant_still_returns_revoked(self) -> None:
+        """M4-EA-3: Unexpired revoked grant must return REVOKED, not CONSUMED or EXPIRED."""
+        clock = FakeClock()
+        authority = ExecutionAuthority(ttl_seconds=10.0, clock=clock)
+
+        grant = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1")
+        authority.suspend_issuance("agent-1")
+
+        # Time advanced within TTL
+        clock.advance(5.0)
+
+        _refused(
+            ExecutionRefusalReason.REVOKED,
+            lambda: authority.verify_and_consume(grant, NOTES),
+        )
+        assert len(authority._revoked) == 1
+
+    def test_consumed_grant_still_returns_consumed_while_unexpired(self) -> None:
+        """M4-EA-2: Once consumed, a grant fails closed as CONSUMED while now < expires_at."""
+        clock = FakeClock()
+        authority = ExecutionAuthority(ttl_seconds=10.0, clock=clock)
+
+        grant = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1")
+        authority.verify_and_consume(grant, NOTES)
+
+        clock.advance(4.0)
+
+        _refused(
+            ExecutionRefusalReason.CONSUMED,
+            lambda: authority.verify_and_consume(grant, NOTES),
+        )
+
+    def test_expired_consumed_grant_returns_expired(self) -> None:
+        """M4-EA-3: After expires_at, an already-consumed grant fails closed as EXPIRED."""
+        clock = FakeClock()
+        authority = ExecutionAuthority(ttl_seconds=10.0, clock=clock)
+
+        grant = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1")
+        authority.verify_and_consume(grant, NOTES)
+
+        clock.advance(10.1)
+
+        _refused(
+            ExecutionRefusalReason.EXPIRED,
+            lambda: authority.verify_and_consume(grant, NOTES),
+        )
+
+    def test_pruning_does_not_alter_refusal_semantics(self) -> None:
+        """M4-EA-4: Pruning must never turn an invalid/expired/revoked grant into an admitted grant."""
+        clock = FakeClock()
+        authority = ExecutionAuthority(ttl_seconds=10.0, clock=clock)
+
+        grant = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1")
+        authority.suspend_issuance("agent-1")
+
+        # Advance past expiry
+        clock.advance(15.0)
+
+        # Before or after pruning, this grant MUST fail closed (EXPIRED)
+        _refused(
+            ExecutionRefusalReason.EXPIRED,
+            lambda: authority.verify_and_consume(grant, NOTES),
+        )

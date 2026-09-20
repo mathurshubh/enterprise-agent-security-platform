@@ -458,3 +458,225 @@ class TestSuspensionWriter:
             )
 
         assert len(env.agent_service.list_transitions(AGENT_ID)) == 1
+
+
+class TestStep8RuntimePostureConsumption:
+    """Tests for M5-B Step 8: O(1) HEALTHY consumption and fail-closed reconciliation."""
+
+    def _build_step8_runtime(self, agent_id: str = "step8-agent"):
+        from app.models.watermark import BaselineWatermark
+        from app.services.agent_lock_manager import AgentLockManager
+        from app.services.risk_aggregator import RiskAggregator
+
+        agent_service = AgentService()
+        agent_service.register_agent(
+            Agent(
+                agent_id=agent_id,
+                name="Step8 Agent",
+                owner="security-team",
+                risk_tier=RiskTier.HIGH,
+                approved_tools=["file_read"],
+                status=AgentStatus.ACTIVE,
+            )
+        )
+        tool_service = ToolService(tool_registry=ToolRegistry())
+        register_default_tools(tool_service)
+
+        findings_service = FindingsService()
+        risk_service = RiskService()
+        risk_aggregator = RiskAggregator()
+        lock_manager = AgentLockManager()
+
+        runtime = RuntimeService(
+            authorization_service=AuthorizationService(
+                agent_service=agent_service,
+                tool_service=tool_service,
+                policy_engine=PolicyEngine(),
+            ),
+            session_service=SessionService(),
+            detection_engine=DetectionEngine(
+                [PromptInjectionRule(), SensitiveFileAccessRule(), DataExfiltrationRule()]
+            ),
+            detection_service=DetectionService(),
+            risk_service=risk_service,
+            response_service=ResponseService(),
+            audit_service=AuditService(),
+            execution_authority=ExecutionAuthority(),
+            findings_service=findings_service,
+            agent_service=agent_service,
+            risk_aggregator=risk_aggregator,
+            lock_manager=lock_manager,
+        )
+
+        return SimpleNamespace(
+            runtime=runtime,
+            agent_service=agent_service,
+            findings_service=findings_service,
+            risk_aggregator=risk_aggregator,
+            lock_manager=lock_manager,
+            agent_id=agent_id,
+            watermark_cls=BaselineWatermark,
+        )
+
+    def test_healthy_cache_hit_no_findings_scan(self) -> None:
+        """HEALTHY posture is consumed in O(1) time without calling FindingsService.list_findings."""
+        from unittest.mock import MagicMock
+
+        from app.models.agent_risk_posture import PostureState
+
+        env = self._build_step8_runtime()
+        # Initialize projection to HEALTHY
+        env.risk_aggregator.reset_to_baseline(
+            env.watermark_cls(agent_id=env.agent_id, baseline_sequence=0)
+        )
+        assert env.risk_aggregator.get_posture(env.agent_id).state == PostureState.HEALTHY
+
+        # Spy on list_findings
+        env.findings_service.list_findings = MagicMock(
+            side_effect=AssertionError("list_findings must not be called when HEALTHY!")
+        )
+
+        posture = env.runtime._assess_agent_posture(env.agent_id)
+        assert posture.state == PostureState.HEALTHY
+        assert env.findings_service.list_findings.call_count == 0
+
+    def test_healthy_posture_is_authoritative_for_runtime(self) -> None:
+        """Deliberately raise if list_findings is called while posture is HEALTHY."""
+        from app.models.agent_risk_posture import PostureState
+
+        env = self._build_step8_runtime()
+        env.risk_aggregator.reset_to_baseline(
+            env.watermark_cls(agent_id=env.agent_id, baseline_sequence=0)
+        )
+        assert env.risk_aggregator.get_posture(env.agent_id).state == PostureState.HEALTHY
+
+        def failing_list_findings(*args, **kwargs):
+            raise RuntimeError("FindingsService.list_findings called while posture is HEALTHY!")
+
+        env.findings_service.list_findings = failing_list_findings
+
+        # Must succeed without touching list_findings
+        posture = env.runtime._assess_agent_posture(env.agent_id)
+        assert posture.state == PostureState.HEALTHY
+
+    def test_uninitialized_lazy_reconciliation(self) -> None:
+        """UNINITIALIZED posture is recognized as not-yet-available and lazily reconciled."""
+        from app.models.agent_risk_posture import PostureState
+        from tests.services.test_findings_service import make_finding
+
+        env = self._build_step8_runtime()
+        # Initially unprojected
+        assert env.risk_aggregator.get_posture(env.agent_id).state == PostureState.UNINITIALIZED
+
+        # Populate authoritative evidence
+        f1 = make_finding("f1", agent_id=env.agent_id)
+        env.findings_service.record_new_findings([f1])
+
+        # Accessing posture lazily reconciles it to HEALTHY
+        posture = env.runtime._assess_agent_posture(env.agent_id)
+        assert posture.state == PostureState.HEALTHY
+        assert posture.last_applied_sequence == 1
+        assert posture.finding_count == 1
+        assert posture.risk_score > 0
+
+    def test_stale_self_healing(self) -> None:
+        """STALE posture triggers self-healing reconciliation back to HEALTHY."""
+        from app.models.agent_risk_posture import PostureState
+        from tests.services.test_findings_service import make_finding
+
+        env = self._build_step8_runtime()
+        # Initial projection
+        env.risk_aggregator.reset_to_baseline(
+            env.watermark_cls(agent_id=env.agent_id, baseline_sequence=0)
+        )
+        f1 = make_finding("f1", agent_id=env.agent_id)
+        recs = env.findings_service.record_new_findings([f1])
+        env.risk_aggregator.ingest_finding(recs[0])
+
+        # Mark projection STALE
+        env.risk_aggregator.mark_stale(env.agent_id)
+        assert env.risk_aggregator.get_posture(env.agent_id).state == PostureState.STALE
+
+        # Accessing posture self-heals back to HEALTHY
+        posture = env.runtime._assess_agent_posture(env.agent_id)
+        assert posture.state == PostureState.HEALTHY
+        assert posture.last_applied_sequence == 1
+        assert posture.finding_count == 1
+
+    def test_reconciliation_failure_refuses_execution_without_synthetic_critical_risk(
+        self,
+    ) -> None:
+        """Reconciliation failure fails closed by refusing execution without fabricating CRITICAL risk."""
+        from unittest.mock import MagicMock
+
+        from app.services.runtime_service import POSTURE_RECONCILIATION_FAILED
+
+        env = self._build_step8_runtime()
+        # Inject reconciliation failure
+        env.risk_aggregator.reconcile_agent = MagicMock(
+            side_effect=RuntimeError("Transient store failure")
+        )
+
+        result = env.runtime.execute(
+            session_id="sess-fail",
+            agent_id=env.agent_id,
+            tool_id="file_read",
+            resource="notes.txt",
+        )
+
+        assert result.event.decision == Decision.DENY
+        assert result.refusal_reason == POSTURE_RECONCILIATION_FAILED
+        assert result.authorization is None
+        # Invariant: no synthetic CRITICAL risk fabricated
+        assert result.enforcement_posture is None
+
+    def test_reconciliation_does_not_move_baseline(self) -> None:
+        """Reconciliation reconstructs projection without creating a new baseline epoch."""
+        from datetime import datetime, timezone
+
+        from app.models.agent_risk_posture import PostureState
+        from tests.services.test_findings_service import make_finding
+
+        env = self._build_step8_runtime()
+
+        # Set up an established baseline in AgentService
+        baseline_time = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+        watermark = env.watermark_cls(
+            agent_id=env.agent_id,
+            baseline_at=baseline_time,
+            baseline_sequence=5,
+        )
+        env.agent_service.suspend_agent(env.agent_id, reason="investigation")
+        env.agent_service.reinstate_agent(
+            env.agent_id,
+            actor="admin",
+            reason="reinstated",
+            watermark=watermark,
+        )
+        env.risk_aggregator.reset_to_baseline(watermark)
+
+        # Record findings pre-baseline and post-baseline
+        for i in range(1, 6):
+            env.findings_service.record_finding(make_finding(f"pre-{i}", agent_id=env.agent_id))
+        fresh = env.findings_service.record_new_findings([
+            make_finding("post-6", agent_id=env.agent_id)
+        ])
+        assert fresh[0].evidence_sequence == 6
+
+        # Mark projection STALE to trigger reconciliation
+        env.risk_aggregator.mark_stale(env.agent_id)
+        assert env.risk_aggregator.get_posture(env.agent_id).state == PostureState.STALE
+
+        # Reconcile via _assess_agent_posture
+        posture = env.runtime._assess_agent_posture(env.agent_id)
+        assert posture.state == PostureState.HEALTHY
+
+        # Verify baseline was not moved by reconciliation
+        assert posture.baseline_sequence == 5
+        assert posture.baseline_at == baseline_time
+        assert posture.last_applied_sequence == 6
+        assert posture.finding_count == 1
+
+        stored_baseline = env.agent_service.get_current_baseline(env.agent_id)
+        assert stored_baseline.baseline_sequence == 5
+        assert stored_baseline.baseline_at == baseline_time

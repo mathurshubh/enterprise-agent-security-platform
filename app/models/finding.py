@@ -4,6 +4,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.models.watermark import UNASSIGNED_SEQUENCE
+
 
 class Severity(str, Enum):
     LOW = "LOW"
@@ -43,6 +45,15 @@ class Finding(BaseModel):
     description: str
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
+    )
+    recorded_at: datetime | None = None
+    evidence_sequence: int = Field(
+        default=UNASSIGNED_SEQUENCE,
+        ge=0,
+        description=(
+            "Monotonic 1-based sequence number per agent assigned exclusively "
+            "by FindingsService upon persistence. 0 indicates UNASSIGNED candidate."
+        ),
     )
 
     def model_post_init(self, context: Any) -> None:

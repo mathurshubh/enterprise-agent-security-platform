@@ -1,9 +1,15 @@
 """Runtime contracts and protocol definitions."""
 
 from collections.abc import Mapping
+from datetime import datetime
 from typing import Any, Protocol, runtime_checkable
 
 from app.models.execution_grant import ExecutionGrant
+from app.models.execution_receipt import (
+    ExecutionReceipt,
+    ExecutionStatus,
+    ReconciliationReason,
+)
 from app.models.runtime_context import RuntimeContext
 from app.models.tool_descriptor import ToolDescriptor
 from app.models.tool_metadata import ToolMetadata
@@ -60,4 +66,78 @@ class ToolExecutorProtocol(Protocol):
         grant: ExecutionGrant | None = None,
     ) -> Any:
         """Execute a tool only if ``grant`` authorizes exactly this operation (ADR-023)."""
+        ...
+
+
+@runtime_checkable
+class ExecutionEvidenceStoreProtocol(Protocol):
+    """Authoritative protocol for persisting and querying execution receipts (NEW-003).
+
+    Transition semantics:
+    - record_started(): Creates initial STARTED receipt. Rejects if receipt_id or
+      grant_id already exists (N3-9).
+    - record_terminal(): Transitions an open (STARTED) receipt to an observed terminal
+      state: SUCCEEDED, FAILED, TIMEOUT, or INTERRUPTED. Rejects UNKNOWN (reconciliation
+      only) and transitions on already-terminal receipts (N3-4).
+    - record_reconciled(): Reconciliation authority. Transitions an open (STARTED) receipt
+      to UNKNOWN with a ReconciliationReason (N3-5).
+    """
+
+    def record_started(
+        self,
+        *,
+        receipt_id: str,
+        grant_id: str,
+        session_id: str,
+        agent_id: str,
+        tool_id: str,
+        binding_hash: str,
+        started_at: datetime,
+        monotonic_start: float | None = None,
+    ) -> ExecutionReceipt:
+        """Record initial STARTED receipt. Raises on store capacity, duplicate, or integrity failure."""
+        ...
+
+    def record_terminal(
+        self,
+        *,
+        receipt_id: str,
+        status: ExecutionStatus,
+        completed_at: datetime,
+        duration_ms: int,
+        error_type: str | None = None,
+        error_code: str | None = None,
+        output_digest: str | None = None,
+    ) -> ExecutionReceipt:
+        """Transition an open receipt to an observed terminal state (SUCCEEDED, FAILED, TIMEOUT, INTERRUPTED)."""
+        ...
+
+    def record_reconciled(
+        self,
+        *,
+        receipt_id: str,
+        reconciled_at: datetime,
+        reason: ReconciliationReason,
+    ) -> ExecutionReceipt:
+        """Reconciliation authority: transition an open (STARTED) receipt to UNKNOWN."""
+        ...
+
+    def get(self, receipt_id: str) -> ExecutionReceipt | None:
+        """Retrieve receipt by receipt_id."""
+        ...
+
+    def get_by_grant(self, grant_id: str) -> ExecutionReceipt | None:
+        """Retrieve receipt associated with a specific grant_id."""
+        ...
+
+    def list_open(self) -> tuple[ExecutionReceipt, ...]:
+        """List all currently unresolved (STARTED) receipts."""
+        ...
+
+    def list_receipts(
+        self,
+        session_id: str | None = None,
+        agent_id: str | None = None,
+    ) -> tuple[ExecutionReceipt, ...]:
+        """List receipts filtered by session or agent."""
         ...

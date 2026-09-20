@@ -7,6 +7,7 @@ from app.detection.prompt_injection_rule import PromptInjectionRule
 from app.detection.registry import DetectionRegistry
 from app.detection.sensitive_file_access_rule import SensitiveFileAccessRule
 from app.models.agent import Agent, AgentStatus, RiskTier
+from app.models.detection_retention import DetectionRetentionPolicy
 from app.models.tool import Tool
 from app.models.tool_capability import ToolCapability
 from app.models.tool_governance import ToolGovernance
@@ -17,11 +18,13 @@ from app.models.tool_risk_level import ToolRiskLevel
 from app.policy.policy_engine import PolicyEngine
 from app.registry.tool_registry import ToolRegistry
 from app.runtime.execution_authority import ExecutionAuthority
+from app.services.agent_lock_manager import AgentLockManager
 from app.services.agent_service import AgentNotFoundError, AgentService
 from app.services.audit_service import AuditService
 from app.services.detection_service import DetectionService
 from app.services.findings_service import FindingsService
 from app.services.response_service import ResponseService
+from app.services.risk_aggregator import RiskAggregator
 from app.services.risk_service import RiskService
 from app.services.runtime_service import RuntimeService
 from app.services.session_service import SessionService
@@ -137,6 +140,8 @@ def bootstrap_runtime_service(
     risk_service: RiskService | None = None,
     telemetry_emitter: TelemetryEmitter | None = None,
     execution_authority: ExecutionAuthority | None = None,
+    risk_aggregator: RiskAggregator | None = None,
+    lock_manager: AgentLockManager | None = None,
 ) -> RuntimeService:
     """Canonical bootstrapping implementation for RuntimeService and dependencies."""
     register_default_agent(agent_service, agent_id)
@@ -153,12 +158,19 @@ def bootstrap_runtime_service(
     )
 
     detection_engine = DetectionEngine(detection_registry.rules())
+    detection_service_instance = DetectionService()
+
+    if session_service is None:
+        retention_policy = DetectionRetentionPolicy.from_detection_service(
+            detection_service_instance
+        )
+        session_service = SessionService(retention_policy=retention_policy)
 
     return RuntimeService(
         authorization_service=authorization_service,
         session_service=session_service,
         detection_engine=detection_engine,
-        detection_service=DetectionService(),
+        detection_service=detection_service_instance,
         risk_service=risk_service or RiskService(),
         response_service=ResponseService(),
         audit_service=audit_service,
@@ -169,4 +181,6 @@ def bootstrap_runtime_service(
         # M2b: enforcement posture is agent-scoped, so the pipeline needs the agent
         # registry that owns enforcement state.
         agent_service=agent_service,
+        risk_aggregator=risk_aggregator,
+        lock_manager=lock_manager,
     )

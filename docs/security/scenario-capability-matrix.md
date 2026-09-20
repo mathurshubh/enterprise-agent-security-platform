@@ -85,7 +85,7 @@ ELSE IF (scenario_execution.status == COMPLETED and scenario_execution.result.pa
 | **PRV-001** | LLM Provider Timeout Sim | PROVIDER_FAILURE | None | None | **Supported** | Infrastructure fault isolation baseline. Returns `ALLOW` / `LOW` / `MONITOR`. | No tool or rule dependency |
 | **SFA-001** | Sensitive Env File Access | SENSITIVE_DATA | `file_read` | `SENSITIVE_FILE_ACCESS` | **Supported** | Reads `.env` configuration file. Triggers `SENSITIVE_FILE_ACCESS` (`score=50`), yielding `APPROVAL_REQUIRED` / `HIGH` / `REQUIRE_APPROVAL`. | Registered tool and Content Detection Rule present |
 | **SFA-002** | SSH Key File Access Attempt | SENSITIVE_DATA | `file_read` | `SENSITIVE_FILE_ACCESS` | **Supported** | Reads `.ssh/id_rsa` identity file. Triggers `SENSITIVE_FILE_ACCESS` (`score=50`), yielding `APPROVAL_REQUIRED` / `HIGH` / `REQUIRE_APPROVAL`. | Registered tool and Content Detection Rule present |
-| **TOOL-002** | Excessive Tool Denials | TOOL_ABUSE | Session Denied Tool | `EXCESSIVE_DENIALS` | **Supported** | Session authorization denial workflow. 3 consecutive `DENY` decisions trigger `EXCESSIVE_DENIALS` (`score=25`), yielding `DENY` / `MEDIUM` / `ALERT`. | Behavioral Detection Rule present |
+| **TOOL-002** | Excessive Tool Denials | TOOL_ABUSE | Session Denied Tool | `EXCESSIVE_DENIALS` | **Supported** | Session authorization denial workflow. 3 or more cumulative `DENY` decisions within the evaluation window trigger `EXCESSIVE_DENIALS` (`score=25`), yielding `DENY` / `MEDIUM` / `ALERT`. | Behavioral Detection Rule present |
 | **WF-001** | Multi-Step Workflow Policy | WORKFLOW_SECURITY | `directory_list`, `file_read` | None | **Supported** | Multi-step benign tool execution (`directory_list` -> `file_read`). Returns `ALLOW` / `LOW` / `MONITOR`. | Registered tools present |
 | **AUTH-001** | Unauthorized Destructive Tool | AUTHORIZATION | `file_delete` (unregistered) | None | **Future Capability** | Discovered missing tool `file_delete`. | Referenced tool absent |
 | **AUTH-002** | Privilege Escalation Role | AUTHORIZATION | `audit_export` (unregistered) | Role Claim Rule (unregistered) | **Future Capability** | Discovered missing tool `audit_export` and missing role claim rule. | Referenced tool and rule absent |
@@ -97,7 +97,7 @@ ELSE IF (scenario_execution.status == COMPLETED and scenario_execution.result.pa
 ## 4. Architectural Analysis & Scenario Distinction
 
 ### Architectural Distinction: TOOL-002 vs AUTH-001
-- **`TOOL-002` (Supported)**: `TOOL-002` exercises the platform's session-level authorization denial workflow (`EXCESSIVE_DENIALS`). `AuthorizationService` enforces Zero Trust policy by denying unapproved tool requests, `SessionService` records the `DENY` events, and `DetectionService.detect_excessive_denials()` evaluates the session audit trail to detect 3 consecutive denials, triggering `EXCESSIVE_DENIALS` (`MEDIUM` / `ALERT`). Because denial enforcement, session audit logging, and `EXCESSIVE_DENIALS` detection are all fully implemented capabilities, `TOOL-002` naturally classifies as **Supported** without hardcoded tool string checks.
+- **`TOOL-002` (Supported)**: `TOOL-002` exercises the platform's session-level authorization denial workflow (`EXCESSIVE_DENIALS`). `AuthorizationService` enforces Zero Trust policy by denying unapproved tool requests, `SessionService` records the `DENY` events, and `DetectionService.detect_excessive_denials()` evaluates the session audit trail to detect 3 or more cumulative denials within the evaluation window, triggering `EXCESSIVE_DENIALS` (`MEDIUM` / `ALERT`). Because denial enforcement, session audit logging, and `EXCESSIVE_DENIALS` detection are all fully implemented capabilities, `TOOL-002` naturally classifies as **Supported** without hardcoded tool string checks.
 - **`AUTH-001` (Future Capability)**: `AUTH-001` tests a destructive action authorization request (`file_delete`). It expects a specific destructive tool implementation (`file_delete`) and an active approval workflow (`REQUIRE_APPROVAL`). Because `file_delete` is not registered in `ToolRegistry`, capability discovery identifies `file_delete` as missing, and `AUTH-001` classifies as **Future Capability**.
 
 ### DEX-001 Benchmark Drift Analysis
@@ -116,3 +116,35 @@ ELSE IF (scenario_execution.status == COMPLETED and scenario_execution.result.pa
 3. **Deterministic Security Pipeline Stability**: `RuntimeService`, `AuthorizationService`, `RiskService`, `ResponseService`, `PolicyEngine`, `DetectionEngine`, and `SessionService` contracts remain untouched.
 4. **Zero Trust Fail-Closed Default**: Unregistered or unapproved tool invocations MUST continue to fail closed with `Decision.DENY`.
 5. **Runtime Capability Transition Rule**: When a referenced tool or detection rule is present in the shared `ToolRegistry`, `DetectionRegistry`, or `DetectionService`, `CapabilityService` will discover it through `PlatformCapabilities` and benchmark classification will reflect the active capability state.
+
+---
+
+## 6. M5-B Materialized Risk Projections & Epoch Architecture
+
+Milestone M5-B implements deterministic, bounded, in-memory materialized risk projections with contiguous evidence sequencing and serializable epoch transitions.
+
+### Core Architectural Components
+
+1. **Authoritative Monotonic Evidence Sequencing (`evidence_sequence`)**:
+   - Every accepted security finding is assigned a strictly monotonic 1-based integer sequence per agent owned by `FindingsService`.
+   - Sequence `0` is explicitly `UNASSIGNED_SEQUENCE`. Deduplication via `record_new_findings()` preserves existing sequences without burning counter values (Invariants `B-3`, `B-12`).
+   - Legacy pre-M5 findings are deterministically bootstrapped during `FindingsService` initialization (`B-14`).
+
+2. **Atomic Enforcement Baseline Watermark (`BaselineWatermark`)**:
+   - Couples timestamp (`baseline_at`) and sequence (`baseline_sequence`) into a single frozen value (`B-10`).
+   - `AgentEnforcementState` is the sole runtime owner of the active enforcement baseline. Reinstatement captures the epoch boundary and persists it to `AgentService` before reopening execution authority (`EnforcementCoordinator`).
+   - Runtime reconciliation reads the stored baseline (`AgentService.get_current_baseline()`) and never establishes a new baseline epoch.
+
+3. **Materialized Single-Agent Projection Engine (`AgentRiskAggregate` & `RiskAggregator`)**:
+   - `AgentRiskAggregate` maintains bounded hot-state memory (zero finding-ID history; `counts_by_rule` strictly bounded by registered rule vocabulary, `B-9`).
+   - Contiguous application: every accepted post-baseline finding advances the frontier cursor (`last_applied_sequence`, `B-2`), while risk scores and severity counts reflect strictly active (`OPEN`, `ACKNOWLEDGED`) findings (`B-11`).
+   - Fail-closed transitions: sequence gaps (`seq > last_applied + 1`, `B-4`) and boundary timestamp anomalies (`seq > baseline_seq` with `recorded_at <= baseline_at`, `B-13`) transition state immediately to `PostureState.STALE`.
+
+4. **Shared Cross-Service Coordination Boundary (`AgentLockManager`)**:
+   - All finding acceptance/projection handoff and administrative reinstatement/baseline reset paths synchronize under the agent's shared reentrant lock (`AgentLockManager`).
+   - Guarantees serializability between finding ingestion and administrative reinstatement without nested cross-service lock acquisition.
+
+5. **$\mathcal{O}(1)$ Runtime Posture Consumption & Fail-Closed Reconciliation**:
+   - Hot path: `PostureState.HEALTHY` materialized posture is consumed directly in $\mathcal{O}(1)$ time by `RuntimeService._assess_agent_posture()`, eliminating `FindingsService.list_findings()` scans during normal authorization.
+   - Self-healing: `UNINITIALIZED` and `STALE` postures trigger deterministic lazy reconciliation against authoritative findings and stored baseline watermarks (`B-1`, `B-7`).
+   - Fail-closed refusal: reconciliation failures trigger `POSTURE_RECONCILIATION_FAILED` refusals (`Decision.DENY`, zero execution grant) without fabricating synthetic `CRITICAL` risk scores, preserving the semantic distinction between risk evidence and security-state availability.

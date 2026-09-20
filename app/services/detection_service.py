@@ -1,4 +1,5 @@
 from collections import defaultdict
+from datetime import datetime, timedelta, timezone
 from uuid import NAMESPACE_URL, uuid5
 
 from app.models.audit_event import Decision
@@ -6,6 +7,7 @@ from app.models.finding import Finding, Severity
 from app.models.session_event import SessionEvent
 
 EXCESSIVE_DENIAL_THRESHOLD = 3
+DEFAULT_EXCESSIVE_DENIALS_WINDOW_SECONDS = 1800.0
 
 # Stable namespace for deterministic session-detection finding identifiers.
 SESSION_FINDING_NAMESPACE = uuid5(
@@ -37,24 +39,48 @@ def session_finding_id(
 
 
 class DetectionService:
+    """Evaluates multi-event session behavioral detection rules (M4 Step 2C-A)."""
+
+    def __init__(
+        self,
+        excessive_denials_window_seconds: float = DEFAULT_EXCESSIVE_DENIALS_WINDOW_SECONDS,
+    ) -> None:
+        if excessive_denials_window_seconds <= 0:
+            raise ValueError("excessive_denials_window_seconds must be positive")
+        self._excessive_denials_window_seconds = excessive_denials_window_seconds
+
+    @property
+    def excessive_denials_window_seconds(self) -> float:
+        return self._excessive_denials_window_seconds
+
+    def get_rule_horizon(self, rule_name: str) -> float:
+        """Return the declared evaluation horizon in seconds for a specific rule."""
+        if rule_name == "EXCESSIVE_DENIALS":
+            return self._excessive_denials_window_seconds
+        raise KeyError(f"Unknown detection rule: '{rule_name}'")
+
     def detect_excessive_denials(
         self,
         events: list[SessionEvent],
+        *,
+        now_utc: datetime | None = None,
     ) -> list[Finding]:
-        """Report agents whose denial count in a session has reached the threshold.
+        """Report agents whose cumulative denial count within the evaluation window reaches the threshold.
 
-        Evidence is grouped by session *and* agent. Grouping by session alone would let
-        the agent of whichever denial happened to be recorded first own the aggregate,
-        which is an unsafe inference: ownership is authoritative state held by
-        ``SessionService``, never something detection infers from the event order.
-
-        The returned finding carries the identity of the threshold crossing, so
-        recording it more than once is a no-op for the findings store.
+        Semantics (M4 Step 2C-A):
+        - Scope: (session_id, agent_id)
+        - Threshold: >= EXCESSIVE_DENIAL_THRESHOLD (3) cumulative DENY decisions
+        - Evaluation: cumulative (intervening ALLOW or APPROVAL_REQUIRED decisions do not reset count)
+        - Temporal window: sliding window of excessive_denials_window_seconds (default: 1800s / 30m)
+        - Boundary: event.timestamp >= now - window is included, strictly older (<) is excluded
         """
+        now = now_utc or datetime.now(timezone.utc)
+        cutoff = now - timedelta(seconds=self._excessive_denials_window_seconds)
+
         denied_events: dict[tuple[str, str], list[SessionEvent]] = defaultdict(list)
 
         for event in events:
-            if event.decision == Decision.DENY:
+            if event.decision == Decision.DENY and event.timestamp >= cutoff:
                 denied_events[(event.session_id, event.agent_id)].append(event)
 
         findings: list[Finding] = []

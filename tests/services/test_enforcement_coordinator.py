@@ -28,6 +28,8 @@ from app.services.enforcement_coordinator import (
     EnforcementCoordinator,
     ReinstatementIncompleteError,
 )
+from app.services.findings_service import FindingsService
+from tests.services.test_findings_service import make_finding
 
 AGENT_ID = "contained-agent"
 BINDING = ExecutionBinding.from_operation("file_read", {"path": "notes.txt"})
@@ -62,10 +64,14 @@ def build(authority: ExecutionAuthority | None = None):
     return agents, authority, EnforcementCoordinator(agents, authority)
 
 
-def contain(agents: AgentService, authority: ExecutionAuthority) -> None:
+def contain(
+    agents: AgentService,
+    authority: ExecutionAuthority,
+    agent_id: str = AGENT_ID,
+) -> None:
     """Reproduce what the runtime does when it contains an agent."""
-    authority.suspend_issuance(AGENT_ID)
-    agents.suspend_agent(AGENT_ID, reason="critical risk posture")
+    authority.suspend_issuance(agent_id)
+    agents.suspend_agent(agent_id, reason="critical risk posture")
 
 
 class TestSuccessfulReinstatement:
@@ -197,3 +203,423 @@ class TestRuntimeCannotRecover:
 
         assert "suspend_agent" not in source
         assert "suspend_issuance" not in source
+
+
+class TestEnforcementBaselineIntegration:
+    """Validates enforcement baseline watermark coupling, persistence, and non-recomputation (B-10)."""
+
+    def test_first_time_agent_baseline_semantics(self) -> None:
+        """First-time agent has None baseline_at and 0 baseline_sequence."""
+        agents = AgentService()
+        agents.register_agent(
+            Agent(
+                agent_id="fresh-agent",
+                name="Fresh",
+                owner="security",
+                risk_tier=RiskTier.LOW,
+                approved_tools=["file_read"],
+                status=AgentStatus.ACTIVE,
+            )
+        )
+        state = agents.get_enforcement_state("fresh-agent")
+        assert state.enforcement_baseline_at is None
+        assert state.enforcement_baseline_sequence == 0
+
+        baseline = agents.get_current_baseline("fresh-agent")
+        assert baseline.agent_id == "fresh-agent"
+        assert baseline.baseline_at is None
+        assert baseline.baseline_sequence == 0
+
+    def test_reinstatement_persists_timestamp_and_sequence(self) -> None:
+        """EnforcementCoordinator.reinstate persists exact watermark timestamp and sequence."""
+        agents = AgentService()
+        authority = ExecutionAuthority()
+        findings = FindingsService()
+        coordinator = EnforcementCoordinator(agents, authority, findings)
+
+        agents.register_agent(
+            Agent(
+                agent_id=AGENT_ID,
+                name="Contained",
+                owner="security",
+                risk_tier=RiskTier.HIGH,
+                approved_tools=["file_read"],
+                status=AgentStatus.ACTIVE,
+            )
+        )
+        # Record findings before containment
+        f1 = findings.record_finding(make_finding("f-1", agent_id=AGENT_ID))
+        f2 = findings.record_finding(make_finding("f-2", agent_id=AGENT_ID))
+        assert f1.evidence_sequence == 1
+        assert f2.evidence_sequence == 2
+
+        contain(agents, authority)
+        coordinator.reinstate(AGENT_ID, actor="admin-1", reason="investigated")
+
+        state = agents.get_enforcement_state(AGENT_ID)
+        assert state.enforcement_baseline_at is not None
+        assert state.enforcement_baseline_sequence == 2
+
+        baseline = agents.get_current_baseline(AGENT_ID)
+        assert baseline.baseline_at == state.enforcement_baseline_at
+        assert baseline.baseline_sequence == 2
+
+    def test_current_baseline_does_not_recompute_after_new_findings(self) -> None:
+        """Adding new findings after reinstatement does not mutate stored baseline watermark."""
+        from tests.services.test_findings_service import make_finding
+
+        agents = AgentService()
+        authority = ExecutionAuthority()
+        findings = FindingsService()
+        coordinator = EnforcementCoordinator(agents, authority, findings)
+
+        agents.register_agent(
+            Agent(
+                agent_id=AGENT_ID,
+                name="Contained",
+                owner="security",
+                risk_tier=RiskTier.HIGH,
+                approved_tools=["file_read"],
+                status=AgentStatus.ACTIVE,
+            )
+        )
+        for i in range(1, 11):
+            findings.record_finding(make_finding(f"f-pre-{i}", agent_id=AGENT_ID))
+        assert findings.get_agent_sequence(AGENT_ID) == 10
+
+        contain(agents, authority)
+        coordinator.reinstate(AGENT_ID, actor="admin-1", reason="investigated")
+
+        baseline_before = agents.get_current_baseline(AGENT_ID)
+        assert baseline_before.baseline_sequence == 10
+
+        # Record findings after reinstatement: 11, 12, 13
+        findings.record_finding(make_finding("f-post-11", agent_id=AGENT_ID))
+        findings.record_finding(make_finding("f-post-12", agent_id=AGENT_ID))
+        findings.record_finding(make_finding("f-post-13", agent_id=AGENT_ID))
+        assert findings.get_agent_sequence(AGENT_ID) == 13
+
+        # get_current_baseline MUST still return sequence 10, never recompute to 13
+        baseline_after = agents.get_current_baseline(AGENT_ID)
+        assert baseline_after.baseline_sequence == 10
+        assert baseline_after.baseline_at == baseline_before.baseline_at
+
+    def test_failed_persistence_does_not_reopen_issuance(self) -> None:
+        """If agent reinstatement fails, issuance is not reopened and remains suspended."""
+        agents = AgentService()
+        authority = ExecutionAuthority()
+        coordinator = EnforcementCoordinator(agents, authority)
+
+        # Agent is not registered, so reinstate_agent will raise AgentNotFoundError
+        authority.suspend_issuance("unregistered-agent")
+
+        with pytest.raises(AgentNotFoundError):
+            coordinator.reinstate("unregistered-agent", actor="admin", reason="retry")
+
+        assert authority.issuance_suspended("unregistered-agent") is True
+
+
+class TestEnforcementCoordinatorRiskAggregatorIntegration:
+    """Verifies that EnforcementCoordinator synchronizes with RiskAggregator (M5-B Step 7)."""
+
+    def test_reinstate_resets_risk_aggregator_projection(self) -> None:
+        """Successful reinstatement resets projection to the newly captured baseline."""
+        from app.models.agent_risk_posture import PostureState
+        from app.services.agent_lock_manager import AgentLockManager
+        from app.services.risk_aggregator import RiskAggregator
+
+        agents = AgentService()
+        authority = ExecutionAuthority()
+        findings = FindingsService()
+        aggregator = RiskAggregator()
+        lock_mgr = AgentLockManager()
+
+        coordinator = EnforcementCoordinator(
+            agents,
+            authority,
+            findings,
+            risk_aggregator=aggregator,
+            lock_manager=lock_mgr,
+        )
+
+        agents.register_agent(
+            Agent(
+                agent_id=AGENT_ID,
+                name="Contained",
+                owner="security",
+                risk_tier=RiskTier.HIGH,
+                approved_tools=["file_read"],
+                status=AgentStatus.ACTIVE,
+            )
+        )
+
+        # Add pre-containment findings
+        for i in range(1, 4):
+            findings.record_finding(make_finding(f"f-{i}", agent_id=AGENT_ID))
+
+        contain(agents, authority)
+        coordinator.reinstate(AGENT_ID, actor="admin-1", reason="investigated")
+
+        # Posture in aggregator must be HEALTHY, reset to baseline seq 3 with 0 findings
+        posture = aggregator.get_posture(AGENT_ID)
+        assert posture.state == PostureState.HEALTHY
+        assert posture.baseline_sequence == 3
+        assert posture.last_applied_sequence == 3
+        assert posture.finding_count == 0
+        assert posture.risk_score == 0
+        assert authority.issuance_suspended(AGENT_ID) is False
+
+    def test_reinstatement_failure_when_projection_reset_fails_keeps_issuance_suspended(
+        self,
+    ) -> None:
+        """If RiskAggregator.reset_to_baseline fails, issuance gate remains CLOSED."""
+        from unittest.mock import MagicMock
+
+        from app.services.agent_lock_manager import AgentLockManager
+        from app.services.risk_aggregator import RiskAggregator
+
+        agents = AgentService()
+        authority = ExecutionAuthority()
+        findings = FindingsService()
+        aggregator = RiskAggregator()
+        lock_mgr = AgentLockManager()
+
+        # Fault injection: projection reset fails
+        aggregator.reset_to_baseline = MagicMock(
+            side_effect=RuntimeError("Projection engine failure")
+        )
+
+        coordinator = EnforcementCoordinator(
+            agents,
+            authority,
+            findings,
+            risk_aggregator=aggregator,
+            lock_manager=lock_mgr,
+        )
+
+        agents.register_agent(
+            Agent(
+                agent_id=AGENT_ID,
+                name="Contained",
+                owner="security",
+                risk_tier=RiskTier.HIGH,
+                approved_tools=["file_read"],
+                status=AgentStatus.ACTIVE,
+            )
+        )
+
+        contain(agents, authority)
+        assert authority.issuance_suspended(AGENT_ID) is True
+
+        with pytest.raises(RuntimeError, match="Projection engine failure"):
+            coordinator.reinstate(AGENT_ID, actor="admin-1", reason="investigated")
+
+        # Invariant: issuance MUST remain suspended (fail-closed convergence)
+        assert authority.issuance_suspended(AGENT_ID) is True
+
+    def test_repair_resets_projection_and_reopens_issuance(self) -> None:
+        """Repair path resets projection to stored baseline before reopening issuance."""
+        from app.models.agent_risk_posture import PostureState
+        from app.services.agent_lock_manager import AgentLockManager
+        from app.services.risk_aggregator import RiskAggregator
+
+        agents = AgentService()
+        authority = ExecutionAuthority()
+        aggregator = RiskAggregator()
+        lock_mgr = AgentLockManager()
+
+        coordinator = EnforcementCoordinator(
+            agents,
+            authority,
+            risk_aggregator=aggregator,
+            lock_manager=lock_mgr,
+        )
+
+        agents.register_agent(
+            Agent(
+                agent_id=AGENT_ID,
+                name="Contained",
+                owner="security",
+                risk_tier=RiskTier.HIGH,
+                approved_tools=["file_read"],
+                status=AgentStatus.ACTIVE,
+            )
+        )
+
+        # Simulate authority still suspended for ACTIVE agent
+        authority.suspend_issuance(AGENT_ID)
+
+        repaired = coordinator.repair(AGENT_ID)
+        assert repaired.status == AgentStatus.ACTIVE
+        assert authority.issuance_suspended(AGENT_ID) is False
+        assert aggregator.get_posture(AGENT_ID).state == PostureState.HEALTHY
+
+
+class TestProjectionFailureHandling:
+    """Projection failure behavior: FindingsService is authoritative; failed projection is STALE (not rolled back)."""
+
+    def test_ingest_failure_marks_stale_without_rolling_back_evidence(self) -> None:
+        """If ingest_finding encounters an error, projection is STALE, evidence persists."""
+        from unittest.mock import MagicMock
+
+        from app.models.agent_risk_posture import PostureState
+        from app.models.watermark import BaselineWatermark
+        from app.services.agent_lock_manager import AgentLockManager
+        from app.services.risk_aggregator import RiskAggregator
+
+        findings = FindingsService()
+        aggregator = RiskAggregator()
+        lock_mgr = AgentLockManager()
+
+        # Initialize aggregate at baseline seq 0
+        aggregator.reset_to_baseline(BaselineWatermark(agent_id=AGENT_ID, baseline_sequence=0))
+
+        # Fault injection inside aggregate apply_finding
+        with aggregator._lock:
+            aggregate = aggregator._projections[AGENT_ID]
+        aggregate.apply_finding = MagicMock(side_effect=RuntimeError("Transient projection crash"))
+
+        finding = make_finding("f-failure-test", agent_id=AGENT_ID)
+
+        with lock_mgr.get_lock(AGENT_ID):
+            recorded = findings.record_new_findings([finding])
+            assert len(recorded) == 1
+            assert recorded[0].evidence_sequence == 1
+
+            for f in recorded:
+                try:
+                    aggregator.ingest_finding(f)
+                except Exception:
+                    aggregator.mark_stale(AGENT_ID)
+
+        # Invariant 1: Evidence in FindingsService is NOT rolled back
+        persisted = findings.list_findings(agent_id=AGENT_ID)
+        assert len(persisted) == 1
+        assert persisted[0].finding_id == "f-failure-test"
+
+        # Invariant 2: Projection is STALE (fail-closed, cannot be consumed as HEALTHY)
+        posture = aggregator.get_posture(AGENT_ID)
+        assert posture.state == PostureState.STALE
+
+
+class TestConcurrencyAndRaceSerialization:
+    """Stress testing the serialization invariant between finding ingestion and reinstatement."""
+
+    def test_reinstatement_vs_ingestion_race_preserves_serializable_invariants(
+        self,
+    ) -> None:
+        """Concurrent reinstatement and finding ingestion always produce one of two valid serializations.
+
+        Invariant asserted across repeated races:
+        - Outcome is valid serialization: either reinstatement commits first or finding commits first.
+        - Projection is either HEALTHY and semantically equivalent, or STALE.
+        - NEVER: HEALTHY + missing post-baseline authoritative finding.
+        """
+        import threading
+
+        from app.models.agent_risk_posture import PostureState
+        from app.models.watermark import BaselineWatermark
+        from app.services.agent_lock_manager import AgentLockManager
+        from app.services.risk_aggregator import RiskAggregator
+
+        for iteration in range(50):
+            agent_id = f"race-agent-{iteration}"
+            agents = AgentService()
+            authority = ExecutionAuthority()
+            findings = FindingsService()
+            aggregator = RiskAggregator()
+            lock_mgr = AgentLockManager()
+
+            coordinator = EnforcementCoordinator(
+                agents,
+                authority,
+                findings,
+                risk_aggregator=aggregator,
+                lock_manager=lock_mgr,
+            )
+
+            agents.register_agent(
+                Agent(
+                    agent_id=agent_id,
+                    name="RaceAgent",
+                    owner="security",
+                    risk_tier=RiskTier.HIGH,
+                    approved_tools=["file_read"],
+                    status=AgentStatus.ACTIVE,
+                )
+            )
+
+            # Pre-populate 5 historical findings: sequences 1..5
+            for i in range(1, 6):
+                findings.record_finding(make_finding(f"f-pre-{i}", agent_id=agent_id))
+
+            contain(agents, authority, agent_id=agent_id)
+
+            # Ingest pre-findings into aggregator at baseline 0 so projection exists
+            aggregator.reset_to_baseline(BaselineWatermark(agent_id=agent_id, baseline_sequence=0))
+            for f in findings.list_findings(agent_id=agent_id):
+                aggregator.ingest_finding(f)
+
+            barrier = threading.Barrier(2)
+            fresh_finding = make_finding(f"f-fresh-{iteration}", agent_id=agent_id)
+
+            def run_reinstatement(c=coordinator, a_id=agent_id, b=barrier):
+                b.wait()
+                c.reinstate(a_id, actor="admin", reason="cleared")
+
+            def run_ingestion(
+                f_svc=findings,
+                aggr=aggregator,
+                lm=lock_mgr,
+                a_id=agent_id,
+                ff=fresh_finding,
+                b=barrier,
+            ):
+                b.wait()
+                with lm.get_lock(a_id):
+                    recs = f_svc.record_new_findings([ff])
+                    for f in recs:
+                        aggr.ingest_finding(f)
+
+            t1 = threading.Thread(target=run_reinstatement)
+            t2 = threading.Thread(target=run_ingestion)
+
+            t1.start()
+            t2.start()
+            t1.join()
+            t2.join()
+
+            # Verify authoritative evidence state
+            all_persisted = findings.list_findings(agent_id=agent_id)
+            assert len(all_persisted) == 6
+            assert any(f.finding_id == f"f-fresh-{iteration}" and f.evidence_sequence == 6 for f in all_persisted)
+
+            baseline = agents.get_current_baseline(agent_id)
+            posture = aggregator.get_posture(agent_id)
+
+            # Assert core invariants:
+            # 1. Posture must be HEALTHY (or STALE if error occurred)
+            assert posture.state in (PostureState.HEALTHY, PostureState.STALE)
+
+            if posture.state == PostureState.HEALTHY:
+                # 2. Check which valid serialization occurred:
+                if baseline.baseline_sequence == 5:
+                    # Reinstatement serialized first: fresh finding (seq 6) is active post-baseline
+                    assert posture.baseline_sequence == 5
+                    assert posture.last_applied_sequence == 6
+                    assert posture.finding_count == 1
+                elif baseline.baseline_sequence == 6:
+                    # Finding serialized first: fresh finding (seq 6) is absorbed into baseline epoch
+                    assert posture.baseline_sequence == 6
+                    assert posture.last_applied_sequence == 6
+                    assert posture.finding_count == 0
+                else:
+                    pytest.fail(f"Invalid baseline sequence: {baseline.baseline_sequence}")
+
+                # 3. Posture MUST NEVER miss post-baseline authoritative finding:
+                post_baseline_findings = [
+                    f for f in all_persisted
+                    if f.evidence_sequence > baseline.baseline_sequence
+                    and (baseline.baseline_at is None or (f.recorded_at or f.created_at) > baseline.baseline_at)
+                ]
+                assert posture.finding_count == len(post_baseline_findings)

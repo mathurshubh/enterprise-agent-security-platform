@@ -93,7 +93,9 @@ def test_tool_executor_instantiate_missing_instance_and_factory_raises_error():
     executor = DefaultToolExecutor()
     descriptor = ToolDescriptor(metadata=ExecutionTestTool().metadata)
 
-    with pytest.raises(ToolExecutionError, match="neither a BaseTool instance nor a factory"):
+    with pytest.raises(
+        ToolExecutionError, match="neither a BaseTool instance nor a factory"
+    ):
         executor.instantiate(descriptor)
 
 
@@ -112,7 +114,9 @@ def test_tool_executor_execute_descriptor_success():
     )
     grant = _grant_for(authority, tool.tool_id, {"param": "val"})
 
-    result = executor.execute_descriptor(descriptor, {"param": "val"}, context, grant=grant)
+    result = executor.execute_descriptor(
+        descriptor, {"param": "val"}, context, grant=grant
+    )
     assert result == {"executed": True, "param": "val"}
 
 
@@ -230,3 +234,203 @@ def test_grant_is_consumed_once_verified_even_if_the_tool_then_fails():
 
     assert exc_info.value.reason is ExecutionRefusalReason.CONSUMED
     assert tool.executions == 1
+
+
+def test_tool_executor_records_started_and_succeeded_receipt():
+    from app.models.execution_receipt import ExecutionStatus
+    from app.services.execution_evidence_service import ExecutionEvidenceService
+
+    authority = ExecutionAuthority()
+    store = ExecutionEvidenceService()
+    executor = DefaultToolExecutor(authority=authority, evidence_store=store)
+
+    tool = ExecutionTestTool()
+    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    grant = _grant_for(authority, tool.tool_id, {"msg": "hello"})
+    context = RuntimeContext(
+        session_id="sess-xyz",
+        request_id="req-123",
+        user_id="user-1",
+        principal="agent-1",
+        authenticated_agent="agent-1",
+    )
+
+    result = executor.execute_descriptor(
+        descriptor, {"msg": "hello"}, context=context, grant=grant
+    )
+    assert result == {"executed": True, "msg": "hello"}
+
+    receipt = store.get_by_grant(grant.grant_id)
+    assert receipt is not None
+    assert receipt.status == ExecutionStatus.SUCCEEDED
+    assert receipt.session_id == "sess-xyz"
+    assert receipt.agent_id == "agent-1"
+    assert receipt.tool_id == tool.tool_id
+    assert receipt.completed_at is not None
+    assert receipt.duration_ms is not None and receipt.duration_ms >= 0
+    assert receipt.output_digest is not None
+    assert receipt.error_type is None
+    assert len(store.list_open()) == 0
+
+
+def test_tool_executor_records_failed_receipt_and_strips_raw_message_n3_7():
+    """N3-7: Raw error messages must not enter the durable evidence record."""
+    from app.models.execution_receipt import ExecutionStatus
+    from app.services.execution_evidence_service import ExecutionEvidenceService
+
+    authority = ExecutionAuthority()
+    store = ExecutionEvidenceService()
+    executor = DefaultToolExecutor(authority=authority, evidence_store=store)
+
+    tool = ExecutionTestTool(should_fail=True)
+    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    grant = _grant_for(authority, tool.tool_id, {})
+    context = RuntimeContext(
+        session_id="sess-fail",
+        request_id="req-fail",
+        user_id="user-1",
+        principal="agent-1",
+        authenticated_agent="agent-1",
+    )
+
+    with pytest.raises(ToolExecutionError, match="Underlying tool failure"):
+        executor.execute_descriptor(descriptor, {}, context=context, grant=grant)
+
+    receipt = store.get_by_grant(grant.grant_id)
+    assert receipt is not None
+    assert receipt.status == ExecutionStatus.FAILED
+    assert receipt.error_type == "RuntimeError"
+    assert receipt.error_code == "TOOL_EXECUTION_ERROR"
+    # Diagnostic safety: raw error string "Underlying tool failure" is not stored
+    assert not hasattr(receipt, "error_message") or receipt.error_message is None
+    assert len(store.list_open()) == 0
+
+
+def test_instantiation_failure_does_not_create_started_receipt_n3_2():
+    """N3-2: Instantiation failure consumes grant but never records STARTED."""
+    from app.services.execution_evidence_service import ExecutionEvidenceService
+
+    authority = ExecutionAuthority()
+    store = ExecutionEvidenceService()
+    executor = DefaultToolExecutor(authority=authority, evidence_store=store)
+
+    # Tool factory that raises an error on instantiation
+    def broken_factory(**kwargs):
+        raise ValueError("Factory broken")
+
+    descriptor = ToolDescriptor(
+        metadata=ExecutionTestTool().metadata, factory=broken_factory
+    )
+    grant = _grant_for(authority, descriptor.tool_id, {})
+
+    with pytest.raises(ValueError, match="Factory broken"):
+        executor.execute_descriptor(descriptor, {}, grant=grant)
+
+    # Grant is consumed
+    assert authority.outstanding_grant_count == 0
+    # But NO receipt was recorded (never reached execution boundary)
+    assert store.get_by_grant(grant.grant_id) is None
+    assert len(store.list_open()) == 0
+
+
+def test_tool_executor_fails_closed_if_store_record_started_fails_n3_3():
+    """N3-3: If evidence store fails to record STARTED, tool execution is NOT entered."""
+    from unittest.mock import MagicMock
+
+    authority = ExecutionAuthority()
+    mock_store = MagicMock()
+    mock_store.record_started.side_effect = RuntimeError("Store storage failed")
+
+    executor = DefaultToolExecutor(authority=authority, evidence_store=mock_store)
+    tool = ExecutionTestTool()
+    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    grant = _grant_for(authority, tool.tool_id, {})
+
+    with pytest.raises(RuntimeError, match="Store storage failed"):
+        executor.execute_descriptor(descriptor, {}, grant=grant)
+
+    # Tool was never called!
+    assert tool.executions == 0
+
+
+def test_telemetry_failure_does_not_block_execution_n3_6():
+    """N3-6: Telemetry failure fails silent; does not block valid execution."""
+    from unittest.mock import MagicMock
+
+    from app.services.execution_evidence_service import ExecutionEvidenceService
+
+    authority = ExecutionAuthority()
+    store = ExecutionEvidenceService()
+    mock_telemetry = MagicMock()
+    mock_telemetry.emit.side_effect = RuntimeError("Telemetry pipeline down")
+
+    executor = DefaultToolExecutor(
+        authority=authority,
+        evidence_store=store,
+        telemetry_emitter=mock_telemetry,
+    )
+
+    tool = ExecutionTestTool()
+    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    grant = _grant_for(authority, tool.tool_id, {})
+
+    # Execution completes normally despite telemetry failures
+    result = executor.execute_descriptor(descriptor, {}, grant=grant)
+    assert result == {"executed": True}
+    assert tool.executions == 1
+
+    receipt = store.get_by_grant(grant.grant_id)
+    assert receipt is not None
+    assert receipt.status.value == "SUCCEEDED"
+
+
+def test_tool_executor_records_timeout_receipt():
+    """Tool raising TimeoutError transitions receipt to TIMEOUT."""
+    from unittest.mock import MagicMock
+
+    from app.models.execution_receipt import ExecutionStatus
+    from app.services.execution_evidence_service import ExecutionEvidenceService
+
+    authority = ExecutionAuthority()
+    store = ExecutionEvidenceService()
+    executor = DefaultToolExecutor(authority=authority, evidence_store=store)
+
+    timeout_tool = MagicMock()
+    timeout_tool.tool_id = "timeout_tool"
+    timeout_tool.execute.side_effect = TimeoutError("Timed out waiting for resource")
+    grant = _grant_for(authority, "timeout_tool", {})
+
+    with pytest.raises(ToolExecutionError, match="Timed out waiting for resource"):
+        executor.execute_tool(timeout_tool, {}, grant=grant)
+
+    receipt = store.get_by_grant(grant.grant_id)
+    assert receipt is not None
+    assert receipt.status == ExecutionStatus.TIMEOUT
+    assert receipt.error_type == "TimeoutError"
+    assert receipt.error_code == "EXECUTION_TIMEOUT"
+
+
+def test_tool_executor_records_interrupted_receipt():
+    """Tool raising InterruptedError transitions receipt to INTERRUPTED."""
+    from unittest.mock import MagicMock
+
+    from app.models.execution_receipt import ExecutionStatus
+    from app.services.execution_evidence_service import ExecutionEvidenceService
+
+    authority = ExecutionAuthority()
+    store = ExecutionEvidenceService()
+    executor = DefaultToolExecutor(authority=authority, evidence_store=store)
+
+    interrupted_tool = MagicMock()
+    interrupted_tool.tool_id = "interrupted_tool"
+    interrupted_tool.execute.side_effect = InterruptedError("Process interrupted by signal")
+    grant = _grant_for(authority, "interrupted_tool", {})
+
+    with pytest.raises(ToolExecutionError, match="Process interrupted by signal"):
+        executor.execute_tool(interrupted_tool, {}, grant=grant)
+
+    receipt = store.get_by_grant(grant.grant_id)
+    assert receipt is not None
+    assert receipt.status == ExecutionStatus.INTERRUPTED
+    assert receipt.error_type == "InterruptedError"
+    assert receipt.error_code == "EXECUTION_INTERRUPTED"

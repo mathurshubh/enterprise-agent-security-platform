@@ -10,15 +10,19 @@ instances with diverging state.
 from app.auth.jwt_service import JWTService
 from app.config.settings import get_jwt_secret_key
 from app.detection.registry import DetectionRegistry
+from app.models.detection_retention import DetectionRetentionPolicy
 from app.registry.scenario_registry import ScenarioRegistry
 from app.registry.tool_registry import ToolRegistry
 from app.runtime.execution_authority import ExecutionAuthority
+from app.services.agent_lock_manager import AgentLockManager
 from app.services.agent_service import AgentService
 from app.services.attack_scenario_service import AttackScenarioService
 from app.services.audit_service import AuditService
 from app.services.capability_service import CapabilityService
+from app.services.detection_service import DetectionService
 from app.services.enforcement_coordinator import EnforcementCoordinator
 from app.services.findings_service import FindingsService
+from app.services.risk_aggregator import RiskAggregator
 from app.services.risk_service import RiskService
 from app.services.runtime_bootstrap import (
     bootstrap_runtime_service,
@@ -33,7 +37,13 @@ from app.telemetry.dispatcher import InMemoryTelemetryDispatcher
 
 agent_service: AgentService = AgentService()
 
-session_service: SessionService = SessionService()
+detection_retention_policy: DetectionRetentionPolicy = (
+    DetectionRetentionPolicy.from_detection_service(DetectionService())
+)
+
+session_service: SessionService = SessionService(
+    retention_policy=detection_retention_policy
+)
 
 tool_registry: ToolRegistry = ToolRegistry()
 
@@ -44,6 +54,10 @@ audit_service: AuditService = AuditService()
 findings_service: FindingsService = FindingsService()
 
 risk_service: RiskService = RiskService()
+
+agent_lock_manager: AgentLockManager = AgentLockManager()
+
+risk_aggregator: RiskAggregator = RiskAggregator()
 
 detection_registry: DetectionRegistry = create_default_detection_registry()
 
@@ -65,6 +79,8 @@ runtime_service: RuntimeService = bootstrap_runtime_service(
     risk_service=risk_service,
     telemetry_emitter=telemetry_dispatcher,
     execution_authority=execution_authority,
+    risk_aggregator=risk_aggregator,
+    lock_manager=agent_lock_manager,
 )
 
 # M2b: recovery from containment runs only through this coordinator. The runtime may
@@ -72,6 +88,9 @@ runtime_service: RuntimeService = bootstrap_runtime_service(
 enforcement_coordinator: EnforcementCoordinator = EnforcementCoordinator(
     agent_service=agent_service,
     execution_authority=execution_authority,
+    findings_service=findings_service,
+    risk_aggregator=risk_aggregator,
+    lock_manager=agent_lock_manager,
 )
 
 capability_service: CapabilityService = CapabilityService(

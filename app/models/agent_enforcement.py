@@ -76,4 +76,5 @@ class AgentEnforcementState(BaseModel):
     # Reinstatement resets enforcement eligibility, not security history: findings
     # recorded before this moment remain evidence but no longer drive enforcement.
     enforcement_baseline_at: datetime | None = None
+    enforcement_baseline_sequence: int = Field(default=0, ge=0)
     last_transition_at: datetime | None = None
