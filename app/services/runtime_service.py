@@ -53,6 +53,17 @@ SESSION_BINDING_INVALID = "SESSION_BINDING_INVALID"
 POSTURE_RECONCILIATION_FAILED = "POSTURE_RECONCILIATION_FAILED"
 
 
+class IncompleteRuntimeConfigurationError(Exception):
+    """Raised when a RuntimeService is constructed without a dependency enforcement needs.
+
+    Until M5-B.5 a missing ``RiskAggregator`` selected a second, quieter enforcement
+    implementation instead. Which implementation enforces must be a property of the
+    architecture, not of how thoroughly a caller populated a constructor, so an
+    incomplete runtime now fails to exist rather than enforcing differently
+    (ADR-026).
+    """
+
+
 class PostureReconciliationError(Exception):
     """Raised when an agent's posture cannot be reconciled into HEALTHY state."""
 
@@ -87,6 +98,12 @@ class RuntimeService:
         self._telemetry_emitter = telemetry_emitter
         self._execution_authority = execution_authority
         self._agent_service = agent_service
+        if risk_aggregator is None:
+            raise IncompleteRuntimeConfigurationError(
+                "RuntimeService requires a RiskAggregator: it is the sole authority "
+                "for agent enforcement posture. Constructing a runtime without one "
+                "would leave it unable to make enforcement decisions."
+            )
         self._risk_aggregator = risk_aggregator
         self._lock_manager = (
             lock_manager if lock_manager is not None else AgentLockManager()
@@ -402,23 +419,35 @@ class RuntimeService:
     def _assess_agent_posture(self, agent_id: str) -> AgentRiskPosture:
         """Assess the agent's enforcement posture.
 
-        When RiskAggregator is available (M5-B):
+        ``RiskAggregator`` is the sole authority for agent enforcement posture
+        (M5-B.5). There is no second implementation to fall back to, so this method
+        either returns a posture the runtime may decide from or raises.
+
         - HEALTHY posture is returned in O(1) time without scanning FindingsService.
         - UNINITIALIZED or STALE postures trigger authoritative deterministic reconciliation
           under the per-agent coordination lock against the stored baseline watermark and
           authoritative findings.
         - If reconciliation fails, raises PostureReconciliationError to fail closed.
-
-        When RiskAggregator is absent (legacy fallback):
-        - Scans findings under the per-agent lock via RiskService.assess_agent.
         """
-        if self._risk_aggregator is not None:
-            # A projection whose own invariants are violated describes an impossible
-            # state (CI-1). It is not stale evidence to be rebuilt from — something
-            # wrote a projection that cannot be true — so it is refused rather than
-            # repaired, because a silent rebuild would conceal that it ever happened.
-            # The aggregate reports the integrity failure; naming what that means for
-            # a request belongs here.
+        # A projection whose own invariants are violated describes an impossible
+        # state (CI-1). It is not stale evidence to be rebuilt from — something
+        # wrote a projection that cannot be true — so it is refused rather than
+        # repaired, because a silent rebuild would conceal that it ever happened.
+        # The aggregate reports the integrity failure; naming what that means for
+        # a request belongs here.
+        try:
+            posture = self._risk_aggregator.get_posture(agent_id)
+        except ProjectionInvariantError as exc:
+            raise PostureReconciliationError(
+                f"Projection integrity violated for agent '{agent_id}': {exc}"
+            ) from exc
+
+        if posture.state == PostureState.HEALTHY:
+            return posture
+
+        # Posture is UNINITIALIZED or STALE: perform authoritative reconciliation
+        with self._posture_lock(agent_id):
+            # Re-check under lock in case another thread reconciled it
             try:
                 posture = self._risk_aggregator.get_posture(agent_id)
             except ProjectionInvariantError as exc:
@@ -429,88 +458,47 @@ class RuntimeService:
             if posture.state == PostureState.HEALTHY:
                 return posture
 
-            # Posture is UNINITIALIZED or STALE: perform authoritative reconciliation
-            with self._posture_lock(agent_id):
-                # Re-check under lock in case another thread reconciled it
+            # Obtain current stored baseline watermark (never call capture_baseline)
+            if self._agent_service is not None:
                 try:
-                    posture = self._risk_aggregator.get_posture(agent_id)
-                except ProjectionInvariantError as exc:
-                    raise PostureReconciliationError(
-                        f"Projection integrity violated for agent '{agent_id}': {exc}"
-                    ) from exc
-
-                if posture.state == PostureState.HEALTHY:
-                    return posture
-
-                # Obtain current stored baseline watermark (never call capture_baseline)
-                if self._agent_service is not None:
-                    try:
-                        watermark = self._agent_service.get_current_baseline(agent_id)
-                    except AgentNotFoundError:
-                        watermark = BaselineWatermark(
-                            agent_id=agent_id,
-                            baseline_at=None,
-                            baseline_sequence=0,
-                        )
-                else:
+                    watermark = self._agent_service.get_current_baseline(agent_id)
+                except AgentNotFoundError:
                     watermark = BaselineWatermark(
                         agent_id=agent_id,
                         baseline_at=None,
                         baseline_sequence=0,
                     )
+            else:
+                watermark = BaselineWatermark(
+                    agent_id=agent_id,
+                    baseline_at=None,
+                    baseline_sequence=0,
+                )
 
-                # Authoritative evidence scan for reconciliation
-                authoritative_findings: list[Finding] = []
-                if self._findings_service is not None:
-                    authoritative_findings = self._findings_service.list_findings(
-                        agent_id=agent_id
-                    )
+            # Authoritative evidence scan for reconciliation
+            authoritative_findings: list[Finding] = []
+            if self._findings_service is not None:
+                authoritative_findings = self._findings_service.list_findings(
+                    agent_id=agent_id
+                )
 
-                try:
-                    reconciled = self._risk_aggregator.reconcile_agent(
-                        agent_id=agent_id,
-                        findings=authoritative_findings,
-                        watermark=watermark,
-                    )
-                except Exception as exc:
-                    raise PostureReconciliationError(
-                        f"Failed to reconcile posture for agent '{agent_id}': {exc}"
-                    ) from exc
+            try:
+                reconciled = self._risk_aggregator.reconcile_agent(
+                    agent_id=agent_id,
+                    findings=authoritative_findings,
+                    watermark=watermark,
+                )
+            except Exception as exc:
+                raise PostureReconciliationError(
+                    f"Failed to reconcile posture for agent '{agent_id}': {exc}"
+                ) from exc
 
-                if reconciled.state != PostureState.HEALTHY:
-                    raise PostureReconciliationError(
-                        f"Failed to reconcile posture for agent '{agent_id}' (state={reconciled.state})"
-                    )
+            if reconciled.state != PostureState.HEALTHY:
+                raise PostureReconciliationError(
+                    f"Failed to reconcile posture for agent '{agent_id}' (state={reconciled.state})"
+                )
 
-                return reconciled
-
-        # Legacy fallback when RiskAggregator is not wired
-        with self._posture_lock(agent_id):
-            baseline_at = None
-            if self._agent_service is not None:
-                try:
-                    baseline_at = self._agent_service.get_enforcement_state(
-                        agent_id
-                    ).enforcement_baseline_at
-                except AgentNotFoundError:
-                    # An unregistered agent is already denied by authorization; assess
-                    # what was recorded rather than inventing a baseline.
-                    baseline_at = None
-
-            # Eligibility is a property of when the evidence store accepted a finding,
-            # not of Finding.created_at, which detection rules set deterministically so
-            # findings stay reproducible. Filtering here keeps RiskService responsible
-            # for scoring rather than for deciding what counts as history.
-            agent_findings = self._findings_service.list_findings(
-                agent_id=agent_id,
-                recorded_after=baseline_at,
-            )
-
-            return self._risk_service.assess_agent(
-                agent_id,
-                agent_findings,
-                baseline_at=baseline_at,
-            )
+            return reconciled
 
     def execute(
         self,

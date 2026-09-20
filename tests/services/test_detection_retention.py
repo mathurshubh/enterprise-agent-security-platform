@@ -124,7 +124,7 @@ class TestDetectionRetentionInvariants:
         assert len(findings_before) == 1
         assert findings_before[0].rule_name == "EXCESSIVE_DENIALS"
 
-        posture_before = env.risk_service.get_agent_posture(AGENT_ID)
+        posture_before = env.risk_aggregator.get_posture(AGENT_ID)
         assert posture_before is not None
 
         enforcement_state_before = env.agent_service.get_enforcement_state(AGENT_ID)
@@ -149,7 +149,7 @@ class TestDetectionRetentionInvariants:
         findings_after = env.findings_service.list_findings(agent_id=AGENT_ID)
         assert findings_after == findings_before
 
-        posture_after = env.risk_service.get_agent_posture(AGENT_ID)
+        posture_after = env.risk_aggregator.get_posture(AGENT_ID)
         assert posture_after == posture_before
 
         enforcement_state_after = env.agent_service.get_enforcement_state(AGENT_ID)

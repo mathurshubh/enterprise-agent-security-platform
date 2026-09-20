@@ -181,6 +181,9 @@ def bootstrap_runtime_service(
         # M2b: enforcement posture is agent-scoped, so the pipeline needs the agent
         # registry that owns enforcement state.
         agent_service=agent_service,
-        risk_aggregator=risk_aggregator,
+        # M5-B.5: RiskAggregator is the sole authority for agent enforcement posture,
+        # and RuntimeService refuses to exist without one. Bootstrapping supplies a
+        # default rather than leaving the caller to produce an unusable runtime.
+        risk_aggregator=risk_aggregator or RiskAggregator(),
         lock_manager=lock_manager,
     )

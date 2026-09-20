@@ -20,6 +20,7 @@ All tests run through the fixture wired to production parity, so they exercise t
 fallback in `RuntimeService`.
 """
 
+import inspect
 from pathlib import Path
 
 import pytest
@@ -32,7 +33,12 @@ from app.models.finding import Finding, FindingCategory, Severity
 from app.models.risk_assessment import RiskLevel
 from app.models.watermark import BaselineWatermark
 from app.services.risk_aggregator import RiskAggregator
-from app.services.runtime_service import POSTURE_RECONCILIATION_FAILED
+from app.services.risk_service import RiskService
+from app.services.runtime_service import (
+    POSTURE_RECONCILIATION_FAILED,
+    IncompleteRuntimeConfigurationError,
+    RuntimeService,
+)
 from tests.security.conftest import BENIGN_FILE
 
 # Triggers PROMPT_INJECTION + SENSITIVE_FILE_ACCESS + DATA_EXFILTRATION (150) -> CRITICAL.
@@ -516,3 +522,67 @@ class TestProjectionIntegrityFailsClosed:
 
         assert result.event.decision == Decision.ALLOW
         assert result.refusal_reason is None
+
+
+class TestSinglePostureAuthority:
+    """M5-B.5 — there is one runtime agent-posture implementation, not two.
+
+    Until this milestone `RuntimeService` selected between two enforcement
+    implementations based on whether a `RiskAggregator` had been passed to its
+    constructor. The fallback was described as compatibility for partially
+    constructed runtimes, and it was not a hypothetical risk: it silently captured
+    this corpus for an entire milestone, so the enforcement invariants of ADR-024
+    were verified against a path production did not execute, with nothing failing.
+
+    Which implementation enforces must be a property of the architecture, not of how
+    thoroughly a caller populated a constructor. A runtime that cannot enforce is now
+    refused construction rather than given a quieter enforcement mode.
+    """
+
+    @pytest.mark.security_invariant
+    def test_invariant_a_runtime_without_a_posture_authority_cannot_exist(
+        self, build_runtime, security_workspace: Path
+    ) -> None:
+        env = build_runtime(workspace=security_workspace)
+
+        with pytest.raises(IncompleteRuntimeConfigurationError):
+            RuntimeService(
+                authorization_service=env.runtime._authorization_service,
+                session_service=env.session_service,
+                detection_engine=env.runtime._detection_engine,
+                detection_service=env.runtime._detection_service,
+                risk_service=env.risk_service,
+                response_service=env.runtime._response_service,
+                audit_service=env.audit_service,
+                findings_service=env.findings_service,
+                agent_service=env.agent_service,
+            )
+
+    @pytest.mark.security_invariant
+    def test_invariant_no_runtime_path_derives_posture_from_the_risk_service(
+        self,
+    ) -> None:
+        """Structural, because a behavioural test can only cover the paths it thinks
+        to exercise — and the fallback was reached by a path nobody was exercising."""
+        source = inspect.getsource(RuntimeService._assess_agent_posture)
+
+        assert "_risk_service" not in source
+        assert "_risk_aggregator" in source
+
+    @pytest.mark.security_regression
+    def test_the_risk_service_no_longer_implements_agent_posture(self) -> None:
+        """The obsolete API is gone rather than merely unused.
+
+        Leaving two plausible posture APIs in place would preserve the ambiguity this
+        milestone removed, without a branch pointing at it to make the ambiguity
+        visible.
+        """
+        assert not hasattr(RiskService, "assess_agent")
+        assert not hasattr(RiskService, "get_agent_posture")
+
+    @pytest.mark.security_regression
+    def test_the_risk_service_keeps_its_session_reporting_role(self) -> None:
+        """Removing the posture authority must not remove session assessment, which
+        the management plane reports and enforcement does not consult."""
+        for retained in ("assess_session", "record_assessment", "get_assessment", "list_assessments"):
+            assert hasattr(RiskService, retained)

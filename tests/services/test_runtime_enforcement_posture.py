@@ -29,14 +29,20 @@ from app.runtime.execution_authority import (
     ExecutionBindingError,
     ExecutionRefusalReason,
 )
+from app.services.agent_lock_manager import AgentLockManager
 from app.services.agent_service import AgentService
 from app.services.audit_service import AuditService
 from app.services.detection_service import DetectionService
+from app.services.enforcement_coordinator import EnforcementCoordinator
 from app.services.findings_service import FindingsService
 from app.services.response_service import ResponseService
+from app.services.risk_aggregator import RiskAggregator
 from app.services.risk_service import RiskService
 from app.services.runtime_bootstrap import register_default_tools
-from app.services.runtime_service import RuntimeService
+from app.services.runtime_service import (
+    IncompleteRuntimeConfigurationError,
+    RuntimeService,
+)
 from app.services.session_service import SessionService
 from app.services.tool_service import ToolService
 
@@ -78,11 +84,16 @@ class DelayedSnapshotFindingsService(FindingsService):
 
 def build_runtime(
     *,
-    wired: bool = True,
     agent_id: str = AGENT_ID,
     findings_service: FindingsService | None = None,
 ):
-    """Build a pipeline, optionally without the services the posture needs."""
+    """Build a pipeline wired the way production wires one.
+
+    The `wired=False` mode this factory used to offer built a runtime without the
+    services enforcement needs, to cover the legacy fallback. Since M5-B.5 such a
+    runtime cannot be constructed at all, which `TestIncompleteConstructionFails`
+    below asserts directly.
+    """
     agent_service = AgentService()
     agent_service.register_agent(
         Agent(
@@ -98,8 +109,9 @@ def build_runtime(
     register_default_tools(tool_service)
 
     risk_service = RiskService()
-    findings = (findings_service or FindingsService()) if wired else None
+    findings = findings_service or FindingsService()
 
+    aggregator = RiskAggregator()
     runtime = RuntimeService(
         authorization_service=AuthorizationService(
             agent_service=agent_service,
@@ -116,12 +128,25 @@ def build_runtime(
         audit_service=AuditService(),
         execution_authority=ExecutionAuthority(),
         findings_service=findings,
-        agent_service=agent_service if wired else None,
+        agent_service=agent_service,
+        risk_aggregator=aggregator,
+        lock_manager=AgentLockManager(),
     )
     return SimpleNamespace(
         runtime=runtime,
+        # M5-B.5: an epoch is established by the coordinator, which resets the
+        # projection. Calling AgentService.reinstate_agent directly moves the
+        # registry without moving the projection, which is fail-closed but is not
+        # how production recovers an agent.
+        enforcement_coordinator=EnforcementCoordinator(
+            agent_service=agent_service,
+            execution_authority=runtime.execution_authority,
+            findings_service=findings,
+            risk_aggregator=aggregator,
+        ),
         agent_service=agent_service,
         execution_authority=runtime.execution_authority,
+        risk_aggregator=aggregator,
         risk_service=risk_service,
         findings_service=findings,
     )
@@ -181,7 +206,9 @@ class TestPostureWiring:
         )
 
         env.agent_service.suspend_agent(AGENT_ID, reason="test")
-        env.agent_service.reinstate_agent(AGENT_ID, actor="admin-1", reason="cleared")
+        env.enforcement_coordinator.reinstate(
+            AGENT_ID, actor="admin-1", reason="cleared"
+        )
 
         after = env.runtime.execute(
             session_id="after",
@@ -207,7 +234,9 @@ class TestPostureWiring:
         )
 
         env.agent_service.suspend_agent(AGENT_ID, reason="test")
-        env.agent_service.reinstate_agent(AGENT_ID, actor="admin-1", reason="cleared")
+        env.enforcement_coordinator.reinstate(
+            AGENT_ID, actor="admin-1", reason="cleared"
+        )
 
         after = env.runtime.execute(
             session_id="session-3",
@@ -222,27 +251,50 @@ class TestPostureWiring:
         assert len(env.findings_service.list_findings(agent_id=AGENT_ID)) == 1
 
 
-class TestCompatibilityFallback:
-    def test_partially_constructed_runtime_keeps_session_scoped_behaviour(self) -> None:
-        """Compatibility for constructions that predate this wiring, not a security mode."""
-        env = build_runtime(wired=False)
+class TestIncompleteConstructionFails:
+    """Replaces `TestCompatibilityFallback` (M5-B.5).
 
-        escalated = env.runtime.execute(
-            session_id="session-1",
-            agent_id=AGENT_ID,
-            tool_id="file_read",
-            user_prompt=INJECTION,
-        )
-        rotated = env.runtime.execute(
-            session_id="session-2",
-            agent_id=AGENT_ID,
-            tool_id="file_read",
-            user_prompt="read the notes file",
-        )
+    That suite asserted what a runtime built without the services enforcement needs
+    would do: report no posture and keep session-scoped behaviour. It was described
+    as compatibility rather than a security mode, and it was reachable by omitting a
+    constructor argument — which is how the security corpus ran against the wrong
+    implementation for an entire milestone.
 
-        assert escalated.enforcement_posture is None
-        assert rotated.enforcement_posture is None
-        assert rotated.event.decision == Decision.ALLOW
+    The behaviour it covered no longer exists. A runtime that cannot enforce does not
+    get to run with reduced enforcement; it does not get to exist.
+    """
+
+    def test_a_runtime_without_a_posture_authority_cannot_be_constructed(self) -> None:
+        with pytest.raises(IncompleteRuntimeConfigurationError):
+            RuntimeService(
+                authorization_service=AuthorizationService(
+                    agent_service=AgentService(),
+                    tool_service=ToolService(tool_registry=ToolRegistry()),
+                    policy_engine=PolicyEngine(),
+                ),
+                session_service=SessionService(),
+                detection_engine=DetectionEngine([PromptInjectionRule()]),
+                detection_service=DetectionService(),
+                risk_service=RiskService(),
+                response_service=ResponseService(),
+            )
+
+    def test_the_failure_names_the_missing_authority(self) -> None:
+        """A construction failure has to say what is missing, or the next caller
+        reaches for whatever argument looks plausible."""
+        with pytest.raises(IncompleteRuntimeConfigurationError, match="RiskAggregator"):
+            RuntimeService(
+                authorization_service=AuthorizationService(
+                    agent_service=AgentService(),
+                    tool_service=ToolService(tool_registry=ToolRegistry()),
+                    policy_engine=PolicyEngine(),
+                ),
+                session_service=SessionService(),
+                detection_engine=DetectionEngine([PromptInjectionRule()]),
+                detection_service=DetectionService(),
+                risk_service=RiskService(),
+                response_service=ResponseService(),
+            )
 
     def test_production_bootstrap_is_fully_wired(self) -> None:
         """The live runtime must never fall back to the weaker session posture."""
@@ -290,7 +342,7 @@ class TestConcurrentPublication:
             first.result()
             second.result()
 
-        stored = env.risk_service.get_agent_posture(AGENT_ID)
+        stored = env.risk_aggregator.get_posture(AGENT_ID)
         recorded = findings_service.list_findings(agent_id=AGENT_ID)
 
         assert len(recorded) == 2

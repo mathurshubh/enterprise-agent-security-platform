@@ -22,6 +22,7 @@ from fastapi.testclient import TestClient
 from app.api import dependencies
 from app.api.auth import require_roles
 from app.main import app
+from app.models.agent_risk_posture import PostureState
 from app.models.jwt_claims import Role
 from tests.conftest import auth_headers, register_test_agent
 
@@ -223,7 +224,11 @@ class TestImpersonationProducesNoEvidence:
         session_id = f"impersonation-session-{role.value.lower()}"
 
         findings_before = dependencies.findings_service.list_findings(agent_id=target)
-        posture_before = dependencies.risk_service.get_agent_posture(target)
+        # `assessed_at` is regenerated on every read for an agent with no projection,
+        # so compare the posture itself rather than the moment it was observed.
+        posture_before = dependencies.risk_aggregator.get_posture(target).model_dump(
+            exclude={"assessed_at"}
+        )
         events_before = dependencies.session_service.list_events(session_id)
         status_before = dependencies.agent_service.get_agent(target).status
 
@@ -240,7 +245,12 @@ class TestImpersonationProducesNoEvidence:
             assert response.status_code == 403
 
         assert dependencies.findings_service.list_findings(agent_id=target) == findings_before
-        assert dependencies.risk_service.get_agent_posture(target) == posture_before
+        assert (
+            dependencies.risk_aggregator.get_posture(target).model_dump(
+                exclude={"assessed_at"}
+            )
+            == posture_before
+        )
         assert dependencies.session_service.list_events(session_id) == events_before
         assert dependencies.agent_service.get_agent(target).status == status_before
 
@@ -259,5 +269,10 @@ class TestImpersonationProducesNoEvidence:
             },
         )
 
-        assert dependencies.risk_service.get_agent_posture(caller) is None
+        # No projection was ever built for the caller: a refused request is not
+        # evidence, so it never reaches the aggregator at all.
+        assert (
+            dependencies.risk_aggregator.get_posture(caller).state
+            == PostureState.UNINITIALIZED
+        )
         assert dependencies.findings_service.list_findings(agent_id=caller) == []

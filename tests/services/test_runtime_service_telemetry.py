@@ -22,6 +22,7 @@ from app.services.audit_service import AuditService
 from app.services.detection_service import DetectionService
 from app.services.findings_service import FindingsService
 from app.services.response_service import ResponseService
+from app.services.risk_aggregator import RiskAggregator
 from app.services.risk_service import RiskService
 from app.services.runtime_service import RuntimeService
 from app.services.session_service import SessionService
@@ -71,6 +72,7 @@ def _create_test_runtime_service(
         tool_registry=tool_registry,
         findings_service=FindingsService(),
         telemetry_emitter=telemetry_emitter,
+        risk_aggregator=RiskAggregator(),
     )
 
 
