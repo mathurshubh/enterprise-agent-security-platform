@@ -29,6 +29,21 @@ ACTIVE_STATUSES: frozenset[FindingStatus] = frozenset(
 )
 
 
+class ProjectionInvariantError(Exception):
+    """An aggregate reached a state its own invariants forbid (CI-1).
+
+    Raised by the projection about itself. It deliberately carries no knowledge of
+    authorization, refusal contracts or HTTP semantics: deciding what an
+    untrustworthy projection means for a request belongs to the runtime, not to the
+    state that detected the problem.
+
+    The violation is reported, never repaired. Normalising the state — clamping the
+    cursor up to the baseline, say — would produce a plausible-looking projection and
+    silently invalidate the reasoning that lets B-3 subsume B-5, which is precisely
+    the class of failure this exception exists to surface.
+    """
+
+
 class AgentRiskAggregate:
     """Thread-safe, bounded, in-memory projection of an agent's materialized risk posture (M5-B).
 
@@ -76,6 +91,31 @@ class AgentRiskAggregate:
         self.assessed_at: datetime = (
             watermark.baseline_at or datetime.now(timezone.utc)
         )
+
+        self._assert_cursor_invariant()
+
+    def _assert_cursor_invariant(self) -> None:
+        """CI-1: the applied cursor never precedes the enforcement baseline.
+
+        Holds in every externally observable state, HEALTHY and STALE alike; there is
+        no transitional state exempt from it, and introducing one would need its own
+        decision (ADR-026).
+
+        A cursor below the baseline describes an impossible projection: it claims to
+        have applied less evidence than the epoch it belongs to already excludes. Such
+        a state still reports a risk level and would otherwise authorize normally,
+        while B-5 skipped every finding up to the baseline as "historical" — so the
+        evidence between the cursor and the baseline would be discarded rather than
+        summarised.
+
+        Called under the caller's lock, so it observes committed state.
+        """
+        if self.last_applied_sequence < self.baseline_sequence:
+            raise ProjectionInvariantError(
+                f"CI-1 violated for agent '{self.agent_id}': "
+                f"last_applied_sequence={self.last_applied_sequence} precedes "
+                f"baseline_sequence={self.baseline_sequence}"
+            )
 
     def apply_finding(self, finding: Finding) -> bool:
         """Incrementally apply an authoritative finding to the projection.
@@ -133,6 +173,7 @@ class AgentRiskAggregate:
             # 6. Cursor advancement (B-2, B-11)
             # Every post-baseline authoritative finding advances the frontier
             self.last_applied_sequence = finding.evidence_sequence
+            self._assert_cursor_invariant()
 
             # 7. Active risk contribution (B-11)
             if finding.status in ACTIVE_STATUSES:
@@ -209,6 +250,7 @@ class AgentRiskAggregate:
             self.state = PostureState.HEALTHY
             self.posture_version += 1
             self.assessed_at = datetime.now(timezone.utc)
+            self._assert_cursor_invariant()
 
     def reset_to_baseline(self, watermark: BaselineWatermark) -> None:
         """Reset projection state to a new enforcement baseline (B-10)."""
@@ -226,6 +268,7 @@ class AgentRiskAggregate:
             self.state = PostureState.HEALTHY
             self.posture_version += 1
             self.assessed_at = watermark.baseline_at or datetime.now(timezone.utc)
+            self._assert_cursor_invariant()
 
     def mark_stale(self) -> None:
         """Explicitly transition projection to STALE (fail-closed)."""
@@ -235,8 +278,17 @@ class AgentRiskAggregate:
             self.posture_version += 1
 
     def snapshot(self) -> AgentRiskPosture:
-        """Export an immutable snapshot for runtime consumption."""
+        """Export an immutable snapshot for runtime consumption.
+
+        CI-1 is re-checked here because this is the single boundary every consumer
+        reads through. The sequence attributes are public, so a mutator this class
+        does not know about — a future one, or a caller assigning directly — can reach
+        an invalid state without passing any of the checks above. Validating on the
+        way out means such a state is detected where it would be used for a decision
+        rather than at the next write, whenever that happens to be.
+        """
         with self._lock:
+            self._assert_cursor_invariant()
             return AgentRiskPosture(
                 agent_id=self.agent_id,
                 state=self.state,

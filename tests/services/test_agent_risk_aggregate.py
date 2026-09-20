@@ -19,6 +19,7 @@ from app.models.watermark import BaselineWatermark
 from app.services.agent_risk_aggregate import (
     DEFAULT_RULE_VOCABULARY,
     AgentRiskAggregate,
+    ProjectionInvariantError,
 )
 
 
@@ -293,3 +294,125 @@ class TestAgentRiskAggregate:
         f_unassigned = make_test_finding("f-unassigned", agent_id="agent-1", evidence_sequence=0)
         with pytest.raises(ValueError, match="Cannot apply unassigned finding"):
             agg.apply_finding(f_unassigned)
+
+
+class TestCursorInvariantCI1:
+    """CI-1 — the applied cursor never precedes the enforcement baseline (M5-B.3).
+
+    This invariant is the premise under which B-3 subsumes B-5. Nothing in the
+    architecture guarantees it; it holds because every mutator written so far
+    maintains it. These tests pin that across the current transitions and establish
+    that a violation is detected rather than normalised, so a future mutator that
+    breaks it fails at the boundary instead of producing a projection that looks
+    healthy while summarising evidence it never applied.
+    """
+
+    def test_initialization_satisfies_the_invariant(self) -> None:
+        aggregate = AgentRiskAggregate(
+            BaselineWatermark(agent_id="agent-1", baseline_sequence=7)
+        )
+
+        assert aggregate.last_applied_sequence >= aggregate.baseline_sequence
+
+    def test_reset_to_baseline_leaves_the_cursor_at_the_baseline(self) -> None:
+        aggregate = AgentRiskAggregate(
+            BaselineWatermark(agent_id="agent-1", baseline_sequence=1)
+        )
+        aggregate.apply_finding(make_test_finding("f-2", evidence_sequence=2))
+
+        aggregate.reset_to_baseline(
+            BaselineWatermark(agent_id="agent-1", baseline_sequence=9)
+        )
+
+        assert aggregate.baseline_sequence == 9
+        assert aggregate.last_applied_sequence == 9
+
+    def test_rebuild_with_post_baseline_evidence_advances_the_cursor(self) -> None:
+        aggregate = AgentRiskAggregate(
+            BaselineWatermark(agent_id="agent-1", baseline_sequence=0)
+        )
+        watermark = BaselineWatermark(agent_id="agent-1", baseline_sequence=2)
+
+        aggregate.rebuild_from_findings(
+            [
+                make_test_finding("f-3", evidence_sequence=3),
+                make_test_finding("f-4", evidence_sequence=4),
+            ],
+            watermark,
+        )
+
+        assert aggregate.last_applied_sequence >= aggregate.baseline_sequence
+        assert aggregate.last_applied_sequence == 4
+
+    def test_rebuild_without_post_baseline_evidence_holds_the_cursor_at_the_baseline(
+        self,
+    ) -> None:
+        """The case where a naive implementation would leave a stale, lower cursor."""
+        aggregate = AgentRiskAggregate(
+            BaselineWatermark(agent_id="agent-1", baseline_sequence=0)
+        )
+        watermark = BaselineWatermark(agent_id="agent-1", baseline_sequence=12)
+
+        aggregate.rebuild_from_findings([], watermark)
+
+        assert aggregate.last_applied_sequence == 12
+        assert aggregate.last_applied_sequence >= aggregate.baseline_sequence
+
+    def test_incremental_application_never_moves_the_cursor_backwards(self) -> None:
+        aggregate = AgentRiskAggregate(
+            BaselineWatermark(agent_id="agent-1", baseline_sequence=0)
+        )
+        observed = []
+
+        for sequence in range(1, 6):
+            aggregate.apply_finding(
+                make_test_finding(f"f-{sequence}", evidence_sequence=sequence)
+            )
+            observed.append(aggregate.last_applied_sequence)
+
+        assert observed == sorted(observed)
+        assert aggregate.last_applied_sequence >= aggregate.baseline_sequence
+
+    def test_an_invalid_state_is_detected_rather_than_repaired(self) -> None:
+        """The sequence attributes are public, so this is reachable from outside.
+
+        The assertion must report the violation, not clamp the cursor up to the
+        baseline: a repaired projection looks plausible and silently invalidates the
+        reasoning that makes B-5 redundant.
+        """
+        aggregate = AgentRiskAggregate(
+            BaselineWatermark(agent_id="agent-1", baseline_sequence=0)
+        )
+        aggregate.baseline_sequence = 50
+        aggregate.last_applied_sequence = 3
+
+        with pytest.raises(ProjectionInvariantError):
+            aggregate.snapshot()
+
+        # Unrepaired: the state is still exactly as it was found.
+        assert aggregate.baseline_sequence == 50
+        assert aggregate.last_applied_sequence == 3
+
+    def test_a_violated_projection_cannot_be_exposed_as_healthy(self) -> None:
+        """`snapshot()` is the only way projection state leaves the aggregate."""
+        aggregate = AgentRiskAggregate(
+            BaselineWatermark(agent_id="agent-1", baseline_sequence=0)
+        )
+        aggregate.apply_finding(make_test_finding("f-1", evidence_sequence=1))
+        assert aggregate.snapshot().state == PostureState.HEALTHY
+
+        aggregate.baseline_sequence = 99
+
+        with pytest.raises(ProjectionInvariantError):
+            aggregate.snapshot()
+
+    def test_a_stale_projection_is_held_to_the_invariant_too(self) -> None:
+        """No state is exempt: STALE is still a state a decision is refused from."""
+        aggregate = AgentRiskAggregate(
+            BaselineWatermark(agent_id="agent-1", baseline_sequence=0)
+        )
+        aggregate.mark_stale()
+        aggregate.baseline_sequence = 25
+
+        with pytest.raises(ProjectionInvariantError):
+            aggregate.snapshot()

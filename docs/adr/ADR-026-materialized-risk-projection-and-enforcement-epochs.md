@@ -168,7 +168,29 @@ Measured: removing B-3 alone fails two tests; removing both fails four; removing
 
 **Decision: retain B-5 as a defence-in-depth invariant**, because it protects the epoch boundary independently if a future lifecycle transition, rebuild, rollback or partial-state operation violates that cursor invariant. In that state B-5 is immediately load-bearing, and it is the guard that keeps a prior epoch's evidence out of a new one. Removing a correct guard because current mutation testing cannot kill it would trade a real safety property for a coverage statistic.
 
-This makes the cursor invariant itself a thing the platform depends on and does not currently assert, which is recorded as follow-on verification work rather than prescribed here: a direct invariant test establishing `last_applied_sequence >= baseline_sequence` across initialization, `reset_to_baseline`, `rebuild_from_findings`, incremental application, and any future epoch transition. Future maintainers then know what must remain true for B-5's redundancy to remain redundant.
+This makes the cursor invariant itself a thing the platform depends on. It is now named and enforced as **CI-1**.
+
+### CI-1 — the cursor never precedes the baseline
+
+> At every externally observable aggregate state, `last_applied_sequence >= baseline_sequence`.
+
+Enforced inside `AgentRiskAggregate` at each of its four sequence-mutating boundaries and again in `snapshot()`. The read boundary matters because the sequence attributes are public: a mutator this class does not know about — a future one, or a caller assigning directly — can reach an invalid state without passing any write-side check, and every consumer reads through `snapshot()`.
+
+**The violation is reported, never repaired.** Clamping the cursor up to the baseline would produce a plausible-looking projection and silently invalidate the reasoning below, which is the failure this invariant exists to surface.
+
+A violated CI-1 is treated as an untrustworthy posture and fails closed at the runtime authorization boundary under the existing `POSTURE_RECONCILIATION_FAILED` contract. The underlying event is a projection-integrity violation rather than a failed reconciliation attempt, but the externally meaningful security state is identical — the runtime cannot establish a trustworthy posture from the projection — so the public refusal taxonomy is not widened. Reconciliation is deliberately *not* attempted: a rebuild would produce a consistent projection and conceal that the violation ever occurred.
+
+Layering is preserved. The aggregate detects and reports integrity failures and knows nothing of authorization or refusal contracts; naming what an untrustworthy projection means for a request belongs to the runtime.
+
+Before CI-1 was enforced, an aggregate with `baseline_sequence=50` and `last_applied_sequence=3` reported `HEALTHY` and authorized normally. That state is worse than merely undetected: B-5 skips every finding up to the baseline as historical while the cursor says none of it was applied, so the evidence between the two is discarded rather than summarised, and the projection reports a risk level derived from evidence it silently dropped.
+
+**What CI-1 establishes, and what it does not.** It does not make B-5 permanently redundant. It establishes the condition under which B-5 is currently subsumed:
+
+```text
+CI-1 holds  +  B-3 holds   ->   B-5 has no independent observable effect
+```
+
+B-5 therefore remains defence in depth precisely because its redundancy depends on CI-1 continuing to hold, and a violation of CI-1 is now itself a fail-closed security condition rather than a silent one.
 
 ---
 
@@ -274,7 +296,7 @@ One limit is worth stating explicitly: **fixture parity is not production parity
 | Finding | Decision | Follow-on |
 |:---|:---|:---|
 | Legacy `RiskService` fallback | Deprecate and remove | Separate production change |
-| B-5 pre-baseline guard | Retain as defence-in-depth | Assert the cursor invariant |
+| B-5 pre-baseline guard | Retain as defence-in-depth | Done — CI-1 enforced (M5-B.3) |
 | Session-event retention | Keep as an M5-B contribution | M-4 decomposition |
 | Execution receipts | Implemented capability, not a production feature | Wire the production execution path |
 | Corpus / production fixture parity | Standing requirement | Add retention-policy parity |

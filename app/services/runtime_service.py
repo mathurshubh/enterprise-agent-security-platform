@@ -35,6 +35,7 @@ from app.models.watermark import BaselineWatermark
 from app.registry.tool_registry import ToolRegistry
 from app.runtime.execution_authority import ExecutionAuthority
 from app.services.agent_lock_manager import AgentLockManager
+from app.services.agent_risk_aggregate import ProjectionInvariantError
 from app.services.agent_service import AgentNotFoundError, AgentService
 from app.services.audit_service import AuditService
 from app.services.detection_service import DetectionService
@@ -412,14 +413,32 @@ class RuntimeService:
         - Scans findings under the per-agent lock via RiskService.assess_agent.
         """
         if self._risk_aggregator is not None:
-            posture = self._risk_aggregator.get_posture(agent_id)
+            # A projection whose own invariants are violated describes an impossible
+            # state (CI-1). It is not stale evidence to be rebuilt from — something
+            # wrote a projection that cannot be true — so it is refused rather than
+            # repaired, because a silent rebuild would conceal that it ever happened.
+            # The aggregate reports the integrity failure; naming what that means for
+            # a request belongs here.
+            try:
+                posture = self._risk_aggregator.get_posture(agent_id)
+            except ProjectionInvariantError as exc:
+                raise PostureReconciliationError(
+                    f"Projection integrity violated for agent '{agent_id}': {exc}"
+                ) from exc
+
             if posture.state == PostureState.HEALTHY:
                 return posture
 
             # Posture is UNINITIALIZED or STALE: perform authoritative reconciliation
             with self._posture_lock(agent_id):
                 # Re-check under lock in case another thread reconciled it
-                posture = self._risk_aggregator.get_posture(agent_id)
+                try:
+                    posture = self._risk_aggregator.get_posture(agent_id)
+                except ProjectionInvariantError as exc:
+                    raise PostureReconciliationError(
+                        f"Projection integrity violated for agent '{agent_id}': {exc}"
+                    ) from exc
+
                 if posture.state == PostureState.HEALTHY:
                     return posture
 
