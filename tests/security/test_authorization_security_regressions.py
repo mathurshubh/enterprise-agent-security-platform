@@ -175,7 +175,11 @@ def test_the_analyst_scenario_path_no_longer_reaches_the_live_pipeline(
     """
     live_agent = "agent-1"
     findings_before = dependencies.findings_service.list_findings(agent_id=live_agent)
-    posture_before = dependencies.risk_service.get_agent_posture(live_agent)
+    # `assessed_at` is regenerated on every read for an agent with no projection, so
+    # compare the posture rather than the moment it was observed.
+    posture_before = dependencies.risk_aggregator.get_posture(live_agent).model_dump(
+        exclude={"assessed_at"}
+    )
     sessions_before = {s.session_id for s in dependencies.session_service.list_sessions()}
     audit_before = len(dependencies.audit_service.list_events())
     agents_before = {agent.agent_id for agent in dependencies.agent_service.list_agents()}
@@ -184,7 +188,12 @@ def test_the_analyst_scenario_path_no_longer_reaches_the_live_pipeline(
 
     assert response.status_code == 200
     assert dependencies.findings_service.list_findings(agent_id=live_agent) == findings_before
-    assert dependencies.risk_service.get_agent_posture(live_agent) == posture_before
+    assert (
+        dependencies.risk_aggregator.get_posture(live_agent).model_dump(
+            exclude={"assessed_at"}
+        )
+        == posture_before
+    )
     assert {
         s.session_id for s in dependencies.session_service.list_sessions()
     } == sessions_before
@@ -235,7 +244,11 @@ def test_invariant_analyst_may_execute_scenarios_in_isolation(
     """
     live_agent = "agent-1"
     status_before = dependencies.agent_service.get_agent(live_agent).status
-    posture_before = dependencies.risk_service.get_agent_posture(live_agent)
+    # `assessed_at` is regenerated on every read for an agent with no projection, so
+    # compare the posture rather than the moment it was observed.
+    posture_before = dependencies.risk_aggregator.get_posture(live_agent).model_dump(
+        exclude={"assessed_at"}
+    )
     findings_before = dependencies.findings_service.list_findings(agent_id=live_agent)
     suspended_before = dependencies.execution_authority.issuance_suspended(live_agent)
     transitions_before = dependencies.agent_service.list_transitions(live_agent)
@@ -250,7 +263,12 @@ def test_invariant_analyst_may_execute_scenarios_in_isolation(
     assert response.status_code == 200
 
     assert dependencies.agent_service.get_agent(live_agent).status == status_before
-    assert dependencies.risk_service.get_agent_posture(live_agent) == posture_before
+    assert (
+        dependencies.risk_aggregator.get_posture(live_agent).model_dump(
+            exclude={"assessed_at"}
+        )
+        == posture_before
+    )
     assert dependencies.findings_service.list_findings(agent_id=live_agent) == findings_before
     assert dependencies.execution_authority.issuance_suspended(live_agent) is suspended_before
     assert dependencies.agent_service.list_transitions(live_agent) == transitions_before

@@ -1,7 +1,5 @@
-from datetime import datetime
 from threading import RLock
 
-from app.models.agent_risk_posture import AgentRiskPosture
 from app.models.finding import Finding, Severity
 from app.models.risk_assessment import RiskAssessment, RiskLevel
 
@@ -33,22 +31,25 @@ class AmbiguousAssessmentScopeError(ValueError):
     """Raised when an unscoped get_assessment query matches multiple agents for a session."""
 
 
-class FindingScopeError(ValueError):
-    """Raised when a finding presented for assessment belongs to another agent."""
-
-
 class RiskService:
-    """Service for calculating and maintaining process-local dynamic risk assessments.
+    """Session-scoped risk assessment for reporting and attribution.
 
-    RiskAssessment is non-authoritative derived posture; Finding is the
-    authoritative security evidence. Assessments are process-local and
-    stored in memory.
+    ``RiskAssessment`` is non-authoritative derived state; ``Finding`` is the
+    authoritative security evidence. Assessments are process-local and stored in
+    memory.
+
+    This service is **not** an agent-posture authority. It held a second
+    implementation of agent-scoped posture until M5-B.5, reachable only when a
+    ``RuntimeService`` was constructed without a ``RiskAggregator``. That fallback
+    and its posture API are gone: ``RiskAggregator`` is the sole authority for
+    enforcement posture, and what remains here answers "what happened in this
+    session", which the management plane reports and enforcement does not consult
+    (ADR-024, ADR-026).
     """
 
     def __init__(self) -> None:
         self._lock = RLock()
         self._assessments: dict[tuple[str, str], RiskAssessment] = {}
-        self._agent_postures: dict[str, AgentRiskPosture] = {}
 
     def assess_session(
         self,
@@ -96,55 +97,6 @@ class RiskService:
             agent_id=first_finding.agent_id,
             findings=findings,
         )
-
-    def assess_agent(
-        self,
-        agent_id: str,
-        findings: list[Finding],
-        baseline_at: datetime | None = None,
-    ) -> AgentRiskPosture:
-        """Calculate and store the enforcement posture for one agent.
-
-        Accumulates across every session the agent has used, so a fresh ``session_id``
-        cannot present an accumulated posture as new (finding H-3). Scoring is the same
-        deterministic weighting the session assessment uses.
-
-        ``baseline_at`` is recorded on the posture for attribution. Eligibility itself is
-        applied by the caller through ``FindingsService.list_findings(recorded_after=…)``,
-        because only the evidence store knows when a finding was accepted: detection
-        rules set ``Finding.created_at`` deterministically, so it cannot separate
-        historical evidence from evidence recorded after a reinstatement.
-
-        Raises:
-            FindingScopeError: a finding belongs to a different agent. Rejected rather
-                than filtered, because a mismatch means the caller assembled the
-                security input incorrectly.
-        """
-        for finding in findings:
-            if finding.agent_id != agent_id:
-                raise FindingScopeError(
-                    f"Finding '{finding.finding_id}' belongs to agent "
-                    f"'{finding.agent_id}', not '{agent_id}'"
-                )
-
-        risk_score = score_findings(findings)
-        posture = AgentRiskPosture(
-            agent_id=agent_id,
-            risk_score=risk_score,
-            risk_level=level_for_score(risk_score),
-            finding_count=len(findings),
-            baseline_at=baseline_at,
-        )
-
-        with self._lock:
-            self._agent_postures[agent_id] = posture
-
-        return posture
-
-    def get_agent_posture(self, agent_id: str) -> AgentRiskPosture | None:
-        """Return the last calculated enforcement posture for an agent."""
-        with self._lock:
-            return self._agent_postures.get(agent_id)
 
     def record_assessment(self, assessment: RiskAssessment) -> RiskAssessment:
         """Record a risk assessment directly in process-local state."""
@@ -194,8 +146,7 @@ class RiskService:
             return results
 
     def clear(self) -> None:
-        """Clear process-local risk assessments and postures (useful for testing)."""
+        """Clear process-local risk assessments (useful for testing)."""
         with self._lock:
             self._assessments.clear()
-            self._agent_postures.clear()
 

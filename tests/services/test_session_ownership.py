@@ -15,6 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 
 from app.models.agent import Agent, AgentStatus, RiskTier
+from app.models.agent_risk_posture import PostureState
 from app.models.audit_event import Decision
 from app.models.session import Session
 from app.services.session_service import (
@@ -165,7 +166,7 @@ class TestSessionHoppingIsRefused:
             resource="notes.txt",
         )
 
-        victim_posture_before = env.risk_service.get_agent_posture(AGENT_ID)
+        victim_posture_before = env.risk_aggregator.get_posture(AGENT_ID)
         victim_findings_before = env.findings_service.list_findings(agent_id=AGENT_ID)
         events_before = env.runtime._session_service.list_events(VICTIM_SESSION)
 
@@ -185,7 +186,7 @@ class TestSessionHoppingIsRefused:
         # Nothing the attacker did reached the victim's security state.
         assert env.runtime._session_service.list_events(VICTIM_SESSION) == events_before
         assert env.findings_service.list_findings(agent_id=AGENT_ID) == victim_findings_before
-        assert env.risk_service.get_agent_posture(AGENT_ID) == victim_posture_before
+        assert env.risk_aggregator.get_posture(AGENT_ID) == victim_posture_before
         assert env.agent_service.get_agent(AGENT_ID).status == AgentStatus.ACTIVE
 
     def test_the_attacker_gains_no_posture_of_its_own_from_the_refusals(self) -> None:
@@ -207,7 +208,10 @@ class TestSessionHoppingIsRefused:
                 resource="notes.txt",
             )
 
-        assert env.risk_service.get_agent_posture(ATTACKER) is None
+        assert (
+            env.risk_aggregator.get_posture(ATTACKER).state
+            == PostureState.UNINITIALIZED
+        )
         assert env.findings_service.list_findings(agent_id=ATTACKER) == []
 
     def test_the_attacker_may_still_use_its_own_session(self) -> None:

@@ -8,6 +8,7 @@ Validates:
 - Zero legacy RiskService invocation on the HEALTHY authorization hot path.
 """
 
+import inspect
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
@@ -30,6 +31,7 @@ from app.services.runtime_bootstrap import (
     bootstrap_runtime_service,
     create_default_detection_registry,
 )
+from app.services.runtime_service import RuntimeService
 from app.services.session_service import SessionService
 from tests.services.test_findings_service import make_finding
 
@@ -379,25 +381,44 @@ class TestProductionDependencyWiring:
         assert dependencies.enforcement_coordinator._risk_aggregator is dependencies.risk_aggregator
         assert dependencies.enforcement_coordinator._lock_manager is dependencies.agent_lock_manager
 
-    def test_healthy_authorization_path_never_invokes_legacy_risk_service(self) -> None:
-        """When RiskAggregator is wired and posture is HEALTHY, assess_agent is never called."""
-        runtime = dependencies.runtime_service
-        agent_id = "agent-1"
+    def test_there_is_no_legacy_posture_implementation_to_invoke(self) -> None:
+        """Stronger than the spy this replaces (M5-B.5).
 
-        # Ensure agent has a HEALTHY projection
+        The previous form mocked `RiskService.assess_agent` and asserted the healthy
+        path never called it — which proved the branch was not taken on that path,
+        not that it could not be taken on another. `RiskAggregator` is now the sole
+        agent-posture authority, so the assertion is about existence rather than
+        call counts.
+        """
+        assert not hasattr(dependencies.risk_service, "assess_agent")
+        assert not hasattr(dependencies.risk_service, "get_agent_posture")
+
+        source = inspect.getsource(RuntimeService._assess_agent_posture)
+        assert "_risk_service" not in source
+
+    def test_the_risk_service_retains_only_its_reporting_role(self) -> None:
+        """Deleting the posture API must not have taken the session assessment with it.
+
+        `RiskService` is still what answers "what happened in this session" for the
+        management plane; only its agent-posture authority was obsolete.
+        """
+        for retained in (
+            "assess_session",
+            "record_assessment",
+            "get_assessment",
+            "list_assessments",
+        ):
+            assert hasattr(dependencies.risk_service, retained)
+
+        assert "_risk_service.assess_session" in inspect.getsource(RuntimeService.execute)
+
+    def test_the_healthy_path_still_returns_a_posture(self) -> None:
+        """The positive control the removal must not break."""
+        agent_id = "agent-1"
         dependencies.risk_aggregator.reset_to_baseline(
             BaselineWatermark(agent_id=agent_id, baseline_sequence=0)
         )
-        assert dependencies.risk_aggregator.get_posture(agent_id).state == PostureState.HEALTHY
 
-        # Mock assess_agent on legacy risk_service
-        legacy_spy = MagicMock(side_effect=AssertionError("Legacy risk_service.assess_agent must not be called!"))
-        original_assess_agent = runtime._risk_service.assess_agent
-        runtime._risk_service.assess_agent = legacy_spy
+        posture = dependencies.runtime_service._assess_agent_posture(agent_id)
 
-        try:
-            posture = runtime._assess_agent_posture(agent_id)
-            assert posture.state == PostureState.HEALTHY
-            assert legacy_spy.call_count == 0
-        finally:
-            runtime._risk_service.assess_agent = original_assess_agent
+        assert posture.state == PostureState.HEALTHY

@@ -19,6 +19,7 @@ from app.services.agent_service import AgentService
 from app.services.audit_service import AuditService
 from app.services.detection_service import DetectionService
 from app.services.response_service import ResponseService
+from app.services.risk_aggregator import RiskAggregator
 from app.services.risk_service import RiskService
 from app.services.runtime_service import RuntimeService
 from app.services.session_service import SessionService
@@ -116,6 +117,9 @@ def create_runtime_service(
             risk_service,
             response_service,
             audit_service,
+            # M5-B.5: RiskAggregator is the sole agent-posture authority, so a
+            # runtime cannot be constructed without one.
+            risk_aggregator=RiskAggregator(),
         ),
         session_service,
     )

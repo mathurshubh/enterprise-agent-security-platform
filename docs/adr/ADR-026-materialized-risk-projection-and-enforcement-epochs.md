@@ -151,6 +151,15 @@ Applied to the fallback:
 
 Removal is deferred deliberately, so that this ADR records an architectural decision rather than combining one with implementation cleanup.
 
+### Removed in M5-B.5
+
+`RiskAggregator` is now the **sole** runtime authority for agent enforcement posture. The fallback branch is gone, a `RuntimeService` without a `RiskAggregator` raises `IncompleteRuntimeConfigurationError` at construction, and `RiskService.assess_agent` and `RiskService.get_agent_posture` are deleted rather than left as an unused second posture API — retaining them would preserve the ambiguity without a branch pointing at it.
+
+`RiskService` keeps its session-assessment and management-reporting role, which enforcement does not consult. Two discoveries from that removal are worth recording, because both are consequences of having had two implementations:
+
+- **`RiskService.get_agent_posture` returned `None` on every production-wired path**, since nothing called `assess_agent` outside the fallback. Several tests asserting "posture unchanged" against it were therefore comparing `None` to `None` and evidenced nothing. They now read the authoritative projection.
+- **`tests/services/test_runtime_enforcement_posture.py` — the M2b enforcement-posture module — built its runtimes without an aggregator**, so like the security corpus before M5-B.1 it verified the fallback rather than the production path. This is the third instance of the same class of divergence, which is why parity is a standing requirement rather than a series of fixes.
+
 ## The B-5 pre-baseline guard is conditionally subsumed by B-3
 
 `AgentRiskAggregate.apply_finding` carries two guards that both reject evidence by sequence:
@@ -295,7 +304,7 @@ One limit is worth stating explicitly: **fixture parity is not production parity
 
 | Finding | Decision | Follow-on |
 |:---|:---|:---|
-| Legacy `RiskService` fallback | Deprecate and remove | Separate production change |
+| Legacy `RiskService` fallback | Deprecate and remove | Done — removed (M5-B.5) |
 | B-5 pre-baseline guard | Retain as defence-in-depth | Done — CI-1 enforced (M5-B.3) |
 | Session-event retention | Keep as an M5-B contribution | M-4 decomposition |
 | Execution receipts | Implemented capability, not a production feature | Wire the production execution path |
