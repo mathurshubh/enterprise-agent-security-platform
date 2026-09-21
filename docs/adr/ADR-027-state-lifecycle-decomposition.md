@@ -71,7 +71,7 @@ Tombstones          -> security identity lifecycle
 | Session events | Detection-horizon retention | **Closed** — M5-B.4 | None in M4 |
 | Runtime partial wiring | Remove the compatibility security path | **Closed** — M5-B.6 | None; Decision A is now unblocked |
 | Risk assessments | No independent retention; derived on read | **Implemented** — M4-RISK | None |
-| Audit | Establish explicit evidence lifecycle ownership | **Decided** | Amend ADR-016 |
+| Audit | Establish explicit evidence lifecycle ownership | **Decided** — [ADR-028](ADR-028-audit-evidence-ownership-and-lifecycle.md) | Implementation decision |
 | Tombstones | Separate lifecycle decision required | **Open** | New session-lifecycle decision |
 
 ## Prerequisite — M5-B.6
@@ -166,6 +166,10 @@ What ADR-016 does supply is the model audit requires — a three-tier Operationa
 
 **Decision: ADR-016 is the appropriate architectural home, and will be amended to establish the lifecycle model for audit evidence and to define its relationship to the audit event plane.** A second persistence architecture beside it is rejected: fragmented persistence ownership is the condition this programme has been removing elsewhere.
 
+> **Amended by [ADR-028](ADR-028-audit-evidence-ownership-and-lifecycle.md).** This decision named ADR-016 as the home without checking its status: ADR-016 is **Proposed**, so as written an Accepted decision depended on a proposal, and amending it would have advanced a far broader architecture as a side effect of an audit decision. ADR-028 owns the audit evidence lifecycle directly and references ADR-016's persistence model rather than depending on it. The M4-AUDIT track is therefore decided there, not by an ADR-016 amendment.
+>
+> ADR-028 also found that the requirement is not only lifecycle: `AuditEvent` carries no session context, so once session events are pruned no durable record attributes a decision to its originating execution. Bounding that record without fixing attribution would have governed the wrong thing.
+
 The boundary between this ADR and that amendment is deliberate:
 
 ```text
@@ -221,7 +225,7 @@ ADR-027 is a decomposition and decision record, not an implementation record. It
 
 - remove the `RiskAssessment` materialized store;
 - define the final lifecycle or archival policy for audit evidence;
-- confer audit lifecycle ownership, which the ADR-016 amendment must do;
+- confer audit lifecycle ownership, which [ADR-028](ADR-028-audit-evidence-ownership-and-lifecycle.md) does;
 - define the lifecycle mechanism for session tombstones;
 - establish server-issued session identifiers as the solution to tombstone lifecycle;
 - change session-event retention established by M5-B.4;
