@@ -279,10 +279,15 @@ class TestIncompleteConstructionFails:
                 response_service=ResponseService(),
             )
 
-    def test_the_failure_names_the_missing_authority(self) -> None:
+    def test_the_failure_names_every_missing_dependency(self) -> None:
         """A construction failure has to say what is missing, or the next caller
-        reaches for whatever argument looks plausible."""
-        with pytest.raises(IncompleteRuntimeConfigurationError, match="RiskAggregator"):
+        reaches for whatever argument looks plausible.
+
+        All of them are named rather than the first one found: a caller who omitted
+        one has usually omitted them for the same reason, and reporting them one per
+        attempt turns a single mistake into three.
+        """
+        with pytest.raises(IncompleteRuntimeConfigurationError) as refusal:
             RuntimeService(
                 authorization_service=AuthorizationService(
                     agent_service=AgentService(),
@@ -295,6 +300,36 @@ class TestIncompleteConstructionFails:
                 risk_service=RiskService(),
                 response_service=ResponseService(),
             )
+
+        message = str(refusal.value)
+        for dependency in ("risk_aggregator", "findings_service", "agent_service"):
+            assert dependency in message
+
+    def test_a_partially_wired_runtime_is_refused_too(self) -> None:
+        """The M5-B.6 case: posture authority supplied, evidence and registry absent.
+
+        This construction succeeded until M5-B.6 and produced a runtime that derived
+        its response from the session assessment instead of the agent's posture.
+        """
+        with pytest.raises(IncompleteRuntimeConfigurationError) as refusal:
+            RuntimeService(
+                authorization_service=AuthorizationService(
+                    agent_service=AgentService(),
+                    tool_service=ToolService(tool_registry=ToolRegistry()),
+                    policy_engine=PolicyEngine(),
+                ),
+                session_service=SessionService(),
+                detection_engine=DetectionEngine([PromptInjectionRule()]),
+                detection_service=DetectionService(),
+                risk_service=RiskService(),
+                response_service=ResponseService(),
+                risk_aggregator=RiskAggregator(),
+            )
+
+        message = str(refusal.value)
+        assert "findings_service" in message
+        assert "agent_service" in message
+        assert "risk_aggregator" not in message
 
     def test_production_bootstrap_is_fully_wired(self) -> None:
         """The live runtime must never fall back to the weaker session posture."""

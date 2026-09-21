@@ -381,6 +381,20 @@ class TestProductionDependencyWiring:
         assert dependencies.enforcement_coordinator._risk_aggregator is dependencies.risk_aggregator
         assert dependencies.enforcement_coordinator._lock_manager is dependencies.agent_lock_manager
 
+    def test_create_default_wires_the_shared_singleton_graph(self) -> None:
+        """`create_default` must join the process's graph, not build its own (M5-B.6).
+
+        It became a construction site the moment the security response path turned
+        into a precondition. A runtime holding its own evidence store or projection
+        would read state nothing else writes — the divergence class M5-B.1 and M5-B.4
+        closed, reintroduced through a convenience factory.
+        """
+        runtime = RuntimeService.create_default()
+
+        assert runtime._findings_service is dependencies.findings_service
+        assert runtime._risk_aggregator is dependencies.risk_aggregator
+        assert runtime._agent_service is dependencies.agent_service
+
     def test_there_is_no_legacy_posture_implementation_to_invoke(self) -> None:
         """Stronger than the spy this replaces (M5-B.5).
 

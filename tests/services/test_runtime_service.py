@@ -18,6 +18,7 @@ from app.policy.policy_engine import PolicyEngine
 from app.services.agent_service import AgentService
 from app.services.audit_service import AuditService
 from app.services.detection_service import DetectionService
+from app.services.findings_service import FindingsService
 from app.services.response_service import ResponseService
 from app.services.risk_aggregator import RiskAggregator
 from app.services.risk_service import RiskService
@@ -117,9 +118,11 @@ def create_runtime_service(
             risk_service,
             response_service,
             audit_service,
-            # M5-B.5: RiskAggregator is the sole agent-posture authority, so a
-            # runtime cannot be constructed without one.
+            # M5-B.5 / M5-B.6: the security response path is a construction
+            # precondition — posture authority, evidence store and agent registry.
             risk_aggregator=RiskAggregator(),
+            findings_service=FindingsService(),
+            agent_service=agent_service,
         ),
         session_service,
     )
