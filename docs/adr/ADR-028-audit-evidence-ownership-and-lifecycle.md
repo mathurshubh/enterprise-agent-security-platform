@@ -8,9 +8,9 @@
 - Shubhankar Mathur
 
 **Implementation Status:**
-- Decision record. No production code changes.
-- Establishes requirements the current implementation does **not** satisfy. The gap is recorded below rather than closed here.
+- Decision record.
 - Implements the `M4-AUDIT` track of [ADR-027](ADR-027-state-lifecycle-decomposition.md).
+- **Attribution capture implemented** (first slice); bounded lifecycle, immutability enforcement, durability and tamper-evidence remain open. See the gap table below.
 
 ---
 
@@ -113,19 +113,31 @@ Terminal session state does not affect audit evidence. A session ending, being t
 
 ## 5. The current implementation is a gap, not a satisfaction of this decision
 
-`AuditEvent` is **not** the canonical audit record. It is currently the only non-evicting **retained** representation of a security decision, and it is **incomplete as security evidence**.
+`AuditEvent` is **not** the canonical audit record. It is currently the only non-evicting **retained** representation of a security decision, and it remains **incomplete as security evidence**, though less so than when this decision was written.
 
 "Retained" is deliberate: `AuditService` holds an in-memory list, so nothing about audit evidence is durably stored today. The distinction matters because establishing what durability means for evidence is part of what this decision exists to do, and describing process memory as persistence would assume the answer.
 
 | Property | Status |
 |:---|:---|
 | Complete coverage | **Satisfied** |
-| Attribution to originating session | **Not satisfied** — no session context in the record |
+| Attribution to originating execution and session | **Satisfied** — M4-AUDIT attribution capture |
 | Immutability | **Incidental** — no mutator exists; nothing asserts it |
-| Independence from evictable state | **Not satisfied** — session attribution depends on unpruned session events |
+| Independence from evictable state | **Satisfied for the current evidence definition** — attribution is carried in the record, and `AuditService` holds no reference to the session plane |
 | Bounded operational memory | **Not satisfied** — no retention, no archival, ~581 MB per million records |
 
-Recording this as a gap is deliberate. Describing the existing log as satisfying an evidence contract it does not satisfy would make the decision unfalsifiable and would leave the attribution defect invisible behind an accepted ADR.
+Recording this as a gap was deliberate. Describing the existing log as satisfying an evidence contract it did not satisfy would have made the decision unfalsifiable and left the attribution defect invisible behind an accepted ADR.
+
+### Attribution capture (first implementation slice)
+
+`AuditEvent` now carries the originating `session_id`, **required rather than optional**: an optional field would permit an unattributed record to be written, and nothing later could repair it. The field is populated from the request the runtime is evaluating at all three producers — the evaluated path and both boundary refusals — and surfaced by the management plane.
+
+This slice was taken first, ahead of retention and durability, because it is the only part of M4-AUDIT with an irreversible information-loss boundary: **retention preserves evidence that was captured; it cannot recover context that was never captured.** Every decision recorded before it is permanently unable to say which execution produced it.
+
+Attribution and independence are covered by separate corpus invariants, including that attribution outlives the session events it describes and that `AuditService` holds no reference to `SessionService`.
+
+Independence is satisfied **for the current evidence definition**, and the qualification matters. The property is about whether the record's meaning depends on shorter-lived or evictable state — not about whether the record carries every piece of forensic context. `resource`, `parameter_hash` and `risk_level` are absent from `AuditEvent`; their absence does not violate independence, because this decision does not require them. They may become evidence requirements later, and that would be a change to the definition rather than a defect against this one.
+
+**Bounded operational memory, immutability enforcement, durability and tamper-evidence remain open**, in that order of dependence.
 
 ---
 

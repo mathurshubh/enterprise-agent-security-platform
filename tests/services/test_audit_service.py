@@ -5,9 +5,10 @@ from app.models.audit_event import (
 from app.services.audit_service import AuditService
 
 
-def create_event(event_id: str = "evt-1") -> AuditEvent:
+def create_event(event_id: str = "evt-1", session_id: str = "session-1") -> AuditEvent:
     return AuditEvent(
         event_id=event_id,
+        session_id=session_id,
         agent_id="soc-agent",
         tool_id="file_read",
         decision=Decision.ALLOW,

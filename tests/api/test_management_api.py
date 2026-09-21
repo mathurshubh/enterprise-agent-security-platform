@@ -50,9 +50,11 @@ def make_audit_event(
     agent_id: str = "mgmt-agent-1",
     tool_id: str = "file_read",
     decision: Decision = Decision.ALLOW,
+    session_id: str = "mgmt-session-1",
 ) -> AuditEvent:
     return AuditEvent(
         event_id=event_id,
+        session_id=session_id,
         agent_id=agent_id,
         tool_id=tool_id,
         decision=decision,

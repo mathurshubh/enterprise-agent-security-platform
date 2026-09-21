@@ -13,6 +13,7 @@ class AuditEventResponse(BaseModel):
     """
 
     event_id: str
+    session_id: str
     agent_id: str
     tool_id: str
     decision: str
