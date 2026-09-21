@@ -257,6 +257,7 @@ The platform maintains a comprehensive automated test suite executed with Pytest
 - **System Architecture:** `docs/architecture/system-architecture.md`
 - **Data Model:** `docs/architecture/data-model.md`
 - **Threat Model:** `docs/security/threat-model.md`
+- **AI Security Architecture Review (Jan–Aug 2026):** `docs/security/ai-security-architecture-review-jan-aug-2026.md`
 - **OpenAPI Design:** `docs/api/openapi-design.md`
 - **Architecture Decision Records:** `docs/adr/` (ADR-000 through ADR-022)
 - **PR #87 Documentation Audit & Plan:** `docs/research/pr-87-documentation-audit.md` & `docs/research/pr-87-documentation-plan.md`
