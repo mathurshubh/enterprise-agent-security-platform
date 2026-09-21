@@ -584,5 +584,9 @@ class TestSinglePostureAuthority:
     def test_the_risk_service_keeps_its_session_reporting_role(self) -> None:
         """Removing the posture authority must not remove session assessment, which
         the management plane reports and enforcement does not consult."""
-        for retained in ("assess_session", "record_assessment", "get_assessment", "list_assessments"):
+        for retained in ("assess_session", "reconstruct", "reconstruct_for_session"):
             assert hasattr(RiskService, retained)
+
+        # M4-RISK: the store and its readers are gone; derivation remains.
+        for removed in ("record_assessment", "get_assessment", "list_assessments", "clear"):
+            assert not hasattr(RiskService, removed)

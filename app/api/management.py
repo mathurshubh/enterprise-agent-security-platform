@@ -384,12 +384,20 @@ def list_risk_assessments(
     agent_id: str | None = Query(default=None, description="Filter by agent ID"),
     risk_level: RiskLevel | None = Query(default=None, description="Filter by risk level"),
 ) -> list[RiskAssessmentResponse]:
-    """Return process-local risk assessments matching optional filters."""
-    assessments = risk_service.list_assessments(
-        session_id=session_id,
-        agent_id=agent_id,
-        risk_level=risk_level,
+    """Return risk assessments derived from authoritative findings.
+
+    Derived at read time; nothing is stored (ADR-027 Decision A). Existence is
+    evidence-defined: the collection contains one assessment per (session, agent)
+    pair that has findings, and a session that executed without producing any does
+    not appear. Ordered by session_id ascending.
+    """
+    assessments = risk_service.reconstruct(
+        findings_service.list_findings(session_id=session_id, agent_id=agent_id)
     )
+    if risk_level is not None:
+        # Applied after derivation: a risk level is a property of the assessment,
+        # not of any single finding, so it cannot be pushed down to the evidence.
+        assessments = [a for a in assessments if a.risk_level == risk_level]
     return [_map_risk_assessment_to_response(a) for a in assessments]
 
 
@@ -402,9 +410,18 @@ def get_risk_assessment(
     session_id: str,
     agent_id: str | None = Query(default=None, description="Filter by agent ID"),
 ) -> RiskAssessmentResponse:
-    """Return the latest process-local risk assessment for a session (and optional agent ID)."""
+    """Return the risk assessment derived from a session's authoritative findings.
+
+    404 when the session has no evidence. That includes a session that executed
+    cleanly: assessment existence is evidence-defined rather than execution-defined
+    (ADR-027 Decision A).
+    """
     try:
-        assessment = risk_service.get_assessment(session_id, agent_id=agent_id)
+        assessment = risk_service.reconstruct_for_session(
+            findings_service.list_findings(session_id=session_id),
+            session_id,
+            agent_id=agent_id,
+        )
     except AmbiguousAssessmentScopeError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

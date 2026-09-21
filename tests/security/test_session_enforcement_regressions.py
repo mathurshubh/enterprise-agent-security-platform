@@ -405,25 +405,29 @@ def test_denial_threshold_is_counted_once_per_session(
 def test_baseline_state_grows_without_bound_or_eviction(
     build_runtime, security_workspace: Path
 ) -> None:
-    """Each accepted request permanently adds records to three in-memory stores.
+    """Each accepted request permanently adds records to the audit log.
 
-    M-4 measured three stores together. They are no longer equivalent, so this
-    baseline is now partially superseded and is kept deliberately rather than split:
+    M-4 measured three stores together and found all three unbounded. ADR-027
+    decomposed the finding because the three have materially different security
+    semantics, and two of them no longer support the original claim:
 
-    - **Audit events and risk assessments** still grow without bound, with no
-      retention of any kind. The assertions below remain exactly as recorded at
-      `74e8c51`, and audit is not a store an eviction policy can simply be applied to
-      — security invariant 4 requires an append-only record (ADR-026).
-    - **Session events** are now bounded by a detection-horizon retention policy
-      (M4-EVENT). The assertion below holds *within* that horizon, which is why it
-      still passes: the requests here are recorded in the same instant, so nothing is
-      old enough to evict. Eviction beyond the horizon, and its isolation from
+    - **Audit events** still grow without bound, with no retention of any kind. The
+      assertion below remains exactly as recorded at `74e8c51`. Audit is not a store
+      an eviction policy can simply be applied to — security invariant 4 requires an
+      append-only record — so its direction is a durable evidence lifecycle
+      (ADR-027 Decision B), which is not yet implemented.
+    - **Session events** are bounded by a detection-horizon retention policy since
+      M5-B.4. The assertion below holds *within* that horizon, which is why it still
+      passes: these requests are recorded in the same instant, so nothing is old
+      enough to evict. Eviction beyond the horizon, and its isolation from
       security-authoritative state, is covered by
       `tests/security/test_event_retention_regressions.py`.
+    - **Risk assessments** have no store at all since M4-RISK. They are derived from
+      findings on read, so there is nothing left to grow and the original assertion
+      has been removed rather than weakened. `tests/api/test_risk_api.py` covers the
+      derived contract.
 
-    The session-event line is therefore no longer evidence of unbounded growth; it
-    pins in-horizon retention. The unbounded claim survives only for the two stores
-    that genuinely still have no lifecycle.
+    What remains of M-4's original claim is one store: the audit log.
     """
     env = build_runtime(workspace=security_workspace)
     request_count = 20
@@ -436,8 +440,7 @@ def test_baseline_state_grows_without_bound_or_eviction(
             user_prompt="read the notes file",
         )
 
-    # Still unbounded: no retention exists for either store.
+    # Still unbounded: no retention exists for the audit log.
     assert len(env.audit_service.list_events()) == request_count
-    assert len(env.risk_service.list_assessments()) == request_count
     # Bounded by the detection horizon; retained here because it has not elapsed.
     assert len(env.session_service.list_events("corpus-m4-0")) == 1

@@ -416,13 +416,12 @@ class TestProductionDependencyWiring:
         `RiskService` is still what answers "what happened in this session" for the
         management plane; only its agent-posture authority was obsolete.
         """
-        for retained in (
-            "assess_session",
-            "record_assessment",
-            "get_assessment",
-            "list_assessments",
-        ):
+        for retained in ("assess_session", "reconstruct", "reconstruct_for_session"):
             assert hasattr(dependencies.risk_service, retained)
+
+        # M4-RISK: the materialized store and its readers are gone.
+        for removed in ("record_assessment", "get_assessment", "list_assessments", "clear"):
+            assert not hasattr(dependencies.risk_service, removed)
 
         assert "_risk_service.assess_session" in inspect.getsource(RuntimeService.execute)
 

@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from threading import RLock
 
 from app.models.finding import Finding, Severity
@@ -32,24 +33,28 @@ class AmbiguousAssessmentScopeError(ValueError):
 
 
 class RiskService:
-    """Session-scoped risk assessment for reporting and attribution.
+    """Deterministic session-scoped risk derivation.
 
-    ``RiskAssessment`` is non-authoritative derived state; ``Finding`` is the
-    authoritative security evidence. Assessments are process-local and stored in
-    memory.
+    ``RiskAssessment`` is derived state; ``Finding`` is the authoritative security
+    evidence. Since M4-RISK this service **stores nothing**: it derives an assessment
+    from findings on demand, for the runtime's per-request response and for the
+    management plane's reads alike (ADR-027 Decision A).
 
-    This service is **not** an agent-posture authority. It held a second
-    implementation of agent-scoped posture until M5-B.5, reachable only when a
-    ``RuntimeService`` was constructed without a ``RiskAggregator``. That fallback
-    and its posture API are gone: ``RiskAggregator`` is the sole authority for
-    enforcement posture, and what remains here answers "what happened in this
-    session", which the management plane reports and enforcement does not consult
-    (ADR-024, ADR-026).
+    Assessment existence is therefore **evidence-defined** rather than
+    execution-defined. An assessment exists for a ``(session_id, agent_id)`` pair
+    exactly when findings exist for it. A session that executed and produced no
+    findings has no assessment — the ``LOW``/0 record it used to carry was an
+    artifact of the runtime writing one per request, not a statement about risk.
+
+    This service is also **not** an agent-posture authority. It held a second
+    implementation of agent-scoped posture until M5-B.5: ``RiskAggregator`` is the
+    sole authority for enforcement posture, and what remains here answers "what does
+    this session's evidence amount to", which the management plane reports and
+    enforcement does not consult (ADR-024, ADR-026).
     """
 
     def __init__(self) -> None:
         self._lock = RLock()
-        self._assessments: dict[tuple[str, str], RiskAssessment] = {}
 
     def assess_session(
         self,
@@ -57,31 +62,17 @@ class RiskService:
         agent_id: str,
         findings: list[Finding],
     ) -> RiskAssessment:
-        """Calculate and store a deterministic risk assessment for a specific session and agent.
+        """Derive a deterministic risk assessment for one session and agent.
 
-        Enforces strict session and agent isolation. All findings must belong to the
-        given session_id and agent_id. Derived assessment is stored under composite
-        key (session_id, agent_id).
+        Stores nothing (M4-RISK). Enforces strict session and agent isolation: all
+        findings must belong to the given session_id and agent_id, because a
+        mismatch means the caller assembled the security input incorrectly.
         """
         for finding in findings:
             if finding.session_id != session_id or finding.agent_id != agent_id:
                 raise ValueError("All findings must belong to the requested session and agent")
 
-        risk_score = score_findings(findings)
-        risk_level = level_for_score(risk_score)
-
-        assessment = RiskAssessment(
-            session_id=session_id,
-            agent_id=agent_id,
-            risk_score=risk_score,
-            risk_level=risk_level,
-            finding_count=len(findings),
-        )
-
-        with self._lock:
-            self._assessments[(session_id, agent_id)] = assessment
-
-        return assessment
+        return self._derive(session_id, agent_id, findings)
 
     def assess(
         self,
@@ -98,55 +89,79 @@ class RiskService:
             findings=findings,
         )
 
-    def record_assessment(self, assessment: RiskAssessment) -> RiskAssessment:
-        """Record a risk assessment directly in process-local state."""
-        with self._lock:
-            self._assessments[(assessment.session_id, assessment.agent_id)] = assessment
-            return assessment
-
-    def get_assessment(
+    def _derive(
         self,
+        session_id: str,
+        agent_id: str,
+        findings: list[Finding],
+    ) -> RiskAssessment:
+        """The single deterministic derivation both callers share.
+
+        ``assessed_at`` is taken from the latest evidence rather than from the moment
+        of the call, so two reads of unchanged evidence produce identical responses.
+        A read-time clock would make a derived view non-reproducible and would report
+        when it was looked at rather than what it reflects.
+        """
+        risk_score = score_findings(findings)
+        observed_at = [
+            finding.recorded_at or finding.created_at for finding in findings
+        ]
+        return RiskAssessment(
+            session_id=session_id,
+            agent_id=agent_id,
+            risk_score=risk_score,
+            risk_level=level_for_score(risk_score),
+            finding_count=len(findings),
+            assessed_at=max(observed_at) if observed_at else datetime.now(timezone.utc),
+        )
+
+    def reconstruct(self, findings: list[Finding]) -> list[RiskAssessment]:
+        """Derive every assessment the supplied evidence defines.
+
+        Existence is evidence-defined: one assessment per ``(session_id, agent_id)``
+        pair that has findings, and none for pairs that do not. Ordered by
+        ``session_id`` ascending, then ``agent_id``, so the collection is
+        deterministic rather than inheriting the insertion order of whatever store
+        happened to hold it.
+        """
+        grouped: dict[tuple[str, str], list[Finding]] = {}
+        for finding in findings:
+            grouped.setdefault((finding.session_id, finding.agent_id), []).append(finding)
+
+        return [
+            self._derive(session_id, agent_id, grouped[(session_id, agent_id)])
+            for session_id, agent_id in sorted(grouped)
+        ]
+
+    def reconstruct_for_session(
+        self,
+        findings: list[Finding],
         session_id: str,
         agent_id: str | None = None,
     ) -> RiskAssessment | None:
-        """Retrieve process-local risk assessment for a session (and optional agent ID).
+        """Derive one session's assessment from the evidence supplied.
 
-        If agent_id is omitted and multiple assessments exist for session_id across
-        different agents, raises AmbiguousAssessmentScopeError.
+        Returns ``None`` when the session has no evidence, which the API reports as
+        404. The ambiguity rule is unchanged in meaning and re-derived from its
+        source: a session with findings from several agents cannot be assessed
+        without naming one.
+
+        Raises:
+            AmbiguousAssessmentScopeError: the session holds evidence for more than
+                one agent and no ``agent_id`` was supplied.
         """
-        with self._lock:
-            if agent_id is not None:
-                return self._assessments.get((session_id, agent_id))
+        scoped = [f for f in findings if f.session_id == session_id]
+        if agent_id is not None:
+            scoped = [f for f in scoped if f.agent_id == agent_id]
+            return self._derive(session_id, agent_id, scoped) if scoped else None
 
-            matching = [a for key, a in self._assessments.items() if key[0] == session_id]
-            if len(matching) == 0:
-                return None
-            if len(matching) == 1:
-                return matching[0]
-
+        agents = {f.agent_id for f in scoped}
+        if not agents:
+            return None
+        if len(agents) > 1:
             raise AmbiguousAssessmentScopeError(
-                f"Multiple risk assessments exist for session '{session_id}'; agent_id is required"
+                f"Multiple agents have evidence for session '{session_id}'; "
+                "agent_id is required"
             )
-
-    def list_assessments(
-        self,
-        session_id: str | None = None,
-        agent_id: str | None = None,
-        risk_level: RiskLevel | None = None,
-    ) -> list[RiskAssessment]:
-        """List process-local risk assessments matching optional filters."""
-        with self._lock:
-            results = list(self._assessments.values())
-            if session_id is not None:
-                results = [r for r in results if r.session_id == session_id]
-            if agent_id is not None:
-                results = [r for r in results if r.agent_id == agent_id]
-            if risk_level is not None:
-                results = [r for r in results if r.risk_level == risk_level]
-            return results
-
-    def clear(self) -> None:
-        """Clear process-local risk assessments (useful for testing)."""
-        with self._lock:
-            self._assessments.clear()
+        return self._derive(session_id, agents.pop(), scoped)
 
