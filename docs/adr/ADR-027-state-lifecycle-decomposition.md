@@ -24,7 +24,7 @@ M-4 recorded that platform state grows without bound or eviction, and measured t
 
 That measurement was correct. The grouping was not. Reviewing the three stores against the same seven questions — what is authoritative, who consumes it, is it security-authoritative or derived, can it be reconstructed, what security property depends on its availability, what happens if it is removed, and is bounded in-memory retention the right control — produced four different answers, because the stores have materially different security semantics.
 
-The finding also missed a store. `M4-S` introduced terminal session tombstones after M-4 was written, and they are unbounded by design.
+The finding also missed a store. `M4-S` introduced session lifecycle machinery after M-4 was written, and the session plane is unbounded. **Which** part of it is unbounded was corrected after this ADR was first accepted — see the correction under Decision C.
 
 ## What the stores actually are
 
@@ -35,9 +35,12 @@ Measured on `main` at `b94b8d6` (`tracemalloc`, 20,000 records):
 | Session events | append + prune | requests within the detection horizon | 575 B | 549 MB |
 | Risk assessments | **upsert** on `(session_id, agent_id)` | **unique sessions** | 1,176 B | 1,121 MB |
 | Audit events | append-only | **requests** | 610 B | 581 MB |
-| Terminal tombstones | insert, never removed | terminated sessions | — | unbounded |
+| Active sessions | insert, never removed | **unique session identifiers** | — | unbounded |
+| Terminal tombstones | insert, never removed | terminated sessions | — | unbounded, **but empty in production** |
 
-Growth was measured directly rather than inferred. Ten requests in one session add **one** assessment and **ten** audit events; ten requests across ten sessions add ten of each. Five hundred sessions created, ended, and then pruned a year forward leave **500 tombstones and 0 session events**.
+Growth was measured directly rather than inferred. Ten requests in one session add **one** assessment and **ten** audit events; ten requests across ten sessions add ten of each.
+
+> **Corrected.** This paragraph originally read that five hundred sessions created, ended and pruned a year forward leave 500 tombstones and 0 session events. That measurement called `end_session` directly. **No production path does**, so it described a test scenario rather than the running platform. Two hundred distinct sessions through the production pipeline leave **200 active sessions and 0 tombstones**. See the correction under Decision C.
 
 **The memory numbers do not justify eviction by themselves.** They identify where lifecycle pressure comes from. What may actually be removed is determined by security semantics, and those differ per store.
 
@@ -54,7 +57,7 @@ M4 original finding
 ├── M5-B.6            partial-wiring response path       PREREQUISITE
 ├── M4-RISK           RiskAssessment materialization     Decision A
 ├── M4-AUDIT          audit evidence lifecycle           Decision B
-└── SESSION-LIFECYCLE tombstone / identifier lifecycle   Decision C
+└── SESSION-LIFECYCLE session identity / identifier lifecycle   Decision C
 ```
 
 Four stores, four answers:
@@ -63,7 +66,7 @@ Four stores, four answers:
 Session events      -> bounded retention
 Risk assessments    -> do not retain independently; reconstruct
 Audit events        -> durable evidence lifecycle
-Tombstones          -> security identity lifecycle
+Session plane       -> security identity lifecycle
 ```
 
 | Track | Decision | Status | Next action |
@@ -72,7 +75,7 @@ Tombstones          -> security identity lifecycle
 | Runtime partial wiring | Remove the compatibility security path | **Closed** — M5-B.6 | None; Decision A is now unblocked |
 | Risk assessments | No independent retention; derived on read | **Implemented** — M4-RISK | None |
 | Audit | Establish explicit evidence lifecycle ownership | **Decided** — [ADR-028](ADR-028-audit-evidence-ownership-and-lifecycle.md) | Implementation decision |
-| Tombstones | Separate lifecycle decision required | **Open** | New session-lifecycle decision |
+| Session plane | Separate lifecycle decision required | **Open** | Session semantics review, then `SESSION-LIFECYCLE` |
 
 ## Prerequisite — M5-B.6
 
@@ -194,9 +197,9 @@ The amendment must establish, before any implementation:
 - lifecycle ownership;
 - the relationship between `AuditService` and the persistence layer.
 
-## Decision C — Tombstones are an identity problem, not a retention problem
+## Decision C — Session identity is an identity problem, not a retention problem
 
-Terminal session tombstones share a growth driver with risk assessments — session identifier cardinality — and nothing else. **Cardinality is not a sufficient basis for assigning lifecycle semantics.** Grouping them was considered and rejected, because their security semantics are opposite:
+The session plane shares a growth driver with risk assessments — session identifier cardinality — and nothing else. **Cardinality is not a sufficient basis for assigning lifecycle semantics.** Grouping them was considered and rejected, because their security semantics are opposite:
 
 | | Risk assessment | Terminal tombstone |
 |:---|:---|:---|
@@ -209,13 +212,42 @@ The security property is explicit: **tombstone lifecycle must preserve terminal 
 
 `M4-S-5` retains tombstones for process lifetime and `M4-S-6` forbids discarding them under capacity pressure, both correctly: evicting one would undo the terminal ownership finality that finding M-5 established (ADR-024).
 
-The consequence is that session-event retention bounds the events and leaves one tombstone per session forever — **the session plane is not bounded; its unbounded component moved from events to tombstones.** That is a sound trade, and it leaves a real architectural question that retention cannot answer:
-
-> How can terminal session ownership remain final without requiring process-lifetime in-memory tombstones?
-
-**Decision: record this as its own architectural follow-up, `SESSION-LIFECYCLE`, not as part of M4-RISK.** Existing process-lifetime tombstone behaviour remains authoritative until that design exists.
+**Decision: record this as its own architectural follow-up, `SESSION-LIFECYCLE`, not as part of M4-RISK.** The session plane is not bounded, and the question retention cannot answer is which state must survive for an identifier to remain unclaimable.
 
 Server-issued identifiers are an architectural **input** to that follow-up decision, because the threat model already identifies identifier reuse and rebinding as relevant to the ownership-finality property. This ADR does not establish them as the solution.
+
+### Correction: the unbounded component is active sessions, not tombstones
+
+This section originally concluded that *"the session plane is not bounded; its unbounded component moved from events to tombstones"*, and framed the follow-up as **"how can terminal session ownership remain final without requiring process-lifetime in-memory tombstones?"** A read-only investigation of the session lifecycle found both statements to rest on a measurement that does not describe production.
+
+**The terminal-session machinery has no production path.** `end_session`, `expire_idle_sessions`, `is_terminal` and `get_tombstone` are called only from tests, and the management plane exposes no session mutation. Measured against production wiring:
+
+```text
+200 distinct sessions through the pipeline
+    active sessions  : +200
+    tombstones       :   +0
+```
+
+No session reaches terminal state in the running platform. The consequences for this ADR:
+
+- **The unbounded component of the session plane is `_sessions`, not `_tombstones`.** Session-event retention bounds the events and leaves one *active session record* per identifier, forever, because nothing removes it.
+- **Terminal ownership finality is currently unreachable.** `M4-S-1` describes a property that protects a state the platform never enters, and `M4-S-5` and `M4-S-6` preserve tombstones that are never created.
+- **Identifier reuse is nonetheless prevented** — by the active-session record rather than by a tombstone. Once agent A uses identifier S, agent B is refused, and remains refused because S never terminalises. Finality today is an artifact of never forgetting, not of a durable terminal decision.
+- The original measurement called `end_session` directly, which no production caller does, so it described a test scenario.
+
+These properties are separable and were conflated here:
+
+```text
+identifier uniqueness          not enforced — callers choose identifiers
+session ownership              enforced — establish-or-compare under one lock
+terminal finality              unreachable
+identifier reuse prevention    holds, via the active record
+storage lifetime               unbounded
+```
+
+**What this does not establish.** It does not show that permanent terminal ownership is *not* required — only that the production architecture does not currently exercise it. Whether a session is an execution context or a lifecycle-owned security identity is an open question, and the answer determines whether terminality is a security invariant at all. That question precedes any `SESSION-LIFECYCLE` architecture and is the next read-only review.
+
+Two failure modes the follow-up must address, neither of which is a tombstone problem: ownership state does not survive process restart, and two processes would independently believe they own the same identifier. Neither is carried in the threat model today.
 
 ---
 
@@ -288,7 +320,7 @@ Each architectural direction recorded above is a direction. None of them is an i
 ## Negative
 
 - Four tracks where the finding described one, with more coordination than a single retention milestone.
-- Risk assessments and tombstones continue to grow with session cardinality until Decision A is implemented and `SESSION-LIFECYCLE` is designed.
+- The session plane continues to grow with identifier cardinality until `SESSION-LIFECYCLE` is designed. The growing store is `_sessions`; tombstones are empty in production.
 - Audit growth remains unbounded in the current in-memory implementation until the ADR-016 lifecycle decision is implemented. The measured footprint of approximately 581 MB per million records demonstrates that this is an operational scalability concern, but does not by itself establish a production capacity threshold: available process memory, deployment limits, event rate, retention period and the eventual persistence architecture are all unestablished.
 
 ## Residual Risks
