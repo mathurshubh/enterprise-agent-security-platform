@@ -1,7 +1,23 @@
+"""Risk assessment endpoints, derived from authoritative findings (M4-RISK).
+
+Both endpoints reconstruct on read; nothing is stored (ADR-027 Decision A). These
+tests therefore set up **findings** and assert on the assessment derived from them,
+rather than writing assessments into a store and reading them back.
+
+That change is deliberate. The previous suite populated `RiskService` directly and
+isolated itself with `risk_service.clear()`, which coupled it to the materialized
+store this milestone removed. Rebuilding the same isolation around the findings store
+would preserve the old architecture through test scaffolding, so instead each test
+owns a unique session identifier and queries within it — the shared evidence store is
+append-only and other modules' findings are simply not in scope.
+"""
+
+from uuid import uuid4
+
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.dependencies import risk_service
+from app.api.dependencies import findings_service
 from app.main import app
 from app.models.finding import Finding, Severity
 from app.models.jwt_claims import Role
@@ -10,119 +26,183 @@ from tests.conftest import auth_headers
 client = TestClient(app, headers=auth_headers(role=Role.ADMIN))
 
 
-@pytest.fixture(autouse=True)
-def clear_risk_state():
-    risk_service.clear()
-    yield
-    risk_service.clear()
+@pytest.fixture
+def session_id() -> str:
+    """A session identifier no other test uses."""
+    return f"risk-api-{uuid4().hex[:12]}"
 
 
-def create_finding(
+def record(
     severity: Severity,
-    finding_id: str = "finding-1",
-    session_id: str = "session-1",
+    session_id: str,
     agent_id: str = "agent-1",
+    finding_id: str | None = None,
 ) -> Finding:
-    return Finding(
-        finding_id=finding_id,
+    """Put one authoritative finding in the evidence store."""
+    finding = Finding(
+        finding_id=finding_id or f"finding-{uuid4().hex[:12]}",
         session_id=session_id,
         agent_id=agent_id,
         rule_name="TEST_RULE",
         severity=severity,
         description="Test finding for API",
     )
+    return findings_service.record_new_findings([finding])[0]
 
 
-def test_list_risk_assessments_empty():
-    response = client.get("/api/v1/risk-assessments")
-    assert response.status_code == 200
-    assert response.json() == []
+class TestCollection:
+    def test_a_session_without_evidence_has_no_assessment(self, session_id: str) -> None:
+        """Evidence-defined existence (M4-RISK).
+
+        Until this milestone the runtime wrote a LOW/0 assessment on every request,
+        so a session that executed cleanly appeared in this collection. Existence now
+        follows the evidence, and a session with none is simply absent.
+        """
+        response = client.get(f"/api/v1/risk-assessments?session_id={session_id}")
+
+        assert response.status_code == 200
+        assert response.json() == []
+
+    def test_assessments_are_derived_from_findings(self, session_id: str) -> None:
+        record(Severity.HIGH, session_id)
+
+        response = client.get(f"/api/v1/risk-assessments?session_id={session_id}")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert len(body) == 1
+        assert body[0]["session_id"] == session_id
+        assert body[0]["agent_id"] == "agent-1"
+        assert body[0]["risk_score"] == 50
+        assert body[0]["risk_level"] == "HIGH"
+        assert body[0]["finding_count"] == 1
+
+    def test_filter_by_agent(self, session_id: str) -> None:
+        record(Severity.HIGH, session_id, agent_id="agent-A")
+        record(Severity.LOW, session_id, agent_id="agent-B")
+
+        response = client.get(
+            f"/api/v1/risk-assessments?session_id={session_id}&agent_id=agent-A"
+        )
+
+        body = response.json()
+        assert len(body) == 1
+        assert body[0]["agent_id"] == "agent-A"
+        assert body[0]["risk_level"] == "HIGH"
+
+    def test_filter_by_risk_level(self, session_id: str) -> None:
+        """A risk level is a property of the assessment, so the filter is applied
+        after derivation rather than pushed down to the evidence."""
+        record(Severity.CRITICAL, session_id, agent_id="agent-A")
+        record(Severity.LOW, session_id, agent_id="agent-B")
+
+        critical = client.get(
+            f"/api/v1/risk-assessments?session_id={session_id}&risk_level=CRITICAL"
+        ).json()
+
+        assert len(critical) == 1
+        assert critical[0]["agent_id"] == "agent-A"
+        assert critical[0]["risk_level"] == "CRITICAL"
+
+    def test_one_assessment_per_session_and_agent_pair(self, session_id: str) -> None:
+        """Several findings for one pair aggregate into a single assessment."""
+        record(Severity.LOW, session_id)
+        record(Severity.MEDIUM, session_id)
+
+        body = client.get(f"/api/v1/risk-assessments?session_id={session_id}").json()
+
+        assert len(body) == 1
+        assert body[0]["finding_count"] == 2
+        assert body[0]["risk_score"] == 35
+
+    def test_ordering_is_deterministic_by_session_id(self) -> None:
+        """Explicit rather than inherited: the previous ordering was whatever order
+        the materialized store happened to hold."""
+        prefix = f"risk-order-{uuid4().hex[:8]}"
+        for suffix in ("c", "a", "b"):
+            record(Severity.LOW, f"{prefix}-{suffix}")
+
+        body = client.get("/api/v1/risk-assessments").json()
+        ours = [a["session_id"] for a in body if a["session_id"].startswith(prefix)]
+
+        assert ours == sorted(ours)
+        assert ours == [f"{prefix}-a", f"{prefix}-b", f"{prefix}-c"]
 
 
-def test_list_risk_assessments_populated_and_filtered():
-    risk_service.assess_session("session-1", "agent-1", [create_finding(Severity.HIGH, "f1")])
-    risk_service.assess_session("session-2", "agent-2", [create_finding(Severity.CRITICAL, "f2", session_id="session-2", agent_id="agent-2")])
+class TestSingleSession:
+    def test_returns_the_assessment_for_a_session(self, session_id: str) -> None:
+        record(Severity.MEDIUM, session_id)
 
-    # List all
-    res_all = client.get("/api/v1/risk-assessments")
-    assert res_all.status_code == 200
-    data_all = res_all.json()
-    assert len(data_all) == 2
+        response = client.get(f"/api/v1/risk-assessments/{session_id}")
 
-    # Filter by risk_level=CRITICAL
-    res_crit = client.get("/api/v1/risk-assessments?risk_level=CRITICAL")
-    assert res_crit.status_code == 200
-    data_crit = res_crit.json()
-    assert len(data_crit) == 1
-    assert data_crit[0]["session_id"] == "session-2"
-    assert data_crit[0]["risk_level"] == "CRITICAL"
+        assert response.status_code == 200
+        dto = response.json()
+        assert dto["session_id"] == session_id
+        assert dto["agent_id"] == "agent-1"
+        assert dto["risk_score"] == 25
+        assert dto["risk_level"] == "MEDIUM"
+        assert dto["finding_count"] == 1
+        assert "assessed_at" in dto
 
-    # Filter by agent_id=agent-1
-    res_agent1 = client.get("/api/v1/risk-assessments?agent_id=agent-1")
-    assert res_agent1.status_code == 200
-    data_agent1 = res_agent1.json()
-    assert len(data_agent1) == 1
-    assert data_agent1[0]["session_id"] == "session-1"
-    assert data_agent1[0]["risk_score"] == 50
-    assert data_agent1[0]["risk_level"] == "HIGH"
+    def test_agent_scope_selects_one_agents_evidence(self, session_id: str) -> None:
+        record(Severity.HIGH, session_id, agent_id="agent-A")
+        record(Severity.LOW, session_id, agent_id="agent-B")
 
+        a = client.get(f"/api/v1/risk-assessments/{session_id}?agent_id=agent-A").json()
+        b = client.get(f"/api/v1/risk-assessments/{session_id}?agent_id=agent-B").json()
 
-def test_get_risk_assessment_by_session():
-    risk_service.assess_session("session-100", "agent-1", [create_finding(Severity.MEDIUM, "f100", session_id="session-100")])
+        assert (a["agent_id"], a["risk_level"], a["risk_score"]) == ("agent-A", "HIGH", 50)
+        assert (b["agent_id"], b["risk_level"], b["risk_score"]) == ("agent-B", "LOW", 10)
 
-    res = client.get("/api/v1/risk-assessments/session-100")
-    assert res.status_code == 200
-    dto = res.json()
-    assert dto["session_id"] == "session-100"
-    assert dto["agent_id"] == "agent-1"
-    assert dto["risk_score"] == 25
-    assert dto["risk_level"] == "MEDIUM"
-    assert dto["finding_count"] == 1
-    assert "assessed_at" in dto
+    def test_an_ambiguous_scope_is_refused_and_leaks_neither(self, session_id: str) -> None:
+        """Unchanged in meaning, re-derived from its source: the ambiguity is now
+        about which agents hold evidence in the session."""
+        record(Severity.HIGH, session_id, agent_id="agent-A")
+        record(Severity.LOW, session_id, agent_id="agent-B")
 
+        response = client.get(f"/api/v1/risk-assessments/{session_id}")
 
-def test_get_risk_assessment_with_agent_id_filter():
-    fA = create_finding(Severity.HIGH, "fA", session_id="shared-sess", agent_id="agent-A")
-    fB = create_finding(Severity.LOW, "fB", session_id="shared-sess", agent_id="agent-B")
+        assert response.status_code == 400
+        assert "agent_id is required" in response.json()["detail"]
+        assert "agent-A" not in response.text
+        assert "agent-B" not in response.text
 
-    risk_service.assess_session("shared-sess", "agent-A", [fA])
-    risk_service.assess_session("shared-sess", "agent-B", [fB])
+    def test_an_unknown_session_is_not_found(self) -> None:
+        response = client.get("/api/v1/risk-assessments/nonexistent-session")
 
-    resA = client.get("/api/v1/risk-assessments/shared-sess?agent_id=agent-A")
-    assert resA.status_code == 200
-    dtoA = resA.json()
-    assert dtoA["agent_id"] == "agent-A"
-    assert dtoA["risk_level"] == "HIGH"
-    assert dtoA["risk_score"] == 50
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"]
 
-    resB = client.get("/api/v1/risk-assessments/shared-sess?agent_id=agent-B")
-    assert resB.status_code == 200
-    dtoB = resB.json()
-    assert dtoB["agent_id"] == "agent-B"
-    assert dtoB["risk_level"] == "LOW"
-    assert dtoB["risk_score"] == 10
+    def test_a_session_without_evidence_is_not_found(self, session_id: str) -> None:
+        """The documented contract change: a session that executed without producing
+        findings returns 404 where it previously returned LOW/0."""
+        response = client.get(f"/api/v1/risk-assessments/{session_id}")
+
+        assert response.status_code == 404
+
+    def test_an_agent_without_evidence_in_the_session_is_not_found(
+        self, session_id: str
+    ) -> None:
+        record(Severity.HIGH, session_id, agent_id="agent-A")
+
+        response = client.get(f"/api/v1/risk-assessments/{session_id}?agent_id=agent-B")
+
+        assert response.status_code == 404
 
 
-def test_get_risk_assessment_ambiguous_scope_returns_400():
-    fA = create_finding(Severity.HIGH, "fA", session_id="shared-sess", agent_id="agent-A")
-    fB = create_finding(Severity.LOW, "fB", session_id="shared-sess", agent_id="agent-B")
+class TestDerivationIsReproducible:
+    def test_two_reads_of_unchanged_evidence_are_identical(self, session_id: str) -> None:
+        """Including `assessed_at`, which comes from the evidence rather than a
+        read-time clock. A derived view that changes on every read cannot be
+        compared, cached or reasoned about."""
+        record(Severity.HIGH, session_id)
 
-    risk_service.assess_session("shared-sess", "agent-A", [fA])
-    risk_service.assess_session("shared-sess", "agent-B", [fB])
+        first = client.get(f"/api/v1/risk-assessments/{session_id}").json()
+        second = client.get(f"/api/v1/risk-assessments/{session_id}").json()
 
-    # Unscoped request on shared session MUST return 400 Bad Request and NOT leak either assessment
-    res = client.get("/api/v1/risk-assessments/shared-sess")
-    assert res.status_code == 400
-    assert "agent_id is required" in res.json()["detail"]
-
-
-def test_get_risk_assessment_not_found():
-    res = client.get("/api/v1/risk-assessments/nonexistent-session")
-    assert res.status_code == 404
-    assert "not found" in res.json()["detail"]
+        assert first == second
 
 
-def test_risk_assessments_read_only_methods():
-    for method in [client.post, client.put, client.patch, client.delete]:
-        res = method("/api/v1/risk-assessments")
-        assert res.status_code == 405
+def test_risk_assessments_read_only_methods() -> None:
+    for method in (client.post, client.put, client.patch, client.delete):
+        assert method("/api/v1/risk-assessments").status_code == 405

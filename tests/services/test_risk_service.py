@@ -184,36 +184,58 @@ def test_boundary_score_thresholds():
     assert a100.risk_level == RiskLevel.CRITICAL
 
 
-def test_state_storage_and_retrieval():
+def test_reconstruction_derives_one_assessment_per_session_and_agent():
+    """Replaces `test_state_storage_and_retrieval` (M4-RISK).
+
+    That test asserted the service stored assessments and read them back. There is no
+    store: the same questions are now answered by deriving from the evidence supplied.
+    """
+    service = RiskService()
+    findings = [
+        create_finding(Severity.HIGH, "f1"),
+        create_finding(Severity.CRITICAL, "f2", session_id="session-2", agent_id="agent-2"),
+    ]
+
+    assessments = service.reconstruct(findings)
+
+    assert [(a.session_id, a.risk_level) for a in assessments] == [
+        ("session-1", RiskLevel.HIGH),
+        ("session-2", RiskLevel.CRITICAL),
+    ]
+
+
+def test_reconstruction_is_ordered_by_session_id():
+    """Deterministic rather than inherited from a store's insertion order."""
+    service = RiskService()
+    findings = [
+        create_finding(Severity.LOW, "fc", session_id="session-c"),
+        create_finding(Severity.LOW, "fa", session_id="session-a"),
+        create_finding(Severity.LOW, "fb", session_id="session-b"),
+    ]
+
+    assessments = service.reconstruct(findings)
+
+    assert [a.session_id for a in assessments] == ["session-a", "session-b", "session-c"]
+
+
+def test_a_pair_without_evidence_yields_no_assessment():
+    """Evidence-defined existence: nothing derives from nothing."""
     service = RiskService()
 
-    service.assess_session("session-1", "agent-1", [create_finding(Severity.HIGH, "f1")])
-    service.assess_session("session-2", "agent-2", [create_finding(Severity.CRITICAL, "f2", session_id="session-2", agent_id="agent-2")])
+    assert service.reconstruct([]) == []
+    assert service.reconstruct_for_session([], "session-1") is None
 
-    a1 = service.get_assessment("session-1", "agent-1")
-    assert a1 is not None
-    assert a1.risk_level == RiskLevel.HIGH
 
-    a2 = service.get_assessment("session-2", "agent-2")
-    assert a2 is not None
-    assert a2.risk_level == RiskLevel.CRITICAL
+def test_assessed_at_comes_from_the_evidence_not_the_clock():
+    """Two derivations of unchanged evidence must be identical, so a derived view can
+    be compared and cached. A read-time clock would report when it was looked at."""
+    service = RiskService()
+    findings = [create_finding(Severity.HIGH, "f1")]
 
-    assert service.get_assessment("nonexistent", "agent-1") is None
+    first = service.reconstruct(findings)
+    second = service.reconstruct(findings)
 
-    # Test list_assessments filtering
-    all_assessments = service.list_assessments()
-    assert len(all_assessments) == 2
-
-    critical_only = service.list_assessments(risk_level=RiskLevel.CRITICAL)
-    assert len(critical_only) == 1
-    assert critical_only[0].session_id == "session-2"
-
-    agent1_only = service.list_assessments(agent_id="agent-1")
-    assert len(agent1_only) == 1
-    assert agent1_only[0].session_id == "session-1"
-
-    service.clear()
-    assert len(service.list_assessments()) == 0
+    assert first == second
 
 
 def test_h2_cross_agent_session_id_isolation():
@@ -223,11 +245,8 @@ def test_h2_cross_agent_session_id_isolation():
     f1 = create_finding(Severity.HIGH, "f1", session_id="sess-shared", agent_id="agent-A")
     f2 = create_finding(Severity.LOW, "f2", session_id="sess-shared", agent_id="agent-B")
 
-    service.assess_session("sess-shared", "agent-A", [f1])
-    service.assess_session("sess-shared", "agent-B", [f2])
-
-    a_agent_a = service.get_assessment("sess-shared", "agent-A")
-    a_agent_b = service.get_assessment("sess-shared", "agent-B")
+    a_agent_a = service.reconstruct_for_session([f1, f2], "sess-shared", agent_id="agent-A")
+    a_agent_b = service.reconstruct_for_session([f1, f2], "sess-shared", agent_id="agent-B")
 
     assert a_agent_a is not None
     assert a_agent_a.agent_id == "agent-A"
@@ -248,8 +267,5 @@ def test_h2_unscoped_get_assessment_ambiguity_raises():
     f1 = create_finding(Severity.HIGH, "f1", session_id="sess-shared", agent_id="agent-A")
     f2 = create_finding(Severity.LOW, "f2", session_id="sess-shared", agent_id="agent-B")
 
-    service.assess_session("sess-shared", "agent-A", [f1])
-    service.assess_session("sess-shared", "agent-B", [f2])
-
     with pytest.raises(AmbiguousAssessmentScopeError, match="agent_id is required"):
-        service.get_assessment("sess-shared")
+        service.reconstruct_for_session([f1, f2], "sess-shared")

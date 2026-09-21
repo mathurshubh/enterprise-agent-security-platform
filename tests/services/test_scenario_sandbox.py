@@ -71,7 +71,7 @@ class TestScenarioRunIsolation:
                 dependencies.session_service.list_events("scenario-run-sandbox-isolation-denials")
             ),
             "findings": len(dependencies.findings_service.list_findings()),
-            "risk": len(dependencies.risk_service.list_assessments()),
+            "risk": len(dependencies.risk_aggregator._projections),
             "audit": len(dependencies.audit_service.list_events()),
             "telemetry_queued": dependencies.telemetry_dispatcher.queue_size,
             "telemetry_dropped": dependencies.telemetry_dispatcher.dropped_events_count,
@@ -87,7 +87,7 @@ class TestScenarioRunIsolation:
                 dependencies.session_service.list_events("scenario-run-sandbox-isolation-denials")
             ),
             "findings": len(dependencies.findings_service.list_findings()),
-            "risk": len(dependencies.risk_service.list_assessments()),
+            "risk": len(dependencies.risk_aggregator._projections),
             "audit": len(dependencies.audit_service.list_events()),
             "telemetry_queued": dependencies.telemetry_dispatcher.queue_size,
             "telemetry_dropped": dependencies.telemetry_dispatcher.dropped_events_count,

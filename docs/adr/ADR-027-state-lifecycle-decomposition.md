@@ -70,7 +70,7 @@ Tombstones          -> security identity lifecycle
 |:---|:---|:---|:---|
 | Session events | Detection-horizon retention | **Closed** — M5-B.4 | None in M4 |
 | Runtime partial wiring | Remove the compatibility security path | **Closed** — M5-B.6 | None; Decision A is now unblocked |
-| Risk assessments | No independent retention; derived state eligible for removal | **Decided** | Implement — prerequisite satisfied |
+| Risk assessments | No independent retention; derived on read | **Implemented** — M4-RISK | None |
 | Audit | Establish explicit evidence lifecycle ownership | **Decided** | Amend ADR-016 |
 | Tombstones | Separate lifecycle decision required | **Open** | New session-lifecycle decision |
 
@@ -137,6 +137,24 @@ materialized store eligible for removal
 ```
 
 **The materialized store is eligible for removal after M5-B.6**, and that removal is a separate implementation change. This ADR deliberately does not delete it: mixing a lifecycle conclusion with an API and performance change would obscure both.
+
+### Implemented in M4-RISK
+
+The store is gone. Both management endpoints derive from findings on read, ordered by `session_id` ascending — deterministic rather than inheriting whatever order a store happened to hold — and `assessed_at` is taken from the latest evidence so that two reads of unchanged evidence are identical.
+
+One contract change follows and is documented rather than treated as a regression: **assessment existence moves from execution-defined to evidence-defined.** The runtime wrote an assessment on every request, so a session that executed cleanly carried a `LOW`/0 record. Sessions with no findings no longer produce one; they are absent from the collection and return 404 from the session endpoint.
+
+The alternative — reconstructing for every known session so quiet sessions keep a `LOW`/0 assessment — was rejected. It would partially recreate the execution-defined lifecycle through `SessionService`, including a dependency on tombstone behaviour that `SESSION-LIFECYCLE` is scheduled to redesign, and it still loses quiet sessions once they end. Evidence-defined existence is the only definition fully determined by authoritative state:
+
+```text
+FindingsService              not:   SessionService ──┐
+      │                                              ├── "does an assessment exist?"
+      ▼                              FindingsService ┘
+authoritative evidence
+      │
+      ▼
+derived assessment
+```
 
 ## Decision B — Audit evidence needs an explicit owner
 
