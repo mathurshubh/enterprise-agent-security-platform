@@ -111,7 +111,7 @@ typing-inspection==0.4.2
     #   pydantic
 urllib3==2.7.0
     # via requests
-uvicorn==0.52.1
+uvicorn==0.53.0
     # via -r requirements.in
 websockets==16.0
     # via google-genai
