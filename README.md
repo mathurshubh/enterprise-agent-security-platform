@@ -2,7 +2,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.13-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.116+-009688)
-![Tests](https://img.shields.io/badge/Tests-372_Passing-success)
+![Tests](https://img.shields.io/badge/Tests-851_Passing-success)
 ![GitHub Release](https://img.shields.io/badge/GitHub_Release-v0.15-blue)
 ![Git Tag](https://img.shields.io/badge/Git_Tag-v0.15.0-blue)
 ![Development Cycle](https://img.shields.io/badge/Development-v0.16.0--dev-orange)
@@ -63,6 +63,23 @@ flowchart TD
 
 `RuntimeService` is the single authoritative source of security decisions. The LLM never makes authorization, policy, detection, risk, or enforcement decisions.
 
+### Canonical Architectural Security Chain
+
+Every interaction is governed through a deterministic, end-to-end security chain:
+
+```text
+Identity → Authority → Policy → Capability → Runtime → Resource → Telemetry → Response
+```
+
+1. **Identity:** Authenticates agent and caller principals with cryptographic binding.
+2. **Authority:** Determines whether the principal is permitted to execute or manage capabilities.
+3. **Policy:** Evaluates fine-grained, resource-aware access rules over requested parameters.
+4. **Capability:** Resolves approved operations against strictly governed capability registries.
+5. **Runtime:** Enforces containment, execution grants, and one-way suspension boundaries.
+6. **Resource:** Restricts operations against enterprise data, filesystems, and network endpoints.
+7. **Telemetry:** Captures non-blocking behavioral events and tamper-resistant audit logs.
+8. **Response:** Dynamically mitigates risk via automated monitoring, escalation, or suspension.
+
 ---
 
 ## Release & Platform Status
@@ -70,9 +87,10 @@ flowchart TD
 - **Latest Published GitHub Release:** `v0.15`
 - **Latest Repository Tag:** `v0.15.0`
 - **Current Development Cycle:** `v0.16.0` — Unreleased
-- **Active Baseline PR:** PR #87 (Documentation, Architecture & Roadmap Synchronization)
-- **Automated Test Coverage:** **372 passing backend pytest tests** (`.venv/bin/python -m pytest`)
+- **Strategic Architecture Baseline:** Jan–Aug 2026 AI Security Architecture Baseline Review (`4abf2b6`)
+- **Automated Test Coverage:** **851 passed, 7 xfailed backend pytest tests** (`.venv/bin/python -m pytest`)
 - **Frontend Build Status:** Passing (`npm run build` & `npm run lint`)
+- **Architecture Reference Range:** ADR-000 through ADR-028
 
 ---
 
@@ -80,10 +98,11 @@ flowchart TD
 
 | Metric | Value |
 |----------|---------|
-| Automated Tests | 372 Passing |
+| Automated Tests | 851 Passing (7 xfailed) |
 | Latest Published GitHub Release | v0.15 |
 | Latest Repository Tag | v0.15.0 |
 | Current Development Cycle | v0.16.0 (Unreleased) |
+| Architecture Baseline Commit | 4abf2b6134d894d15bad76a0ec45db6adecb6262 |
 | Detection Rules | 4 (`PROMPT_INJECTION`, `SENSITIVE_FILE_ACCESS`, `DATA_EXFILTRATION`, `EXCESSIVE_DENIALS`) |
 | Security Framework Mappings | 3 (OWASP LLM Top 10, MITRE ATLAS, MITRE ATT&CK) |
 | Core Services | 10+ (`AgentService`, `ToolService`, `SessionService`, `FindingsService`, `RiskService`, `ResponseService`, `AuditService`, `RuntimeService`, `CapabilityService`, `ScenarioRunnerService`) |
@@ -242,7 +261,7 @@ npm run lint
 
 The platform maintains a comprehensive automated test suite executed with Pytest:
 
-- **326 passing automated tests** covering authorization, policies, detection rules, findings service, risk service, runtime execution, management APIs, and scenario validation.
+- **851 passing automated tests (7 xfailed)** covering authorization, policies, detection rules, findings service, risk service, runtime execution, management APIs, scenario validation, and materialized risk projections.
 - **Ruff & ESLint** workflows enforce code quality.
 
 ```bash
@@ -258,37 +277,87 @@ The platform maintains a comprehensive automated test suite executed with Pytest
 - **Data Model:** `docs/architecture/data-model.md`
 - **Threat Model:** `docs/security/threat-model.md`
 - **AI Security Architecture Review (Jan–Aug 2026):** `docs/security/ai-security-architecture-review-jan-aug-2026.md`
+- **Architecture Validation Log:** `docs/research/architecture-validation.md`
 - **OpenAPI Design:** `docs/api/openapi-design.md`
-- **Architecture Decision Records:** `docs/adr/` (ADR-000 through ADR-022)
+- **Architecture Decision Records:** `docs/adr/` (ADR-000 through ADR-028)
 - **PR #87 Documentation Audit & Plan:** `docs/research/pr-87-documentation-audit.md` & `docs/research/pr-87-documentation-plan.md`
 
 ---
 
-## Future Roadmap
+## AI Security Roadmap
 
-The roadmap defines the capability-based evolution of the platform. Sequencing preserves architectural flexibility as the system matures.
+The platform roadmap is grounded in the **Jan–Aug 2026 AI Security Architecture Baseline Review** ([`docs/security/ai-security-architecture-review-jan-aug-2026.md`](docs/security/ai-security-architecture-review-jan-aug-2026.md), commit `4abf2b6134d894d15bad76a0ec45db6adecb6262`).
+
+The architecture follows a strict three-tier progression separating operational capabilities from upcoming architectural phases and long-term research:
 
 ```text
-Documentation & Baseline Synchronization (v0.16.0 Development Baseline)
-      ↓
-Phase 1: CI/CD & DevSecOps Quality Gates
-      ↓
-Phase 2: Observability & Distributed Tracing (OpenTelemetry, Prometheus, Grafana, Jaeger)
-      ↓
-Phase 3: Agent Abstraction Framework
-      ↓
-Phase 4: Rich Governed Tool Ecosystem (FileWriteTool, Network/HTTP, Governed Browser)
-      ↓
-Phase 5: Model Context Protocol (MCP) Integration Layer
-      ↓
-Phase 6: Multi-Agent & Agent-to-Agent (A2A) Security Governance
-      ↓
-Phase 7: Advanced Behavioral Intelligence & Anomaly Detection
-      ↓
-Phase 8: Automated Adversarial AI Security Evaluation (Promptfoo, Garak, PyRIT)
-      ↓
-Enterprise Multi-Agent Security Platform
+Current / Implemented (Tier 1)
+        ↓
+Next Architectural Phase (Tier 2)
+        ↓
+Future / Research (Tier 3)
 ```
+
+### Tier 1: Current / Implemented
+- **Policy Decision Point & Deterministic Authorization:** `RuntimeService`, `AuthorizationService`, `PolicyEngine` (ADR-004, ADR-006).
+- **Tool Authorization & Registry Governance:** `ToolRegistry` controlling capability resolution and metadata access separation (ADR-005).
+- **Resource-Aware Authorization:** Parameter-level resource path verification independent of model reasoning.
+- **Threat Detection Engine:** Stateless content inspection (`PROMPT_INJECTION`, `SENSITIVE_FILE_ACCESS`, `DATA_EXFILTRATION`) and stateful behavioral tracking (`EXCESSIVE_DENIALS`) (ADR-017).
+- **Authoritative Security Findings:** Thread-safe `FindingsService` recording immutable security evidence (ADR-016, ADR-028).
+- **Dynamic Risk Engine & Materialized Posture:** Continuous risk calculation, composite `(session_id, agent_id)` isolation, and $\mathcal{O}(1)$ materialized risk projections (`RiskAggregator`, ADR-018, ADR-026).
+- **Agent Enforcement State & Atomic Baselines:** One-way runtime suspension, baseline epoch isolation, and administrative reinstatement (ADR-024, ADR-026).
+- **Execution Authorization Grants:** Single-use execution tokens matching requested operations (`DefaultToolExecutor`, ADR-023).
+- **Management Plane Authorization:** Router-level plane authorization separating operator roles from agent execution (ADR-025).
+- **Immutable Audit Logging & Behavioral Telemetry:** Non-blocking `TelemetryDispatcher`, canonical `BehavioralEvent`, and append-only audit trail (ADR-015, ADR-028).
+- **Governed LLM Tool Selection:** Provider abstraction (Ollama, Gemini) parsing natural language into structured `ToolInvocation` objects without granting models decision authority.
+- **Human Approval Escalation:** `ResponseService` mapping elevated risk to `REQUIRE_APPROVAL` (ADR-019, ADR-020).
+
+### Tier 2: Next Architectural Phase
+- **Agent Identity Model:** Explicit agent identity lifecycles and cryptographic workload credentials.
+- **Delegated Authorization:** Formal representation of human-to-agent and service-account delegation chains (`Human → Delegation → Agent → Tool`).
+- **Secure Execution & Runtime Enforcement:** Host-level process sandboxing, egress network filtering, and filesystem restrictions below the tool layer.
+- **Tool / Skill / MCP Registry Security:** Verification of tool provenance, publisher identity, version integrity, and capability declarations for Model Context Protocol servers.
+- **Agent Security Observability:** Distributed tracing across agent reasoning and tool boundaries (OpenTelemetry, Prometheus, Jaeger).
+- **Enhanced Prompt & Indirect Injection Detection:** Context-aware detection for indirect injection in retrieved enterprise content.
+- **Automated Adversarial Security Evaluation:** Continuous automated red-teaming pipelines (Promptfoo, Garak, PyRIT).
+
+### Tier 3: Future / Research
+- **Memory & Context Security:** Controlled validation, provenance tracking, and expiration boundaries for persistent agent memory.
+- **Workflow Integrity Verification:** Multi-step tool sequence validation detecting aggregate harm from individually permitted actions.
+- **Multi-Agent Governance (A2A):** Cross-agent delegation bounds, peer verification, and cascading compromise prevention.
+- **AI Supply-Chain Attestation:** Cryptographic signing and vulnerability scanning for model weights, plugins, skills, and dependencies.
+- **Runtime Attestation & Hardware Isolation:** MicroVM / confidential computing containment for hostile agent execution.
+- **Autonomous Cyber-Operation Evaluation:** Defenses against autonomous vulnerability discovery and lateral exploitation.
+- **Advanced Incident Response:** Automated forensic capture and distributed kill switches.
+- **Provider Trust & Integrity Verification:** Dynamic evaluation of model adapter integrity and provider-side tampering.
+
+### Newly Identified Threat Domains
+The platform threat model incorporates 14 critical threat domains identified in the Jan–Aug 2026 review:
+1. Indirect Prompt Injection
+2. Tool Abuse
+3. MCP Compromise & Tool Poisoning
+4. Agent Identity & Impersonation
+5. Delegated Authorization Abuse
+6. Credential Theft
+7. AI Supply-Chain Compromise
+8. Runtime Escape & Containment Failure
+9. Memory / Context Poisoning
+10. Workflow Manipulation
+11. Agent Persistence
+12. Agent-to-Agent Abuse
+13. Autonomous Exploitation
+14. Evaluation / Sandbox Escape
+
+### Core Architectural Invariants
+
+> **The LLM is an untrusted intent parser. The LLM may propose a ToolInvocation. Security decisions remain deterministic and outside the LLM.**
+
+* **Policy decides.**
+* **Authorization limits.**
+* **Runtime enforces.**
+* **Telemetry records.**
+* **Human approval escalates.**
+* **Containment limits the blast radius.**
 
 ---
 

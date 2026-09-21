@@ -20,27 +20,30 @@ Core principles:
 
 Release Status:
 
-- Latest Published GitHub Release: `v0.13.1`
+- Latest Published GitHub Release: `v0.15`
 - Latest Repository Tag: `v0.15.0`
 - Current Development Cycle: `v0.16.0` — Unreleased
-- Baseline PR: PR #87 (Documentation, Architecture & Roadmap Synchronization)
+- Architecture Baseline: Jan–Aug 2026 AI Security Architecture Review (`4abf2b6`)
+- Automated Test Coverage: **851 passed, 7 xfailed** (`.venv/bin/python -m pytest`)
+- Architecture Reference Range: ADR-000 through ADR-028
 
 Implemented Capabilities:
 
 - Agent Registry & Tool Registry
-- JWT Authentication & RBAC
+- JWT Authentication & Plane Authorization (role-gated API surfaces, execution identity bound to agent)
 - Policy Engine with Resource-Aware Authorization
 - Deterministic `RuntimeService` Single Security Authority
 - Detection Engine (`PROMPT_INJECTION`, `SENSITIVE_FILE_ACCESS`, `DATA_EXFILTRATION`, `EXCESSIVE_DENIALS`)
 - Attack Scenario Framework & Security Standards Mapping (OWASP LLM, MITRE ATLAS, MITRE ATT&CK)
 - Provider Abstraction (Ollama, Gemini)
 - Runtime Capability Discovery (`CapabilityService`, `PlatformCapabilities`)
-- **Findings & Alerts API (`GET /api/v1/findings`, `FindingsService`)**
+- **Findings & Alerts API (`GET /api/v1/findings`, `FindingsService` authoritative evidence)**
 - **Enterprise Findings Console UI (`/findings`)**
 - **Dynamic Risk Engine & Management API (`RiskService`, `GET /api/v1/risk-assessments`)**
-- **Risk Assessment Integrity & Isolation:** Composite `(session_id, agent_id)` identity with HTTP 400 Bad Request ambiguity protection
+- **Materialized Risk Projections & Enforcement Epochs (`RiskAggregator`, ADR-026)**
+- **Agent Enforcement State & Atomic Baselines (ADR-024, ADR-026)**
+- **Execution Grants & Single-Use Tokens (`DefaultToolExecutor`, ADR-023)**
 - **DevSecOps Quality Pipeline:** GitHub Actions (`ci.yml`), Gitleaks secret scanning, Dependabot (`dependabot.yml`), and multi-job quality gates
-- **326 passing backend pytest tests**
 
 ---
 

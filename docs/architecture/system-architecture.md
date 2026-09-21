@@ -204,10 +204,16 @@ The interaction sequence flows from natural language parsing to secure tool exec
 The platform's security architecture enforces baseline access controls combined with real-time behavioral and payload threat evaluation.
 
 ### Security Decision Flow
-The runtime security pipeline executes decisions progressively:
+The runtime security pipeline executes deterministic decisions across the canonical architectural security chain:
 
 ```text
-Authorization → Policy Evaluation → Threat Detection → Findings → Risk Assessment → Response Recommendation → Final Decision → Secure Tool Execution
+Identity → Authority → Policy → Capability → Runtime → Resource → Telemetry → Response
+```
+
+At runtime, this resolves into the progressively restrictive pipeline:
+
+```text
+Identity Verification → Authorization → Policy Evaluation → Threat Detection → Findings Persistence → Risk Assessment → Response Recommendation → Final Decision Overrides → Secure Tool Execution → Telemetry & Audit Logging
 ```
 
 Each stage contributes additional security evidence to the context. A critical property of this decision flow is that it is progressively more restrictive: later stages can increase execution restrictions or escalate mitigation response parameters, but they can never weaken or override an earlier denial or restriction. The LLM has no participation in this security decision flow, preserving deterministic, zero trust enforcement.
@@ -253,36 +259,88 @@ The platform enforces a clear separation between stateful operational logs and c
 *   **Resource Policies:** Author policies to restrict tool parameters and arguments.
 
 ## 15. Future Architecture Roadmap
-The roadmap defines the capability-based evolution of the platform:
-*   **CI/CD & DevSecOps Quality Gates:** Automated GitHub Actions for backend pytest, frontend Vite build, ESLint, Ruff Python linter, and markdown quality pipeline.
-*   **Observability & Distributed Tracing:** OpenTelemetry, Prometheus, Grafana, and Jaeger integration for end-to-end telemetry across LLM and tool execution boundaries.
-*   **Agent Abstraction Framework:** Formalized agent identities, risk tiers, capability definitions, and security contexts.
-*   **Rich Governed Tool Ecosystem:** Controlled `FileWriteTool`, `NetworkTool`/`HTTPTool`, and sandboxed browser interaction capabilities under Zero Trust policy enforcement.
-*   **Model Context Protocol (MCP) Integration Layer:** Exposing and consuming MCP server tools through the deterministic security pipeline.
-*   **Multi-Agent Governance (A2A):** Centralized governance over inter-agent communication, cross-agent authorization, capability delegation, and trust boundaries.
-*   **Automated Adversarial AI Security Evaluation:** Automated red-teaming and continuous security evaluation integration (Promptfoo, Garak, PyRIT).
+
+The platform roadmap is grounded in the **Jan–Aug 2026 AI Security Architecture Baseline Review** ([`docs/security/ai-security-architecture-review-jan-aug-2026.md`](../security/ai-security-architecture-review-jan-aug-2026.md), commit `4abf2b6134d894d15bad76a0ec45db6adecb6262`).
+
+The architecture follows a strict three-tier roadmap separating operational capabilities from future enhancements:
+
+### Tier 1: Current / Implemented
+*   **Policy Decision Point & Deterministic Authorization:** `RuntimeService`, `AuthorizationService`, `PolicyEngine` (ADR-004, ADR-006).
+*   **Tool Authorization & Registry Governance:** `ToolRegistry` controlling capability resolution and metadata separation (ADR-005).
+*   **Resource-Aware Authorization:** Parameter-level path and resource restriction validation.
+*   **Threat Detection Engine:** Stateless content inspection (`PROMPT_INJECTION`, `SENSITIVE_FILE_ACCESS`, `DATA_EXFILTRATION`) and stateful behavioral tracking (`EXCESSIVE_DENIALS`) (ADR-017).
+*   **Authoritative Security Findings:** `FindingsService` recording immutable evidence (ADR-016, ADR-028).
+*   **Dynamic Risk Assessment & Materialized Posture:** Continuous risk calculation, composite `(session_id, agent_id)` isolation, and $\mathcal{O}(1)$ materialized risk projections (`RiskAggregator`, ADR-018, ADR-026).
+*   **Agent Enforcement State & Atomic Baselines:** One-way runtime suspension, baseline epoch isolation, and administrative reinstatement (ADR-024, ADR-026).
+*   **Execution Authorization Grants:** Single-use execution tokens matching requested operations (`DefaultToolExecutor`, ADR-023).
+*   **Management Plane Authorization & Role-Gated Surfaces:** Router-level plane authorization separating operator roles from agent execution (ADR-025).
+*   **Immutable Audit Logging & Behavioral Telemetry:** Non-blocking `TelemetryDispatcher`, canonical `BehavioralEvent`, and append-only audit trail (ADR-015, ADR-028).
+*   **Governed LLM Tool Selection:** Provider abstraction (Ollama, Gemini) parsing natural language into structured `ToolInvocation` objects without granting models decision authority.
+*   **Human-in-the-Loop Approval Escalation:** `ResponseService` mapping elevated risk to `REQUIRE_APPROVAL` (ADR-019, ADR-020).
+
+### Tier 2: Next Architectural Phase
+*   **Agent Identity Model:** Explicit agent identity lifecycles and cryptographic workload credentials.
+*   **Delegated Authorization:** Formal representation of human-to-agent and service-account delegation chains (`Human → Delegation → Agent → Tool`).
+*   **Secure Execution & Runtime Enforcement:** Host-level process sandboxing, egress network filtering, and filesystem restrictions below the tool layer.
+*   **Tool / Skill / MCP Registry Security:** Verification of tool provenance, publisher identity, version integrity, and capability declarations for Model Context Protocol servers.
+*   **Agent Security Observability:** Distributed tracing across agent reasoning and tool boundaries (OpenTelemetry, Prometheus, Jaeger).
+*   **Advanced Prompt & Indirect Injection Detection:** Semantic and context-aware detection for indirect injection in retrieved content.
+*   **Automated Adversarial Security Evaluation:** Continuous automated red-teaming pipelines (Promptfoo, Garak, PyRIT).
+
+### Tier 3: Future / Research
+*   **Memory & Context Security:** Controlled validation, provenance tracking, and expiration boundaries for persistent agent memory.
+*   **Workflow Integrity Verification:** Multi-step tool sequence validation detecting aggregate harm from individually permitted actions.
+*   **Multi-Agent Governance (A2A):** Cross-agent delegation bounds, peer verification, and cascading compromise prevention.
+*   **AI Supply-Chain Attestation:** Cryptographic signing and vulnerability scanning for model weights, plugins, skills, and dependencies.
+*   **Runtime Attestation & Hardware Isolation:** MicroVM / confidential computing containment for hostile agent execution.
+*   **Autonomous Cyber-Operation Evaluation:** Defenses against autonomous vulnerability discovery and lateral exploitation.
+*   **Advanced Incident Response:** Automated forensic capture and distributed kill switches.
+*   **Provider Trust & Integrity Verification:** Dynamic evaluation of model adapter integrity and provider-side tampering.
+
+### Newly Identified Threat Domains
+The platform threat model incorporates 14 critical threat domains identified in the Jan–Aug 2026 review:
+1. Indirect Prompt Injection
+2. Tool Abuse
+3. MCP Compromise & Tool Poisoning
+4. Agent Identity & Impersonation
+5. Delegated Authorization Abuse
+6. Credential Theft
+7. AI Supply-Chain Compromise
+8. Runtime Escape & Containment Failure
+9. Memory / Context Poisoning
+10. Workflow Manipulation
+11. Agent Persistence
+12. Agent-to-Agent Abuse
+13. Autonomous Exploitation
+14. Evaluation / Sandbox Escape
 
 ## 16. Implementation Status
-- **Latest Published GitHub Release:** `v0.13.1`
+- **Latest Published GitHub Release:** `v0.15`
 - **Latest Repository Tag:** `v0.15.0`
 - **Current Development Cycle:** `v0.16.0` — Unreleased
-- **Automated Test Count:** **335 passing backend pytest tests**
+- **Architecture Baseline:** Jan–Aug 2026 AI Security Architecture Review (`4abf2b6`)
+- **Automated Test Count:** **851 passed, 7 xfailed** (`.venv/bin/python -m pytest`)
 - **Operational Capabilities:**
   - Zero Trust Security Pipeline (`RuntimeService`)
-  - Pluggable LLM Providers (Ollama, Gemini)
+  - Pluggable LLM Providers (Ollama, Gemini) as untrusted intent parsers
   - Threat Detection Engine & Rules (`PROMPT_INJECTION`, `SENSITIVE_FILE_ACCESS`, `DATA_EXFILTRATION`, `EXCESSIVE_DENIALS`)
-  - **Findings & Alerts API (`GET /api/v1/findings`, `FindingsService`)**
-  - **Dynamic Risk Engine (`RiskService`, `GET /api/v1/risk-assessments`)**
-  - **Risk Assessment Composite Isolation:** Derived posture indexed by composite `(session_id, agent_id)` keys with HTTP 400 Bad Request ambiguity protection.
+  - Findings & Alerts API (`GET /api/v1/findings`, `FindingsService` authoritative evidence)
+  - Dynamic Risk Engine & Management API (`RiskService`, `GET /api/v1/risk-assessments`)
+  - Materialized Risk Projections & Enforcement Epochs (`RiskAggregator`, ADR-026)
+  - Agent Enforcement State & Baseline Isolation (`AgentService`, ADR-024)
+  - Execution Grants & Single-Use Tokens (`DefaultToolExecutor`, ADR-023)
+  - Role-Gated Plane Authorization (`PlaneAuthorizationMiddleware`, ADR-025)
   - Read-Only Management REST APIs and Enterprise Findings Console UI.
 
 ## 17. Architectural Decision Summary
-The platform architecture is built upon the following immutable design choices:
+The platform architecture is built upon the following immutable design choices (formally recorded in ADR-000 through ADR-028):
 1. LLMs are untrusted intent parsers.
-2. Security decisions must remain deterministic and explainable.
+2. Security decisions must remain deterministic and explainable outside the AI model.
 3. Component communication is isolated behind provider-agnostic boundaries.
 4. Tool execution is governed by a secure registry separating metadata access from execution logic.
 5. Findings represent authoritative evidence; Risk Assessments represent derived posture.
+6. Execution authority is granted via single-use, tightly bound execution grants.
+7. Runtime containment is one-way: recovery requires authorized administrative intervention.
 
 ## 18. Scenario Library & Validation Framework Architecture
 

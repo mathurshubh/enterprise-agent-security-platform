@@ -191,8 +191,97 @@ The review reinforces the strategy of completing the deterministic governance la
 
 ---
 
+## January–August 2026 Architecture Baseline Review
+
+### Topic
+
+Jan–Aug 2026 AI Security Architecture Baseline Review  
+**Reference Document:** [`docs/security/ai-security-architecture-review-jan-aug-2026.md`](../security/ai-security-architecture-review-jan-aug-2026.md)  
+**Baseline Commit:** `4abf2b6134d894d15bad76a0ec45db6adecb6262`
+
+---
+
+### Summary
+
+A comprehensive engineering retrospective synthesizing security developments, peer research, and industry incidents across the first eight months of 2026. AI systems have expanded from text reasoning into autonomous agents capable of code execution, repository manipulation, browser navigation, credential access, external tool invocation, and autonomous vulnerability discovery.
+
+The fundamental architectural finding:
+
+> **The security boundary cannot be the model or the prompt. It must be the system surrounding the model.**
+
+Security-critical decisions must be enforced through deterministic controls covering identity, authority, policy, capability, runtime execution, telemetry, and response.
+
+---
+
+## Architecture Review
+
+### 1. Does this invalidate any architectural decisions?
+
+**Assessment:** No.
+
+The core architectural model is directionally validated and remains the foundation of the platform:
+
+$$\text{Identity} \longrightarrow \text{Authority} \longrightarrow \text{Policy} \longrightarrow \text{Capability} \longrightarrow \text{Runtime} \longrightarrow \text{Resource} \longrightarrow \text{Telemetry} \longrightarrow \text{Response}$$
+
+The following foundational invariants remain fully intact:
+- The LLM is an untrusted intent parser (ADR-002).
+- Security decisions remain deterministic code outside the LLM (ADR-004).
+- `RuntimeService` is the single security authority (ADR-003).
+- `ToolRegistry` is the sole authority for executable tool implementations (ADR-005).
+- Authoritative evidence (`FindingsService`) is cleanly separated from derived risk posture (`RiskService`, `RiskAggregator`) (ADR-016, ADR-024, ADR-026, ADR-028).
+
+---
+
+### 2. Does this introduce new threats?
+
+**Assessment:** Yes. The threat model is expanded from basic prompt injection, tool abuse, and data exfiltration to cover 14 explicit threat domains across the full execution lifecycle:
+
+| Threat Domain | Architectural Area | Lifecycle Impact |
+| :--- | :--- | :--- |
+| **Indirect Prompt Injection** | Context / Agent | Malicious external content hijacks agent reasoning |
+| **Tool Poisoning** | Tool Registry | Manipulated tool descriptions mislead model intent |
+| **MCP Compromise** | Tool Layer | Malicious MCP servers compromise tool sessions |
+| **Credential Theft** | Identity | Extraction of environment or delegated credentials |
+| **Agent Impersonation** | Identity | Unauthenticated execution under legitimate agent ID |
+| **Delegated Privilege Escalation** | Authorization | Subverting delegation bounds to exceed permissions |
+| **Skill/Plugin Supply-Chain Attack** | Registry | Malicious third-party plugins/skills introduce backdoors |
+| **Memory Poisoning** | Memory | Persisting adversarial instructions across sessions |
+| **Runtime Escape** | Execution | Breaking execution sandbox into host environment |
+| **Agent Persistence** | Runtime | Unauthorized scheduled or surviving agent execution |
+| **Cross-Agent Privilege Escalation** | Multi-Agent | Compromised agent influences peer in multi-agent graph |
+| **Workflow Manipulation** | Policy | Multi-step tool sequences produce unauthorized aggregate effect |
+| **Autonomous Exploitation** | Runtime / Network | AI-driven autonomous reconnaissance and lateral movement |
+| **Evaluation-Environment Escape** | Runtime / Test | Highly capable agents breaking out of test sandboxes |
+
+---
+
+### 3. Current implementation or future backlog?
+
+**Assessment:** Structured into three non-overlapping capability tiers:
+
+*   **Current / Implemented:** Policy Decision Point / deterministic authorization, Tool authorization, Resource-aware authorization, Threat detection engine, Risk engine & cumulative posture, Response action overrides, Runtime security pipeline, Audit logging & behavioral telemetry, Session isolation, Governed LLM tool selection, Human approval escalation.
+*   **Next Architectural Phase:** Agent Identity, Delegated Authorization, Secure Execution / Runtime Enforcement (sandboxing, egress control), Provenance / Trust Context, Tool / Skill / MCP Registry Security, Agent observability, Enhanced prompt & indirect prompt injection detection, Automated adversarial AI security evaluation.
+*   **Future / Research:** Memory / context security, Workflow integrity, Multi-agent (A2A) security governance, AI supply-chain security, Runtime attestation & hardware isolation, Autonomous cyber-operation evaluation, Advanced incident response, Model/artifact integrity, Provider trust / provenance, Broader AI security evaluation framework.
+
+---
+
+### 4. Enterprise Impact
+
+**Assessment:** Critical.
+
+Enterprise deployment of autonomous agents demands a deterministic control plane. Without explicit identity, capability boundaries, runtime containment, and tamper-resistant audit trails, autonomous agents cannot be safely granted access to enterprise resources.
+
+---
+
+## Final Assessment
+
+The existing platform architecture is strongly validated. The core Policy $\rightarrow$ Authorization $\rightarrow$ Execution $\rightarrow$ Detection/Risk $\rightarrow$ Audit/Telemetry $\rightarrow$ Response model remains intact. Future capabilities build upon this architecture rather than replacing it.
+
+---
+
 # Review History
 
 | Date | Topic | Architecture Changed |
 |------|-------|----------------------|
 | 2026-06-22 | Weekly AI Security Review | No |
+| 2026-08-31 | Jan–Aug 2026 Architecture Baseline Review | No (Extended) |
