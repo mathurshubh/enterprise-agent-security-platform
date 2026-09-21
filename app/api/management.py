@@ -260,6 +260,7 @@ def list_audit_events() -> list[AuditEventResponse]:
     return [
         AuditEventResponse(
             event_id=event.event_id,
+            session_id=event.session_id,
             agent_id=event.agent_id,
             tool_id=event.tool_id,
             decision=event.decision.value,

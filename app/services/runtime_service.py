@@ -300,6 +300,7 @@ class RuntimeService:
 
         audit_event = AuditEvent(
             event_id=f"evt-{uuid.uuid4()}",
+            session_id=session_id,
             agent_id=agent_id,
             tool_id=tool_id,
             decision=Decision.DENY,
@@ -366,6 +367,7 @@ class RuntimeService:
 
         audit_event = AuditEvent(
             event_id=f"evt-{uuid.uuid4()}",
+            session_id=session_id,
             agent_id=agent_id,
             tool_id=tool_id,
             decision=Decision.DENY,
@@ -737,6 +739,7 @@ class RuntimeService:
         # Record audit event matching the final decision
         audit_event = AuditEvent(
             event_id=f"evt-{uuid.uuid4()}",
+            session_id=session_id,
             agent_id=agent_id,
             tool_id=tool_id,
             decision=recorded_event.decision,
