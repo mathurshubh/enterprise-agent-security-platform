@@ -69,8 +69,8 @@ Tombstones          -> security identity lifecycle
 | Track | Decision | Status | Next action |
 |:---|:---|:---|:---|
 | Session events | Detection-horizon retention | **Closed** — M5-B.4 | None in M4 |
-| Runtime partial wiring | Remove the compatibility security path | **Prerequisite** | M5-B.6 |
-| Risk assessments | No independent retention; derived state eligible for removal | **Decided** | Implement after M5-B.6 |
+| Runtime partial wiring | Remove the compatibility security path | **Closed** — M5-B.6 | None; Decision A is now unblocked |
+| Risk assessments | No independent retention; derived state eligible for removal | **Decided** | Implement — prerequisite satisfied |
 | Audit | Establish explicit evidence lifecycle ownership | **Decided** | Amend ADR-016 |
 | Tombstones | Separate lifecycle decision required | **Open** | New session-lifecycle decision |
 
@@ -83,6 +83,8 @@ It is reachable. A runtime constructed with the now-mandatory `RiskAggregator` b
 This is the same class of defect [ADR-026](ADR-026-materialized-risk-projection-and-enforcement-epochs.md) addressed for the posture authority, on two other dependencies: **runtime authorization and response decisions must not silently change semantics because required security dependencies are absent.**
 
 **M5-B.6 is not an M4 implementation.** It is tracked separately because it closes an existing runtime security-path defect exposed by the M4 lifecycle analysis; it is a prerequisite to applying Decision A safely, not part of the lifecycle decision itself.
+
+**Closed in M5-B.6.** `findings_service` and `agent_service` joined `risk_aggregator` as construction preconditions of the security response path, the branch was removed, and the guards that had existed for their absence went with it. Decision A's prerequisite is therefore satisfied; Decision A itself remains unimplemented.
 
 It is recorded here rather than folded into Decision A because the two questions must be answered in order:
 

@@ -73,6 +73,7 @@ def _create_test_runtime_service(
         findings_service=FindingsService(),
         telemetry_emitter=telemetry_emitter,
         risk_aggregator=RiskAggregator(),
+        agent_service=agent_service,
     )
 
 

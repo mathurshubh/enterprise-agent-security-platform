@@ -57,10 +57,14 @@ class IncompleteRuntimeConfigurationError(Exception):
     """Raised when a RuntimeService is constructed without a dependency enforcement needs.
 
     Until M5-B.5 a missing ``RiskAggregator`` selected a second, quieter enforcement
-    implementation instead. Which implementation enforces must be a property of the
-    architecture, not of how thoroughly a caller populated a constructor, so an
-    incomplete runtime now fails to exist rather than enforcing differently
-    (ADR-026).
+    implementation; until M5-B.6 a missing ``FindingsService`` or ``AgentService``
+    derived the response from the session assessment instead of the agent's posture.
+    Both were described as compatibility for partially constructed runtimes, and both
+    meant the security path a request took depended on how thoroughly a caller
+    populated a constructor.
+
+    Which path enforces must be a property of the architecture. An incomplete runtime
+    therefore fails to exist rather than enforcing differently (ADR-026, ADR-027).
     """
 
 
@@ -98,11 +102,32 @@ class RuntimeService:
         self._telemetry_emitter = telemetry_emitter
         self._execution_authority = execution_authority
         self._agent_service = agent_service
-        if risk_aggregator is None:
+        # The security response path is a capability, not a set of optional
+        # collaborators. Each dependency below participates in deriving a response
+        # from the agent's enforcement posture, and a runtime missing any of them
+        # previously took a different decision path instead of failing (ADR-026,
+        # ADR-027). Every missing dependency is named, because a caller that omitted
+        # one has usually omitted them for the same reason and should see the whole
+        # requirement at once.
+        missing = [
+            name
+            for name, dependency in (
+                ("risk_aggregator", risk_aggregator),
+                ("findings_service", findings_service),
+                ("agent_service", agent_service),
+            )
+            if dependency is None
+        ]
+        if missing:
+            named = (
+                missing[0]
+                if len(missing) == 1
+                else f"{', '.join(missing[:-1])} and {missing[-1]}"
+            )
             raise IncompleteRuntimeConfigurationError(
-                "RuntimeService requires a RiskAggregator: it is the sole authority "
-                "for agent enforcement posture. Constructing a runtime without one "
-                "would leave it unable to make enforcement decisions."
+                f"security response path requires {named}. A runtime that cannot "
+                "derive a response from the agent's enforcement posture does not run "
+                "with reduced enforcement; it is not constructed."
             )
         self._risk_aggregator = risk_aggregator
         self._lock_manager = (
@@ -153,11 +178,16 @@ class RuntimeService:
             agent_service,
             audit_service,
             detection_registry,
+            findings_service,
+            risk_aggregator,
             session_service,
             tool_registry,
         )
         from app.services.runtime_bootstrap import bootstrap_runtime_service
 
+        # The shared singletons, not fresh instances: a runtime holding its own
+        # evidence store or projection would diverge from the one the rest of the
+        # process reads, which is the failure class M5-B.1 and M5-B.4 closed.
         return bootstrap_runtime_service(
             agent_service=agent_service,
             session_service=session_service,
@@ -165,6 +195,8 @@ class RuntimeService:
             detection_registry=detection_registry,
             agent_id=agent_id,
             tool_registry=tool_registry,
+            findings_service=findings_service,
+            risk_aggregator=risk_aggregator,
             telemetry_emitter=telemetry_emitter,
             execution_authority=execution_authority,
         )
@@ -391,9 +423,6 @@ class RuntimeService:
         if self._execution_authority is not None:
             self._execution_authority.suspend_issuance(agent_id)
 
-        if self._agent_service is None:
-            return
-
         trigger = EnforcementTrigger(
             session_id=session_id,
             risk_level=posture.risk_level if posture is not None else None,
@@ -459,16 +488,11 @@ class RuntimeService:
                 return posture
 
             # Obtain current stored baseline watermark (never call capture_baseline)
-            if self._agent_service is not None:
-                try:
-                    watermark = self._agent_service.get_current_baseline(agent_id)
-                except AgentNotFoundError:
-                    watermark = BaselineWatermark(
-                        agent_id=agent_id,
-                        baseline_at=None,
-                        baseline_sequence=0,
-                    )
-            else:
+            try:
+                watermark = self._agent_service.get_current_baseline(agent_id)
+            except AgentNotFoundError:
+                # An unregistered agent is already denied by authorization; assess
+                # against an empty baseline rather than inventing one.
                 watermark = BaselineWatermark(
                     agent_id=agent_id,
                     baseline_at=None,
@@ -476,11 +500,9 @@ class RuntimeService:
                 )
 
             # Authoritative evidence scan for reconciliation
-            authoritative_findings: list[Finding] = []
-            if self._findings_service is not None:
-                authoritative_findings = self._findings_service.list_findings(
-                    agent_id=agent_id
-                )
+            authoritative_findings = self._findings_service.list_findings(
+                agent_id=agent_id
+            )
 
             try:
                 reconciled = self._risk_aggregator.reconcile_agent(
@@ -641,29 +663,22 @@ class RuntimeService:
         # reports only newly recorded evidence, so a crossed threshold cannot raise
         # cumulative risk again on later requests.
         findings: list[Finding] = []
-        if self._findings_service:
-            with self._posture_lock(agent_id):
-                findings = self._findings_service.record_new_findings(
-                    content_findings + session_findings
-                )
-                if self._risk_aggregator is not None:
-                    for f in findings:
-                        try:
-                            self._risk_aggregator.ingest_finding(f)
-                        except Exception:
-                            self._risk_aggregator.mark_stale(agent_id)
-                            # Projection failed closed to STALE; do not roll back authoritative evidence
-        else:
-            findings = content_findings + session_findings
+        with self._posture_lock(agent_id):
+            findings = self._findings_service.record_new_findings(
+                content_findings + session_findings
+            )
+            for f in findings:
+                try:
+                    self._risk_aggregator.ingest_finding(f)
+                except Exception:
+                    self._risk_aggregator.mark_stale(agent_id)
+                    # Projection failed closed to STALE; do not roll back authoritative evidence
 
         # Retrieve accumulated historical findings for session + agent scope to calculate cumulative risk posture
-        if self._findings_service:
-            accumulated_findings = self._findings_service.list_findings(
-                session_id=session_id,
-                agent_id=agent_id,
-            )
-        else:
-            accumulated_findings = findings
+        accumulated_findings = self._findings_service.list_findings(
+            session_id=session_id,
+            agent_id=agent_id,
+        )
 
         risk_assessment = self._risk_service.assess_session(
             session_id=session_id,
@@ -676,34 +691,30 @@ class RuntimeService:
         # accumulated posture as new (finding H-3). The session assessment above keeps
         # its meaning for reporting and attribution.
         #
-        # The fallback below is compatibility behaviour for partially constructed
-        # runtimes, which exist only in tests that predate this wiring. Production
-        # bootstrapping always supplies both services, so a live request never silently
-        # enforces on the weaker session posture.
-        enforcement_posture = None
-        if self._findings_service is not None and self._agent_service is not None:
-            try:
-                enforcement_posture = self._assess_agent_posture(agent_id)
-            except PostureReconciliationError:
-                return self._refuse_posture_reconciliation(
-                    session_id=session_id,
-                    agent_id=agent_id,
-                    tool_id=tool_id,
-                    resource=resource,
-                    param_hash=param_hash,
-                    trace_id=trace_id,
-                    principal=principal,
-                    tenant_id=tenant_id,
-                    started_at=start_time,
-                    findings=findings,
-                )
-            response_action = self._response_service.recommend_for_level(
-                enforcement_posture.risk_level,
+        # Both services are construction preconditions (M5-B.6), so there is no
+        # partially wired runtime here to branch for: every request reaching this
+        # point derives its response from the agent's enforcement posture.
+        try:
+            enforcement_posture = self._assess_agent_posture(agent_id)
+        except PostureReconciliationError:
+            return self._refuse_posture_reconciliation(
                 session_id=session_id,
                 agent_id=agent_id,
+                tool_id=tool_id,
+                resource=resource,
+                param_hash=param_hash,
+                trace_id=trace_id,
+                principal=principal,
+                tenant_id=tenant_id,
+                started_at=start_time,
+                findings=findings,
             )
-        else:
-            response_action = self._response_service.recommend(risk_assessment)
+
+        response_action = self._response_service.recommend_for_level(
+            enforcement_posture.risk_level,
+            session_id=session_id,
+            agent_id=agent_id,
+        )
 
         # Enforce Zero Trust response actions on final decision
         if recorded_event.decision == Decision.ALLOW:
