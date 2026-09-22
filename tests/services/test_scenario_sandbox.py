@@ -67,9 +67,6 @@ class TestScenarioRunIsolation:
         before = {
             "agent_status": dependencies.agent_service.get_agent("agent-1").status,
             "sessions": len(dependencies.session_service.list_sessions()),
-            "session_events": len(
-                dependencies.session_service.list_events("scenario-run-sandbox-isolation-denials")
-            ),
             "findings": len(dependencies.findings_service.list_findings()),
             "risk": len(dependencies.risk_aggregator._projections),
             "audit": len(dependencies.audit_service.list_events()),
@@ -83,9 +80,6 @@ class TestScenarioRunIsolation:
         after = {
             "agent_status": dependencies.agent_service.get_agent("agent-1").status,
             "sessions": len(dependencies.session_service.list_sessions()),
-            "session_events": len(
-                dependencies.session_service.list_events("scenario-run-sandbox-isolation-denials")
-            ),
             "findings": len(dependencies.findings_service.list_findings()),
             "risk": len(dependencies.risk_aggregator._projections),
             "audit": len(dependencies.audit_service.list_events()),
@@ -94,6 +88,58 @@ class TestScenarioRunIsolation:
         }
 
         assert after == before
+
+        # The session the run actually used left nothing in the live plane. This
+        # replaces a snapshot key that counted events under a hardcoded identifier:
+        # once scenario sessions became unique per run, that literal matched nothing
+        # and the comparison was 0 == 0 — passing while measuring nothing.
+        assert dependencies.session_service.list_events(execution.session_id) == []
+        assert execution.session_id not in {
+            s.session_id for s in dependencies.session_service.list_sessions()
+        }
+
+    def test_repeated_runs_of_one_scenario_receive_distinct_session_identities(
+        self,
+    ) -> None:
+        """Each `run()` gets a unique session identity.
+
+        The identifier was derived from `scenario_id`, so every re-run of a scenario
+        reused it. Asserted as a property of the identities rather than of their
+        format: pinning a shape here would only relocate the coupling this removes.
+        """
+        first = ScenarioRunnerService().run(DENIAL_SCENARIO)
+        second = ScenarioRunnerService().run(DENIAL_SCENARIO)
+
+        assert first.scenario_id == second.scenario_id
+        assert first.session_id != second.session_id
+        assert first.execution_id != second.execution_id
+
+    def test_repeated_runs_of_one_scenario_remain_isolated(self) -> None:
+        """Uniqueness must not be obtained at the cost of isolation.
+
+        Both properties are asserted together because a change satisfying only the
+        first would still be a regression: two runs sharing a pipeline would produce
+        distinct identifiers and interleaved evidence.
+        """
+        from app.api import dependencies
+
+        live_findings = len(dependencies.findings_service.list_findings())
+        live_sessions = len(dependencies.session_service.list_sessions())
+
+        first = ScenarioRunnerService().run(DENIAL_SCENARIO)
+        second = ScenarioRunnerService().run(DENIAL_SCENARIO)
+
+        # Neither run reached live state.
+        assert len(dependencies.findings_service.list_findings()) == live_findings
+        assert len(dependencies.session_service.list_sessions()) == live_sessions
+        for execution in (first, second):
+            assert dependencies.session_service.list_events(execution.session_id) == []
+
+        # And the two runs graded independently rather than accumulating.
+        assert first.status == second.status
+        assert first.result is not None and second.result is not None
+        assert first.result.observed_findings == second.result.observed_findings
+        assert first.result.observed_risk_level == second.result.observed_risk_level
 
     def test_run_records_evidence_inside_its_own_sandbox(self) -> None:
         sandboxes = []
