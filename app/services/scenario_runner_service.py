@@ -69,7 +69,12 @@ class ScenarioRunnerService:
     ) -> ScenarioExecution:
         started_at = datetime.now(timezone.utc)
         execution_id = f"exec-{uuid.uuid4()}"
-        session_id = f"scenario-run-{scenario.scenario_id}"
+        # Unique per run. Deriving this from scenario_id made every re-run of a
+        # scenario reuse the identifier, which the session/execution identity
+        # investigation measured on the tool-sequence path. Prompt mode was already
+        # unique because AgentRuntimeService generates its own session identifier,
+        # and line ~115 reassigns this from the actual runtime result either way.
+        session_id = f"scenario-run-{uuid.uuid4()}"
         runtime_service, agent_runtime_service = self._resolve_pipeline()
 
         # Determine Execution Mode: tool_sequence takes precedence for deterministic replays

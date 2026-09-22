@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime
 
 from app.models.agent_runtime_result import AgentRuntimeResult
@@ -21,11 +22,16 @@ class MockAgentRuntimeService(AgentRuntimeService):
     def __init__(self, runtime_service, mock_tool_id="file_read"):
         self._runtime_service = runtime_service
         self._mock_tool_id = mock_tool_id
+        # The real AgentRuntimeService mints its own session identifier per run, so
+        # the mock does too. Hardcoding one previously let a prompt-mode assertion
+        # match the runner's deterministic identifier by coincidence rather than
+        # because the runner's session was the one under test.
+        self._session_id = f"scenario-run-{uuid.uuid4()}"
 
     def execute(self, query: str) -> AgentRuntimeResult:
         # Simulate agent parsing prompt and invoking the tool on runtime_service
         result = self._runtime_service.execute(
-            session_id="scenario-run-scenario-prompt-1",
+            session_id=self._session_id,
             agent_id="agent-1",
             tool_id=self._mock_tool_id,
             user_prompt=query,
@@ -85,7 +91,8 @@ def test_run_normal_behavior_scenario():
     assert result.result.passed is True
     assert result.result.observed_findings == []
     assert result.result.observed_risk_level == "LOW"
-    assert len(session_service.list_events("scenario-run-scenario-1")) == 1
+    # The session the run actually used, not an assumed identifier format.
+    assert len(session_service.list_events(result.session_id)) == 1
 
 
 def test_run_excessive_denial_scenario():
@@ -113,7 +120,7 @@ def test_run_excessive_denial_scenario():
     assert result.result.passed is True
     assert result.result.observed_findings == ["EXCESSIVE_DENIALS"]
     assert result.result.observed_risk_level == "MEDIUM"
-    assert len(session_service.list_events("scenario-run-scenario-2")) == 3
+    assert len(session_service.list_events(result.session_id)) == 3
 
 
 def test_run_grading_mismatch():
@@ -186,7 +193,7 @@ def test_run_prompt_execution_mode():
     assert result.execution_mode == ExecutionMode.PROMPT
     assert result.result is not None
     assert result.result.passed is True
-    assert len(session_service.list_events("scenario-run-scenario-prompt-1")) == 1
+    assert len(session_service.list_events(result.session_id)) == 1
 
 
 def test_shared_runtime_service_consistency():
