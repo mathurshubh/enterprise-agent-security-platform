@@ -87,6 +87,28 @@ session_id    A=scenario-run-TOOL-002
 
 The platform's forensic model is **session-anchored**. The requirement for session-identifier unambiguity originates here, not in the audit schema.
 
+### ADR-016 review input
+
+A later read-only pass over [ADR-016](../adr/ADR-016-behavioral-event-store-and-data-model.md) found the uniqueness requirement is **already written into the proposal** rather than something this investigation adds.
+
+```text
+ADR-016 proposal assumption
+    session initialization establishes a unique session_id   (§2, Behavioral Session Model)
+
+Current platform evidence
+    session identifiers have no platform-wide non-reuse guarantee   (Investigation #3)
+
+Architectural question
+    whether session_id must ultimately be the forensic / replay unit
+    UNDECIDED
+```
+
+ADR-016 §2 states that `SESSION_STARTED` *"establishes a unique `session_id`"*, alongside a `SESSION_STARTED` / `SESSION_ENDED` lifecycle the platform does not implement. Its proposed replay index, `(session_id, sequence_number)`, sits under *Indexing Strategy* and elaborates a decision-level capability; it is **proposed, not normative**, within an ADR whose own status is `Proposed`.
+
+The discrepancy this records is therefore between **an assumption in a proposed ADR** and **currently established platform semantics** — not a requirement imposed on that ADR from outside.
+
+This is an input to the eventual ADR-016 review. It does **not** establish that `session_id` must be the replay-unit identifier, does **not** assert that the current platform has a replay vulnerability — no replay capability exists — and does **not** decide the mechanism by which unambiguity would be achieved.
+
 ---
 
 ## Architectural requirements identified
