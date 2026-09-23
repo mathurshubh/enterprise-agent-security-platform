@@ -33,7 +33,7 @@ Implemented Capabilities:
 - Agent Registry & Tool Registry
 - JWT Authentication & Plane Authorization (role-gated API surfaces, execution identity bound to agent)
 - Policy Engine with Resource-Aware Authorization & Structured Evidence (`AuthorizationResult`, `AuthorizationCheck`, ADR-006)
-- Deterministic `RuntimeService` Single Security Authority (`RuntimeResult.authorization_result`)
+- Deterministic `RuntimeService` Single Security Authority (`RuntimeResult.authorization_result`, `RuntimeResult.audit_event_id`)
 - Detection Engine (`PROMPT_INJECTION`, `SENSITIVE_FILE_ACCESS`, `DATA_EXFILTRATION`, `EXCESSIVE_DENIALS`)
 - Attack Scenario Framework & Security Standards Mapping (OWASP LLM, MITRE ATLAS, MITRE ATT&CK)
 - Provider Abstraction (Ollama, Gemini)

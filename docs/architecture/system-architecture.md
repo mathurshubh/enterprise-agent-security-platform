@@ -251,6 +251,7 @@ The platform separates tool discovery, tool inventory, and secure tool execution
 The platform enforces a clear separation between stateful operational logs and compliance-ready audit logs:
 *   **Session Tracking Service (Stateful):** Maintains transient context and sequential tracking data during active sessions. Used by detection rules to identify stateful patterns (e.g., brute-force tool denials).
 *   **Audit Service (Append-Only):** Captures immutable records of all final security pipeline decisions, metadata, and execution outcomes. Write-only for runtime components, designed for direct ingestion by enterprise SIEM tools.
+*   **Audit Correlation:** `RuntimeResult.audit_event_id` provides direct, authoritative correlation to the corresponding append-only `AuditEvent.event_id` produced by that execution (including boundary refusal paths), establishing end-to-end audit traceability without mutating or conflating audit identity.
 
 ## 14. Extension Points
 *   **Threat Detection Rules:** Developers can integrate custom threat detection logic by implementing standard rule evaluation interfaces and registering rule metadata.
@@ -274,7 +275,7 @@ The architecture follows a strict three-tier roadmap separating operational capa
 *   **Agent Enforcement State & Atomic Baselines:** One-way runtime suspension, baseline epoch isolation, and administrative reinstatement (ADR-024, ADR-026).
 *   **Execution Authorization Grants:** Single-use execution tokens matching requested operations (`DefaultToolExecutor`, ADR-023).
 *   **Management Plane Authorization & Role-Gated Surfaces:** Router-level plane authorization separating operator roles from agent execution (ADR-025).
-*   **Immutable Audit Logging & Behavioral Telemetry:** Non-blocking `TelemetryDispatcher`, canonical `BehavioralEvent`, and append-only audit trail (ADR-015, ADR-028).
+*   **Immutable Audit Logging, Behavioral Telemetry & Correlation:** Non-blocking `TelemetryDispatcher`, canonical `BehavioralEvent`, append-only audit trail (ADR-015, ADR-028), and authoritative audit correlation via `RuntimeResult.audit_event_id`.
 *   **Governed LLM Tool Selection:** Provider abstraction (Ollama, Gemini) parsing natural language into structured `ToolInvocation` objects without granting models decision authority.
 *   **Human-in-the-Loop Approval Escalation:** `ResponseService` mapping elevated risk to `REQUIRE_APPROVAL` (ADR-019, ADR-020).
 

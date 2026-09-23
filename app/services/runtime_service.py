@@ -340,6 +340,7 @@ class RuntimeService:
             response_action=None,
             refusal_reason=SESSION_BINDING_INVALID,
             authorization=None,
+            audit_event_id=audit_event.event_id,
         )
         self._last_result = result
         return result
@@ -410,6 +411,7 @@ class RuntimeService:
             response_action=None,
             refusal_reason=POSTURE_RECONCILIATION_FAILED,
             authorization=None,
+            audit_event_id=audit_event.event_id,
         )
         self._last_result = result
         return result
@@ -827,6 +829,7 @@ class RuntimeService:
             response_action=response_action,
             authorization=authorization,
             authorization_result=authorization_result,
+            audit_event_id=audit_event.event_id,
         )
         self._last_result = result
         return result

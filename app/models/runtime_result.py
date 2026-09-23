@@ -35,6 +35,8 @@ class RuntimeResult(BaseModel):
     # Stage C: structured, immutable evidence of the deterministic authorization checks.
     # Reflects the authorization decision and is never mutated by downstream pipeline stages.
     authorization_result: AuthorizationResult | None = None
+    # Stage D: identifier of the AuditEvent recorded for this execution.
+    audit_event_id: str | None = None
 
     @property
     def authorized_binding(self) -> ExecutionBinding | None:

@@ -102,3 +102,16 @@ def test_runtime_result_exposes_the_authorized_binding_and_parameters():
 
     assert result.authorized_binding == binding
     assert result.authorized_parameters == {"path": "notes.txt"}
+
+
+def test_runtime_result_audit_event_id():
+    result = _minimal_result()
+    assert result.audit_event_id is None
+
+    result_with_id = _minimal_result(audit_event_id="evt-12345")
+    assert result_with_id.audit_event_id == "evt-12345"
+
+    data = result_with_id.model_dump()
+    assert data["audit_event_id"] == "evt-12345"
+    restored = RuntimeResult.model_validate(data)
+    assert restored.audit_event_id == "evt-12345"
