@@ -1,5 +1,5 @@
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from uuid import NAMESPACE_URL, uuid5
 
 from app.models.audit_event import Decision
@@ -63,7 +63,7 @@ class DetectionService:
         self,
         events: list[SessionEvent],
         *,
-        now_utc: datetime | None = None,
+        evaluation_time: datetime,
     ) -> list[Finding]:
         """Report agents whose cumulative denial count within the evaluation window reaches the threshold.
 
@@ -72,10 +72,23 @@ class DetectionService:
         - Threshold: >= EXCESSIVE_DENIAL_THRESHOLD (3) cumulative DENY decisions
         - Evaluation: cumulative (intervening ALLOW or APPROVAL_REQUIRED decisions do not reset count)
         - Temporal window: sliding window of excessive_denials_window_seconds (default: 1800s / 30m)
-        - Boundary: event.timestamp >= now - window is included, strictly older (<) is excluded
+        - Boundary: event.timestamp >= evaluation_time - window is included, strictly older (<) is excluded
+
+        ``evaluation_time`` is supplied by the caller and is never read from the
+        system clock here. A windowed rule answers a question about a moment, and
+        taking that moment from the clock makes the answer depend on when it was
+        asked rather than on the evidence: the same events evaluated later fall
+        outside the window and yield a different result. ADR-017 requires a replay
+        to produce the same findings as live analysis, which cannot hold while the
+        boundary moves on its own. The live caller passes the timestamp of the event
+        that triggered the evaluation; a replay passes the timestamp of the event
+        being replayed.
+
+        Required rather than defaulted: a default would leave the clock-reading path
+        reachable, and a caller that omitted the argument would silently reintroduce
+        the non-determinism instead of failing.
         """
-        now = now_utc or datetime.now(timezone.utc)
-        cutoff = now - timedelta(seconds=self._excessive_denials_window_seconds)
+        cutoff = evaluation_time - timedelta(seconds=self._excessive_denials_window_seconds)
 
         denied_events: dict[tuple[str, str], list[SessionEvent]] = defaultdict(list)
 

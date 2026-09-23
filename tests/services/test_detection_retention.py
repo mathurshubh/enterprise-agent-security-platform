@@ -64,7 +64,7 @@ class TestDetectionRetentionInvariants:
         assert len(events) == 3
 
         # Detection engine evaluates full horizon and detects crossing
-        findings = detection_service.detect_excessive_denials(events, now_utc=now)
+        findings = detection_service.detect_excessive_denials(events, evaluation_time=now)
         assert len(findings) == 1
         assert findings[0].rule_name == "EXCESSIVE_DENIALS"
 
