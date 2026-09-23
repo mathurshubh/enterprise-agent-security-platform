@@ -67,7 +67,15 @@ def execute(
         "session_id": result.event.session_id,
         "agent_id": result.event.agent_id,
         "tool_id": result.event.tool_id,
-        "decision": result.event.decision.value,
+        # The final decision when the pipeline established one, otherwise what
+        # authorization concluded. The response shape is unchanged: an incomplete
+        # request is not an externally observable state, and making it one would be
+        # a separate contract decision.
+        "decision": (
+            result.event.final_decision
+            if result.event.final_decision is not None
+            else result.event.decision
+        ).value,
         "findings": result.findings,
         # Session-scoped assessment: unchanged meaning for existing consumers.
         "risk_score": assessment.risk_score if assessment is not None else None,

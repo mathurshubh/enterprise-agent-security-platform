@@ -296,6 +296,11 @@ class RuntimeService:
             agent_id=agent_id,
             tool_id=tool_id,
             decision=Decision.DENY,
+            # A refusal is an established outcome, not an incomplete one: the request
+            # never reaches the response step, so the final decision is recorded here.
+            # Leaving it None would make a refusal indistinguishable from a request
+            # that failed mid-pipeline.
+            final_decision=Decision.DENY,
         )
 
         audit_event = AuditEvent(
@@ -363,6 +368,11 @@ class RuntimeService:
             agent_id=agent_id,
             tool_id=tool_id,
             decision=Decision.DENY,
+            # A refusal is an established outcome, not an incomplete one: the request
+            # never reaches the response step, so the final decision is recorded here.
+            # Leaving it None would make a refusal indistinguishable from a request
+            # that failed mid-pipeline.
+            final_decision=Decision.DENY,
         )
 
         audit_event = AuditEvent(
@@ -743,12 +753,18 @@ class RuntimeService:
             agent_id=agent_id,
         )
 
-        # Enforce Zero Trust response actions on final decision
+        # The response may override what authorization concluded. That override is
+        # written to `final_decision`, never back onto `decision`: detection has
+        # already evaluated `decision`, and rewriting it made a later reader see a
+        # different history than the one detection was given. Assigned on every
+        # completed request, not only on escalation, so that None keeps its meaning.
+        final_decision = recorded_event.decision
         if recorded_event.decision == Decision.ALLOW:
             if response_action.response_type == ResponseType.SUSPEND_AGENT:
-                recorded_event.decision = Decision.DENY
+                final_decision = Decision.DENY
             elif response_action.response_type == ResponseType.REQUIRE_APPROVAL:
-                recorded_event.decision = Decision.APPROVAL_REQUIRED
+                final_decision = Decision.APPROVAL_REQUIRED
+        recorded_event.final_decision = final_decision
 
         # M2b: containment is a state transition, not a recommendation. A response of
         # SUSPEND_AGENT suspends the agent and withdraws its execution authority, so the
@@ -767,7 +783,7 @@ class RuntimeService:
             session_id=session_id,
             agent_id=agent_id,
             tool_id=tool_id,
-            decision=recorded_event.decision,
+            decision=final_decision,
         )
         self._audit_service.record_event(audit_event)
 
@@ -783,7 +799,7 @@ class RuntimeService:
                 tool_id=tool_id,
                 resource_target=resource,
                 parameter_hash=param_hash,
-                decision=recorded_event.decision,
+                decision=final_decision,
                 risk_level=risk_assessment.risk_level,
                 execution_time_ms=total_elapsed_ms,
                 error_code=binding_error_code,
@@ -797,7 +813,7 @@ class RuntimeService:
         if self._execution_authority is not None and binding is not None:
             authorization = self._execution_authority.issue(
                 binding,
-                recorded_event.decision,
+                final_decision,
                 agent_id=agent_id,
             )
 

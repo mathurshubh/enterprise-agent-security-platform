@@ -394,7 +394,7 @@ def test_only_a_final_allow_produces_an_execution_grant(
         **request_fields,
     )
 
-    assert result.event.decision == final_decision
+    assert result.event.final_decision == final_decision
     assert result.response_action.response_type == response_type
     assert (result.authorization is not None) is grant_expected
     if not grant_expected:

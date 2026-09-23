@@ -125,7 +125,9 @@ class AgentRuntimeService:
             parameters=parameters,
         )
 
-        decision = runtime_result.event.decision
+        # The gate is the FINAL decision, not what authorization concluded: a request
+        # the response escalated to DENY or APPROVAL_REQUIRED must not execute a tool.
+        decision = runtime_result.event.final_decision or runtime_result.event.decision
 
         # A request refused before assessment carries no response recommendation; report
         # it as monitoring so the caller sees the denial, not a fabricated escalation.
