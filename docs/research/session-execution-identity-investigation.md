@@ -109,6 +109,8 @@ The discrepancy this records is therefore between **an assumption in a proposed 
 
 This is an input to the eventual ADR-016 review. It does **not** establish that `session_id` must be the replay-unit identifier, does **not** assert that the current platform has a replay vulnerability — no replay capability exists — and does **not** decide the mechanism by which unambiguity would be achieved.
 
+**Related ADR-016 review input:** [ADR-029](../adr/ADR-029-finding-occurrence-identity.md) records a separate review input concerning replay identity and temporal replay constraints. This is distinct from the session and execution identity findings in this document, and does not change ADR-016's `Proposed` status.
+
 ---
 
 ## Architectural requirements identified
