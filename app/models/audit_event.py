@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class Decision(str, Enum):
@@ -25,7 +25,21 @@ class AuditEvent(BaseModel):
     carry sufficient execution context to attribute the decision to its originating
     execution and session. ``session_id`` is the current implementation of that
     requirement, not the requirement itself.
+
+    The record is **frozen** (ADR-028 property 3: a record is not modified or removed
+    after it is written). Enforced by construction rather than by the absence of a
+    mutator, because two aliasing paths made the property violable without one:
+    ``AuditService.list_events`` returns a shallow copy, so callers received the stored
+    objects themselves, and ``record_event`` returns the object it was given, so the
+    producer kept a live reference. Neither is a mutator, and both could rewrite
+    recorded evidence. A record that can be edited after the fact is not evidence that
+    a decision was made; it is a record of what someone last said about it.
+
+    Deriving a changed value stays available through ``model_copy``, which produces a
+    new record rather than editing the stored one.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     event_id: str
     session_id: str
