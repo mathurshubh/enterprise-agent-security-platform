@@ -84,7 +84,7 @@ ADR-016 is referenced, not depended upon. Its tiered Operational → Compliance 
 
 1. **Complete coverage.** Every final security decision produces a record. Already satisfied: every exit from the runtime pipeline writes one, including both boundary refusals.
 2. **Attribution.** *Audit evidence for a security decision must contain sufficient execution context to attribute that decision to its originating execution and session.* Stated semantically rather than as a field list, so the schema can evolve without weakening the requirement. `session_id` is the current implementation of it, and is **currently absent** — see the gap below.
-3. **Immutability.** A record is not modified or removed after it is written. Currently true by the absence of any mutator rather than by construction, and unasserted.
+3. **Immutability.** A record is not modified or removed after it is written. **Enforced by construction** — see the correction below for what this previously said and why it was wrong.
 4. **Independence from evictable state.** Evidence must not depend for its meaning on state governed by a shorter lifecycle. An audit record whose interpretation requires an unpruned session event is not durable evidence, whatever its own retention.
 5. **Bounded operational memory without destroying the record.** Growth is bounded by moving evidence out of operational memory, never by deleting it. Retention and archival are distinct concerns: the first question is preservation over the required lifecycle, not expiry.
 
@@ -121,7 +121,7 @@ Terminal session state does not affect audit evidence. A session ending, being t
 |:---|:---|
 | Complete coverage | **Satisfied** |
 | Attribution to originating execution and session | **Satisfied** — M4-AUDIT attribution capture |
-| Immutability | **Incidental** — no mutator exists; nothing asserts it |
+| Immutability | **Satisfied** — `AuditEvent` is frozen; asserted by corpus invariants |
 | Independence from evictable state | **Satisfied for the current evidence definition** — attribution is carried in the record, and `AuditService` holds no reference to the session plane |
 | Bounded operational memory | **Not satisfied** — no retention, no archival, ~581 MB per million records |
 
@@ -137,7 +137,24 @@ Attribution and independence are covered by separate corpus invariants, includin
 
 Independence is satisfied **for the current evidence definition**, and the qualification matters. The property is about whether the record's meaning depends on shorter-lived or evictable state — not about whether the record carries every piece of forensic context. `resource`, `parameter_hash` and `risk_level` are absent from `AuditEvent`; their absence does not violate independence, because this decision does not require them. They may become evidence requirements later, and that would be a change to the definition rather than a defect against this one.
 
-**Bounded operational memory, immutability enforcement, durability and tamper-evidence remain open**, in that order of dependence.
+**Bounded operational memory, durability and tamper-evidence remain open.** This ADR previously listed them with immutability enforcement "in that order of dependence" and did not establish why that order held; immutability was subsequently implemented independently of bounded memory, without requiring it. Whether the remaining ordering should be restated is a separate decision this correction does not take.
+
+### Correction: immutability was not "true by the absence of any mutator"
+
+Property 3 originally read that immutability was *"currently true by the absence of any mutator rather than by construction, and unasserted"*, and the gap table recorded it as **Incidental**. The first half was false. `AuditService` exposes no method named like a mutator, but two aliasing paths reached the stored record:
+
+```text
+list_events()   returns self._events.copy()  -- SHALLOW; the same record objects
+record_event()  returns the object it was given -- the producer keeps it live
+```
+
+Neither is a mutator and both could rewrite recorded evidence, so the property held only because no caller chose to violate it. That is a property of the callers, not of the evidence boundary.
+
+**`AuditEvent` is now frozen**, which closes both paths at once, and corpus invariants assert each separately — they fail to different fixes, since deep-copying on read would close the first and leave the second. Deriving a changed value remains available through `model_copy`, which produces a new record.
+
+**`Finding` is now frozen on the same grounds**, under [ADR-017](ADR-017-behavioral-detection-engine.md) — *"once generated, a Behavioral Finding is immutable… must never be modified in place"* — and [ADR-029](ADR-029-finding-occurrence-identity.md) §6. It is outside this ADR's subject but shared the defect and the fix. Freezing it required converting `rule_id` defaulting from an in-place assignment in `model_post_init` into validation-time defaulting; behaviour was demonstrated unchanged across every construction path before the model was frozen.
+
+**`SessionEvent` is deliberately not resolved.** It is mutated on the production path by design — the runtime rewrites a recorded decision when the response action overrides the authorization decision — so making it immutable would require first deciding what that mutation should become. That is a separate architectural question and is not taken here.
 
 ---
 
