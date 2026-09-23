@@ -607,14 +607,16 @@ class RuntimeService:
                 started_at=start_time,
             )
 
+        authorization_result = None
         if binding is None:
             decision = Decision.DENY
         else:
-            decision = self._authorization_service.authorize(
+            authorization_result = self._authorization_service.evaluate(
                 agent_id,
                 tool_id,
                 resource,
             )
+            decision = authorization_result.decision
 
         auth_elapsed_ms = int((time.perf_counter() - start_time) * 1000)
         self._safe_emit(
@@ -824,6 +826,7 @@ class RuntimeService:
             enforcement_posture=enforcement_posture,
             response_action=response_action,
             authorization=authorization,
+            authorization_result=authorization_result,
         )
         self._last_result = result
         return result
