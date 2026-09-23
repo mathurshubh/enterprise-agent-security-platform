@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs'
 import type { IncomingMessage } from 'node:http'
 import type { TLSSocket } from 'node:tls'
 
-const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8'))
+const appVersion = readFileSync(new URL('../VERSION', import.meta.url), 'utf-8').trim()
 
 /**
  * Local development JWT for the console's backend requests.
@@ -174,7 +174,7 @@ function localDevApiAuth(): Plugin {
 // Configures a dev server proxy to forward all API calls to the FastAPI backend.
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify(pkg.version),
+    __APP_VERSION__: JSON.stringify(appVersion),
   },
   plugins: [
     react(),
@@ -185,6 +185,14 @@ export default defineConfig({
     port: 3000,
     proxy: {
       '/api': {
+        target: resolveApiTarget(),
+        changeOrigin: true,
+      },
+      '/version': {
+        target: resolveApiTarget(),
+        changeOrigin: true,
+      },
+      '/health': {
         target: resolveApiTarget(),
         changeOrigin: true,
       },

@@ -13,6 +13,7 @@ depends on whether the target exists.
     scenarios    ANALYST, ADMIN
     management   ANALYST, ADMIN    + ADMIN on reinstatement
     health       public
+    version      public
 """
 
 import pytest

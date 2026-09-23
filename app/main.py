@@ -8,6 +8,7 @@ unauthenticated request is refused with 401 before any role is considered.
     scenarios    ANALYST, ADMIN
     management   ANALYST, ADMIN    + ADMIN on reinstatement
     health       public
+    version      public
 
 Operators administer the platform; agents execute only as themselves; analysts
 evaluate scenarios, which run in an isolated sandbox (ADR-013).
@@ -20,11 +21,13 @@ from app.api.health import router as health_router
 from app.api.management import router as management_router
 from app.api.runtime import router as runtime_router
 from app.api.scenarios import router as scenarios_router
+from app.api.version import router as version_router
 from app.models.jwt_claims import Role
 
 app = FastAPI()
 
 app.include_router(health_router)
+app.include_router(version_router)
 app.include_router(
     runtime_router,
     dependencies=[Depends(require_roles(Role.AGENT))],

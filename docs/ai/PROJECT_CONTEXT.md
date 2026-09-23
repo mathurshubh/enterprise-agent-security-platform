@@ -23,6 +23,7 @@ Release Status:
 - Latest Published GitHub Release: `v0.15`
 - Latest Repository Tag: `v0.15.0`
 - Current Development Cycle: `v0.16.0` — Unreleased
+- Version Authority Model: Git tags (`v*`) are the release authority; root `VERSION` file is the sole machine-readable authority (`0.15.0`). Neither backend nor frontend inspects `.git` at runtime. Public `GET /version` exposes release metadata distinct from `GET /health`.
 - Architecture Baseline: Jan–Aug 2026 AI Security Architecture Review (`4abf2b6`)
 - Automated Test Coverage: **851 passed, 7 xfailed** (`.venv/bin/python -m pytest`)
 - Architecture Reference Range: ADR-000 through ADR-028

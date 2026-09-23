@@ -39,4 +39,7 @@ export const ApiRoutes = {
     detail: (id: string) => `/scenarios/${encodeURIComponent(id)}`,
     execute: (id: string) => `/scenarios/${encodeURIComponent(id)}/execute`,
   },
+  platform: {
+    version: '/version',
+  },
 } as const
