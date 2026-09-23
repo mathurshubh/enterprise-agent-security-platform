@@ -166,7 +166,7 @@ class TestPostureWiring:
 
         assert result.enforcement_posture is not None
         assert result.enforcement_posture.risk_level == RiskLevel.HIGH
-        assert result.event.decision == Decision.APPROVAL_REQUIRED
+        assert result.event.final_decision == Decision.APPROVAL_REQUIRED
         assert result.response_action.response_type == ResponseType.REQUIRE_APPROVAL
 
     def test_response_follows_the_agent_posture_not_the_session(self) -> None:
@@ -187,7 +187,7 @@ class TestPostureWiring:
 
         assert rotated.risk_assessment.risk_level == RiskLevel.LOW
         assert rotated.enforcement_posture.risk_level == RiskLevel.HIGH
-        assert rotated.event.decision == Decision.APPROVAL_REQUIRED
+        assert rotated.event.final_decision == Decision.APPROVAL_REQUIRED
 
     def test_enforcement_resumes_on_evidence_recorded_after_reinstatement(self) -> None:
         """The baseline suppresses history; it must not disable enforcement for good.
@@ -220,7 +220,7 @@ class TestPostureWiring:
         # Only the new finding counts, and it counts.
         assert after.enforcement_posture.finding_count == 1
         assert after.enforcement_posture.risk_level == RiskLevel.HIGH
-        assert after.event.decision == Decision.APPROVAL_REQUIRED
+        assert after.event.final_decision == Decision.APPROVAL_REQUIRED
         # Both findings remain recorded evidence.
         assert len(env.findings_service.list_findings(agent_id=AGENT_ID)) == 2
 
@@ -439,7 +439,7 @@ class TestSuspensionWriter:
         )
 
         assert result.response_action.response_type == ResponseType.SUSPEND_AGENT
-        assert result.event.decision == Decision.DENY
+        assert result.event.final_decision == Decision.DENY
         assert result.authorization is None
         assert env.agent_service.get_agent(AGENT_ID).status == AgentStatus.SUSPENDED
 

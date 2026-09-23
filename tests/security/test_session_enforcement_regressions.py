@@ -113,7 +113,7 @@ def test_invariant_rotation_must_not_relax_an_approval_hold(
         user_prompt=INJECTION_PAYLOAD,
     )
     assert held.risk_assessment.risk_level == RiskLevel.HIGH
-    assert held.event.decision == Decision.APPROVAL_REQUIRED
+    assert held.event.final_decision == Decision.APPROVAL_REQUIRED
 
     rotated = env.runtime.execute(
         session_id="corpus-h3-high-rotated",
@@ -124,7 +124,10 @@ def test_invariant_rotation_must_not_relax_an_approval_hold(
     )
 
     assert rotated.enforcement_posture.risk_level == RiskLevel.HIGH
-    assert rotated.event.decision == Decision.APPROVAL_REQUIRED
+    assert rotated.event.final_decision == Decision.APPROVAL_REQUIRED
+    # The authorization result is not rewritten by the hold: detection evaluated an
+    # allowed request, and the stored history still says so.
+    assert rotated.event.decision == Decision.ALLOW
     assert rotated.response_action.response_type == ResponseType.REQUIRE_APPROVAL
 
 
@@ -174,7 +177,7 @@ def test_suspension_denies_every_later_request_in_any_session(
         user_prompt=CRITICAL_PAYLOAD,
     )
     assert triggering.response_action.response_type == ResponseType.SUSPEND_AGENT
-    assert triggering.event.decision == Decision.DENY
+    assert triggering.event.final_decision == Decision.DENY
     assert triggering.authorization is None
 
     later = env.runtime.execute(

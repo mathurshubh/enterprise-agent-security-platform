@@ -347,7 +347,7 @@ class TestCompleteM5BLifecycleE2E:
             tool_id="file_read",
             resource="notes.txt",
         )
-        assert result.event.decision == Decision.DENY
+        assert result.event.final_decision == Decision.DENY
         assert agent_service.get_agent(agent_id).status == AgentStatus.SUSPENDED
         assert execution_authority.issuance_suspended(agent_id) is True
 
