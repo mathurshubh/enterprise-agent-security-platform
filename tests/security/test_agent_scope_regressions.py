@@ -39,6 +39,15 @@ from app.services.detection_service import EXCESSIVE_DENIAL_THRESHOLD, Detection
 from app.services.risk_aggregator import RiskAggregator
 
 
+def evaluated_now() -> datetime:
+    """Evaluation moment for tests that build their events relative to now.
+
+    Passed explicitly because the detector no longer reads a clock: a windowed
+    rule answers a question about a moment, and the caller owns that moment.
+    """
+    return datetime.now(timezone.utc)
+
+
 def denial(session_id: str, agent_id: str, offset_seconds: int = 0) -> SessionEvent:
     return SessionEvent(
         session_id=session_id,
@@ -84,7 +93,7 @@ class TestDenialAggregationIsScopedByAgent:
         ]
         assert len(events) >= EXCESSIVE_DENIAL_THRESHOLD, "probe must be able to trip"
 
-        findings = service.detect_excessive_denials(events)
+        findings = service.detect_excessive_denials(events, evaluation_time=evaluated_now())
 
         assert findings == []
 
@@ -103,7 +112,7 @@ class TestDenialAggregationIsScopedByAgent:
             denial("shared-session", "agent-a") for _ in range(EXCESSIVE_DENIAL_THRESHOLD)
         ] + [denial("shared-session", "agent-b")]
 
-        findings = service.detect_excessive_denials(events)
+        findings = service.detect_excessive_denials(events, evaluation_time=evaluated_now())
 
         assert len(findings) == 1
         assert findings[0].agent_id == "agent-a"
@@ -122,7 +131,7 @@ class TestDenialAggregationIsScopedByAgent:
             for _ in range(EXCESSIVE_DENIAL_THRESHOLD)
         ]
 
-        findings = service.detect_excessive_denials(events)
+        findings = service.detect_excessive_denials(events, evaluation_time=evaluated_now())
 
         assert {f.agent_id for f in findings} == {"agent-a", "agent-b"}
         assert len({f.finding_id for f in findings}) == 2
@@ -140,7 +149,7 @@ class TestDenialAggregationIsScopedByAgent:
             denial("session-2", "agent-a") for _ in range(2)
         ]
 
-        assert service.detect_excessive_denials(events) == []
+        assert service.detect_excessive_denials(events, evaluation_time=evaluated_now()) == []
 
 
 class TestRiskReconstructionIsScopedByAgent:

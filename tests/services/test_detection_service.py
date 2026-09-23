@@ -14,6 +14,15 @@ from app.services.detection_service import (
 )
 
 
+def evaluated_now() -> datetime:
+    """Evaluation moment for tests that build their events relative to now.
+
+    Passed explicitly because the detector no longer reads a clock: a windowed
+    rule answers a question about a moment, and the caller owns that moment.
+    """
+    return datetime.now(timezone.utc)
+
+
 def create_event(
     decision: Decision,
     session_id: str = "session-1",
@@ -39,7 +48,7 @@ def test_detect_excessive_denials():
         create_event(Decision.DENY),
     ]
 
-    findings = service.detect_excessive_denials(events)
+    findings = service.detect_excessive_denials(events, evaluation_time=evaluated_now())
 
     assert len(findings) == 1
     assert findings[0].session_id == "session-1"
@@ -61,20 +70,24 @@ def test_threshold_crossing_identity_is_stable_and_scoped():
     service = DetectionService()
     denials = [create_event(Decision.DENY) for _ in range(EXCESSIVE_DENIAL_THRESHOLD)]
 
-    first = service.detect_excessive_denials(denials)[0]
+    first = service.detect_excessive_denials(denials, evaluation_time=evaluated_now())[0]
     # Re-deriving from a longer history of the same session is the same evidence.
-    repeated = service.detect_excessive_denials(denials + [create_event(Decision.DENY)])[0]
+    repeated = service.detect_excessive_denials(
+        denials + [create_event(Decision.DENY)], evaluation_time=evaluated_now()
+    )[0]
 
     assert first.finding_id == repeated.finding_id
 
     other_session = service.detect_excessive_denials(
-        [create_event(Decision.DENY, "session-2") for _ in range(EXCESSIVE_DENIAL_THRESHOLD)]
+        [create_event(Decision.DENY, "session-2") for _ in range(EXCESSIVE_DENIAL_THRESHOLD)],
+        evaluation_time=evaluated_now(),
     )[0]
     other_agent = service.detect_excessive_denials(
         [
             create_event(Decision.DENY, "session-1", "agent-2")
             for _ in range(EXCESSIVE_DENIAL_THRESHOLD)
-        ]
+        ],
+        evaluation_time=evaluated_now(),
     )[0]
 
     assert len({first.finding_id, other_session.finding_id, other_agent.finding_id}) == 3
@@ -87,7 +100,7 @@ def test_no_findings_below_threshold():
         create_event(Decision.DENY),
     ]
 
-    findings = service.detect_excessive_denials(events)
+    findings = service.detect_excessive_denials(events, evaluation_time=evaluated_now())
 
     assert not findings
 
@@ -101,7 +114,7 @@ def test_ignore_non_deny_events():
         create_event(Decision.DENY),
     ]
 
-    findings = service.detect_excessive_denials(events)
+    findings = service.detect_excessive_denials(events, evaluation_time=evaluated_now())
 
     assert not findings
 
@@ -120,7 +133,7 @@ def test_denials_are_attributed_per_agent_not_per_session():
         create_event(Decision.DENY, "session-1", "agent-b"),
     ]
 
-    findings = service.detect_excessive_denials(events)
+    findings = service.detect_excessive_denials(events, evaluation_time=evaluated_now())
 
     # Two denials each: neither agent reaches the threshold on its own.
     assert findings == []
@@ -136,7 +149,7 @@ def test_only_the_agent_that_crossed_the_threshold_is_reported():
         create_event(Decision.DENY, "session-1", "agent-b"),
     ]
 
-    findings = service.detect_excessive_denials(events)
+    findings = service.detect_excessive_denials(events, evaluation_time=evaluated_now())
 
     assert len(findings) == 1
     assert findings[0].agent_id == "agent-b"
@@ -154,7 +167,7 @@ def test_multiple_sessions_generate_findings():
         create_event(Decision.DENY, "session-2", "agent-2"),
     ]
 
-    findings = service.detect_excessive_denials(events)
+    findings = service.detect_excessive_denials(events, evaluation_time=evaluated_now())
 
     assert len(findings) == 2
     assert {finding.session_id for finding in findings} == {
@@ -179,7 +192,7 @@ class TestExcessiveDenialsTemporalSemantics:
             create_event(Decision.DENY, timestamp=now - timedelta(seconds=20)),
         ]
 
-        findings = service.detect_excessive_denials(events, now_utc=now)
+        findings = service.detect_excessive_denials(events, evaluation_time=now)
 
         assert len(findings) == 1
         assert findings[0].rule_name == "EXCESSIVE_DENIALS"
@@ -217,7 +230,7 @@ class TestExcessiveDenialsTemporalSemantics:
             ),
         ]
 
-        findings = service.detect_excessive_denials(events, now_utc=now)
+        findings = service.detect_excessive_denials(events, evaluation_time=now)
 
         assert len(findings) == 1
         assert findings[0].agent_id == "agent-A"
@@ -238,7 +251,7 @@ class TestExcessiveDenialsTemporalSemantics:
             create_event(Decision.DENY, timestamp=now - timedelta(seconds=10)),
         ]
         findings_included = service.detect_excessive_denials(
-            events_on_boundary, now_utc=now
+            events_on_boundary, evaluation_time=now
         )
         assert len(findings_included) == 1
 
@@ -249,7 +262,7 @@ class TestExcessiveDenialsTemporalSemantics:
             create_event(Decision.DENY, timestamp=now - timedelta(seconds=10)),
         ]
         findings_excluded = service.detect_excessive_denials(
-            events_older, now_utc=now
+            events_older, evaluation_time=now
         )
         assert len(findings_excluded) == 0
 
@@ -269,7 +282,7 @@ class TestExcessiveDenialsTemporalSemantics:
             ),
         ]
 
-        findings = service.detect_excessive_denials(events, now_utc=now)
+        findings = service.detect_excessive_denials(events, evaluation_time=now)
         assert len(findings) == 0
 
     def test_configurable_window_and_validation(self) -> None:

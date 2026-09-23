@@ -656,8 +656,12 @@ class RuntimeService:
                 },
             )
         )
+        # The moment being evaluated is the event that triggered this evaluation,
+        # not the moment the code happens to run, so the same evidence yields the
+        # same finding whether evaluated live or replayed later.
         session_findings = self._detection_service.detect_excessive_denials(
-            session_events
+            session_events,
+            evaluation_time=recorded_event.timestamp,
         )
 
         # A threshold detection is evidence of one crossing, not of every request
