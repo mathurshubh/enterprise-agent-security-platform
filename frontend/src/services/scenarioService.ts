@@ -52,6 +52,8 @@ interface ScenarioExecutionResponse {
   execution_mode: string
   status: string
   passed: boolean | null
+  authorization_decision?: string | null
+  final_decision?: string | null
   observed_decision: string | null
   observed_response: string | null
   observed_risk_level: string | null
@@ -113,6 +115,8 @@ export const executeScenario = async (
     executionMode: dto.execution_mode,
     status: dto.status,
     passed: dto.passed,
+    authorizationDecision: dto.authorization_decision ?? null,
+    finalDecision: dto.final_decision ?? dto.observed_decision ?? null,
     observedDecision: dto.observed_decision,
     observedResponse: dto.observed_response,
     observedRiskLevel: dto.observed_risk_level,

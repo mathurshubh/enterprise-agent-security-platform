@@ -64,6 +64,8 @@ class TestExecuteScenario:
         assert data["scenario_id"] == "BEN-001"
         assert data["status"] == "COMPLETED"
         assert data["passed"] is True
+        assert data["authorization_decision"] == "ALLOW"
+        assert data["final_decision"] == "ALLOW"
         assert data["observed_decision"] == "ALLOW"
         assert data["observed_risk_level"] == "LOW"
 

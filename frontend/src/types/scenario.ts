@@ -50,6 +50,8 @@ export interface ScenarioExecutionResult {
   executionMode: 'TOOL_SEQUENCE' | 'PROMPT' | string
   status: 'COMPLETED' | 'FAILED' | string
   passed: boolean | null
+  authorizationDecision?: string | null
+  finalDecision?: string | null
   observedDecision: string | null
   observedResponse: string | null
   observedRiskLevel: string | null

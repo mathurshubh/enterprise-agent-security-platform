@@ -123,7 +123,12 @@ class ScenarioRunnerService:
                 for finding in runtime_result.findings
             ]
 
-            observed_decision = runtime_result.event.decision.value
+            authorization_decision = runtime_result.event.decision.value
+            final_decision = (
+                runtime_result.event.final_decision.value
+                if runtime_result.event.final_decision is not None
+                else None
+            )
             # A scenario refused at a trust boundary produces no assessment to grade.
             if runtime_result.response_action is None or runtime_result.risk_assessment is None:
                 raise ValueError(
@@ -178,7 +183,9 @@ class ScenarioRunnerService:
 
             result = ScenarioExecutionResult(
                 passed=passed,
-                observed_decision=observed_decision,
+                authorization_decision=authorization_decision,
+                final_decision=final_decision,
+                observed_decision=final_decision,
                 observed_response=observed_response,
                 observed_risk_level=observed_risk_level,
                 observed_findings=observed_findings,
