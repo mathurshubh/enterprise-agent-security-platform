@@ -35,6 +35,7 @@ import pytest
 
 from app.models.audit_event import Decision
 from app.models.response_action import ResponseType
+from app.models.session import Session
 from app.services.detection_service import DetectionService
 from tests.security.conftest import BENIGN_FILE
 
@@ -257,3 +258,86 @@ class TestTheFinalDecisionReachesItsConsumers:
         gate = source[source.index("decision = ") : source.index("\n", source.index("decision = "))]
 
         assert "final_decision" in gate
+
+
+class TestAuthorizationResultEvidenceInvariants:
+    """Stage C: Invariants governing structured authorization evidence."""
+
+    @pytest.mark.security_invariant
+    def test_authorization_result_matches_event_decision(
+        self, build_runtime, security_workspace: Path
+    ) -> None:
+        env = build_runtime(workspace=security_workspace)
+
+        result = env.runtime.execute(
+            session_id="auth-evidence-match",
+            agent_id=env.agent_id,
+            tool_id="file_read",
+            resource=BENIGN_FILE,
+        )
+
+        assert result.authorization_result is not None
+        assert result.authorization_result.decision == result.event.decision
+        assert result.authorization_result.agent_check.status == "passed"
+        assert result.authorization_result.tool_check.status == "passed"
+        assert result.authorization_result.approved_tool_check.status == "passed"
+        assert result.authorization_result.status_check.status == "passed"
+        assert result.authorization_result.risk_tier_check.status == "passed"
+        assert result.authorization_result.resource_check.status == "passed"
+
+    @pytest.mark.security_invariant
+    def test_downstream_escalation_does_not_mutate_authorization_result(
+        self, build_runtime, security_workspace: Path
+    ) -> None:
+        from pydantic import ValidationError
+
+        env = build_runtime(workspace=security_workspace)
+
+        result = env.runtime.execute(
+            session_id="auth-evidence-escalated",
+            agent_id=env.agent_id,
+            tool_id="file_read",
+            resource=BENIGN_FILE,
+            user_prompt=CRITICAL_PAYLOAD,
+        )
+
+        # Response escalation overrides final_decision, but NOT authorization_result or event.decision
+        assert result.response_action.response_type == ResponseType.SUSPEND_AGENT
+        assert result.event.decision == Decision.ALLOW
+        assert result.event.final_decision == Decision.DENY
+
+        assert result.authorization_result is not None
+        assert result.authorization_result.decision == Decision.ALLOW
+        assert result.authorization_result.agent_check.status == "passed"
+        assert result.authorization_result.resource_check.status == "passed"
+
+        # Mutation protections:
+        with pytest.raises(ValidationError):
+            result.authorization_result.decision = Decision.DENY
+
+        with pytest.raises(ValidationError):
+            result.authorization_result.agent_check.status = "failed"
+
+        with pytest.raises(TypeError):
+            result.authorization_result.agent_check.details["tamper"] = "attack"
+
+    @pytest.mark.security_invariant
+    def test_early_refusal_does_not_produce_authorization_result(
+        self, build_runtime, security_workspace: Path
+    ) -> None:
+        env = build_runtime(workspace=security_workspace)
+
+        # Bind session to a different agent first to force SessionBindingError
+        env.session_service.create_session(
+            Session(session_id="refused-session", agent_id="other-agent")
+        )
+
+        result = env.runtime.execute(
+            session_id="refused-session",
+            agent_id=env.agent_id,
+            tool_id="file_read",
+            resource=BENIGN_FILE,
+        )
+
+        assert result.refusal_reason == "SESSION_BINDING_INVALID"
+        assert result.authorization_result is None

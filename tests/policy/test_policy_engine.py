@@ -128,3 +128,84 @@ def test_deny_access_to_protected_resource():
     )
 
     assert decision == Decision.DENY
+
+
+def test_evaluate_policy_allow_normal_access():
+    engine = PolicyEngine()
+    result = engine.evaluate_policy(create_agent(), create_tool(), resource="notes.txt")
+
+    assert result.decision == Decision.ALLOW
+    assert result.status_check.status == "passed"
+    assert result.risk_tier_check.status == "passed"
+    assert result.resource_check.status == "passed"
+    assert result.reason == "All policy checks passed"
+
+
+def test_evaluate_policy_deny_suspended_agent():
+    engine = PolicyEngine()
+    result = engine.evaluate_policy(
+        create_agent(status=AgentStatus.SUSPENDED),
+        create_tool(),
+    )
+
+    assert result.decision == Decision.DENY
+    assert result.status_check.status == "failed"
+    assert result.risk_tier_check.status == "not_evaluated"
+    assert result.risk_tier_check.details["skipped_after"] == "status_check"
+    assert result.resource_check.status == "not_evaluated"
+    assert result.resource_check.details["skipped_after"] == "status_check"
+
+
+def test_evaluate_policy_deny_low_risk_critical_tool():
+    engine = PolicyEngine()
+    result = engine.evaluate_policy(
+        create_agent(risk_tier=RiskTier.LOW),
+        create_tool(risk_level=ToolRiskLevel.CRITICAL),
+    )
+
+    assert result.decision == Decision.DENY
+    assert result.status_check.status == "passed"
+    assert result.risk_tier_check.status == "failed"
+    assert result.resource_check.status == "not_evaluated"
+    assert result.resource_check.details["skipped_after"] == "risk_tier_check"
+
+
+def test_evaluate_policy_deny_protected_resource():
+    engine = PolicyEngine()
+    result = engine.evaluate_policy(
+        create_agent(),
+        create_tool(),
+        resource="secrets.txt",
+    )
+
+    assert result.decision == Decision.DENY
+    assert result.status_check.status == "passed"
+    assert result.risk_tier_check.status == "passed"
+    assert result.resource_check.status == "failed"
+    assert result.resource_check.details["resource"] == "secrets.txt"
+
+
+def test_evaluate_policy_approval_required_for_critical_tool():
+    engine = PolicyEngine()
+    result = engine.evaluate_policy(
+        create_agent(risk_tier=RiskTier.HIGH),
+        create_tool(risk_level=ToolRiskLevel.CRITICAL),
+    )
+
+    # All checks passed, but decision is APPROVAL_REQUIRED
+    assert result.decision == Decision.APPROVAL_REQUIRED
+    assert result.status_check.status == "passed"
+    assert result.risk_tier_check.status == "passed"
+    assert result.resource_check.status == "passed"
+    assert "CRITICAL" in result.reason
+
+
+def test_policy_evaluation_result_immutability():
+    import pytest
+    from pydantic import ValidationError
+
+    engine = PolicyEngine()
+    result = engine.evaluate_policy(create_agent(), create_tool())
+
+    with pytest.raises(ValidationError):
+        result.decision = Decision.DENY

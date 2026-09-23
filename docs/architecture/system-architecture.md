@@ -265,7 +265,7 @@ The platform roadmap is grounded in the **Jan–Aug 2026 AI Security Architectur
 The architecture follows a strict three-tier roadmap separating operational capabilities from future enhancements:
 
 ### Tier 1: Current / Implemented
-*   **Policy Decision Point & Deterministic Authorization:** `RuntimeService`, `AuthorizationService`, `PolicyEngine` (ADR-004, ADR-006).
+*   **Policy Decision Point & Deterministic Authorization:** `RuntimeService`, `AuthorizationService`, `PolicyEngine` (ADR-004, ADR-006). Single security authority producing immutable, structured authorization evidence (`AuthorizationResult`, `AuthorizationCheck`) evaluating 6 deterministic checks (agent existence, tool existence, RBAC whitelist, lifecycle status, risk-tier alignment, and resource protection) with fail-closed `NOT_EVALUATED` short-circuiting. Authorization evidence remains causally independent of downstream detection and response overrides.
 *   **Tool Authorization & Registry Governance:** `ToolRegistry` controlling capability resolution and metadata separation (ADR-005).
 *   **Resource-Aware Authorization:** Parameter-level path and resource restriction validation.
 *   **Threat Detection Engine:** Stateless content inspection (`PROMPT_INJECTION`, `SENSITIVE_FILE_ACCESS`, `DATA_EXFILTRATION`) and stateful behavioral tracking (`EXCESSIVE_DENIALS`) (ADR-017).

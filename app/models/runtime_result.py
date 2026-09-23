@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 
 from app.models.agent_risk_posture import AgentRiskPosture
+from app.models.authorization_result import AuthorizationResult
 from app.models.execution_binding import ExecutionBinding
 from app.models.execution_grant import ExecutionGrant
 from app.models.finding import Finding
@@ -31,6 +32,9 @@ class RuntimeResult(BaseModel):
     # ADR-023: present only when the final decision is ALLOW. It is the only
     # authority a DefaultToolExecutor accepts for executing this operation.
     authorization: ExecutionGrant | None = None
+    # Stage C: structured, immutable evidence of the deterministic authorization checks.
+    # Reflects the authorization decision and is never mutated by downstream pipeline stages.
+    authorization_result: AuthorizationResult | None = None
 
     @property
     def authorized_binding(self) -> ExecutionBinding | None:
