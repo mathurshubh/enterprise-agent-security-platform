@@ -110,4 +110,9 @@ export const queryKeys = {
   dashboard: {
     summary: ['dashboard', 'summary'] as const,
   },
+
+  /** Platform metadata and version (GET /version) */
+  platform: {
+    version: ['platform', 'version'] as const,
+  },
 } as const

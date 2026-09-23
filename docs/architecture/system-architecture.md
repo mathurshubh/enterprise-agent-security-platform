@@ -341,6 +341,7 @@ The platform architecture is built upon the following immutable design choices (
 5. Findings represent authoritative evidence; Risk Assessments represent derived posture.
 6. Execution authority is granted via single-use, tightly bound execution grants.
 7. Runtime containment is one-way: recovery requires authorized administrative intervention.
+8. Release authority and version model: Git tags are the authoritative release marker (`v0.15.0`); the root `VERSION` file is the sole machine-readable authority for the checked-out application identity (`0.15.0`). Neither backend nor frontend inspects `.git` at runtime. The public `GET /version` endpoint exposes canonical platform metadata, while `GET /health` exclusively owns operational health status. CI enforces that release tags and `VERSION` strictly agree.
 
 ## 18. Scenario Library & Validation Framework Architecture
 

@@ -46,7 +46,7 @@ PLANE_ROLES: dict[str, set[Role]] = {
     "/api/v1": {Role.ANALYST, Role.ADMIN},
 }
 
-PUBLIC_PATHS = {"/health"}
+PUBLIC_PATHS = {"/health", "/version"}
 
 # Security evidence a low-privilege agent principal should not be able to read
 # for agents other than itself.

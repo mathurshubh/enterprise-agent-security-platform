@@ -50,6 +50,7 @@ from app.models.risk_assessment import RiskAssessment, RiskLevel
 from app.services.agent_service import AgentNotFoundError, AgentNotSuspendedError
 from app.services.enforcement_coordinator import ReinstatementIncompleteError
 from app.services.risk_service import AmbiguousAssessmentScopeError
+from app.version import get_platform_version
 
 router = APIRouter(tags=["Management"])
 
@@ -453,7 +454,7 @@ def platform_info() -> dict:
     """
     return {
         "platform": "Enterprise Agent Security Platform",
-        "version": "0.9.0",
+        "version": get_platform_version(),
         "api_version": "v1",
         "registered_agents": len(agent_service.list_agents()),
         "registered_tools": len(tool_inventory_service.list_registered_tools()),

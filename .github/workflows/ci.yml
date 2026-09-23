@@ -104,6 +104,35 @@ jobs:
       - name: Run Git Diff Check
         run: git diff --check HEAD~1 HEAD || git diff --check
 
+      - name: Validate Canonical Version Invariants
+        run: |
+          if [ ! -f VERSION ]; then
+            echo "Error: Canonical VERSION file missing from repository root." >&2
+            exit 1
+          fi
+          VERSION_VAL=$(cat VERSION | tr -d '[:space:]')
+          SEMVER_PATTERN='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'
+          if ! echo "$VERSION_VAL" | grep -Eq "$SEMVER_PATTERN"; then
+            echo "Error: VERSION '$VERSION_VAL' does not follow semantic versioning." >&2
+            exit 1
+          fi
+
+          PKG_VERSION=$(node -p "require('./frontend/package.json').version")
+          if [ "$PKG_VERSION" != "$VERSION_VAL" ]; then
+            echo "Error: frontend/package.json version '$PKG_VERSION' does not match root VERSION '$VERSION_VAL'." >&2
+            exit 1
+          fi
+
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            EXPECTED_TAG="v${VERSION_VAL}"
+            if [ "${{ github.ref_name }}" != "$EXPECTED_TAG" ]; then
+              echo "Error: Release tag '${{ github.ref_name }}' does not match expected tag '$EXPECTED_TAG' for VERSION '$VERSION_VAL'." >&2
+              exit 1
+            fi
+            echo "Release tag '${{ github.ref_name }}' matches VERSION '$VERSION_VAL'."
+          fi
+          echo "Canonical VERSION '$VERSION_VAL' validated successfully."
+
   security-quality:
     name: Secret & Vulnerability Scanning
     runs-on: ubuntu-latest

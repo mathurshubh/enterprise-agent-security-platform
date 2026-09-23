@@ -54,6 +54,11 @@ class TestBoundaryAuthentication:
         assert response.status_code == 200
         assert response.json() == {"status": "ok"}
 
+    def test_version_endpoint_remains_public(self) -> None:
+        response = client.get("/version")
+        assert response.status_code == 200
+        assert "version" in response.json()
+
     @pytest.mark.parametrize(
         "header_value",
         [
@@ -244,3 +249,8 @@ class TestOpenAPISecurityScheme:
         assert "/health" in paths
         assert "get" in paths["/health"]
         assert "security" not in paths["/health"]["get"] or paths["/health"]["get"]["security"] == []
+
+        # Public version route
+        assert "/version" in paths
+        assert "get" in paths["/version"]
+        assert "security" not in paths["/version"]["get"] or paths["/version"]["get"]["security"] == []
