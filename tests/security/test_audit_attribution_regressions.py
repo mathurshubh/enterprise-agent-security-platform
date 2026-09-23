@@ -263,3 +263,126 @@ class TestTheRecordCannotBeWrittenUnattributed:
         assert "model_output" not in attribution
         assert "user_prompt" not in attribution
         assert "tool_output" not in attribution
+
+
+class TestExecutionResultCorrelatesToAuditEvent:
+    """Stage D — RuntimeResult.audit_event_id correlates directly to AuditEvent.event_id."""
+
+    @pytest.mark.security_invariant
+    def test_invariant_runtime_result_correlates_directly_to_audit_event(
+        self, build_runtime, security_workspace: Path
+    ) -> None:
+        """D3: RuntimeResult.audit_event_id matches AuditEvent.event_id across standard and refusal paths."""
+        from app.models.agent import Agent, AgentStatus, RiskTier
+        from tests.security.test_posture_projection_regressions import (
+            UnreconcilableAggregator,
+        )
+
+        env = build_runtime(workspace=security_workspace)
+
+        # 1. Standard allowed execution
+        result_allow = env.runtime.execute(
+            session_id="audit-corr-allow",
+            agent_id=env.agent_id,
+            tool_id="file_read",
+            resource=BENIGN_FILE,
+        )
+        assert result_allow.audit_event_id is not None
+        events_allow = audit_for(env, "audit-corr-allow")
+        assert len(events_allow) == 1
+        assert result_allow.audit_event_id == events_allow[0].event_id
+
+        # 2. Session binding refusal path
+        env.agent_service.register_agent(
+            Agent(
+                agent_id="audit-corr-intruder",
+                name="Intruder",
+                owner="unknown",
+                risk_tier=RiskTier.HIGH,
+                approved_tools=["file_read"],
+                status=AgentStatus.ACTIVE,
+            )
+        )
+        result_binding_refusal = env.runtime.execute(
+            session_id="audit-corr-allow",
+            agent_id="audit-corr-intruder",
+            tool_id="file_read",
+            resource=BENIGN_FILE,
+        )
+        assert result_binding_refusal.refusal_reason == "SESSION_BINDING_INVALID"
+        assert result_binding_refusal.audit_event_id is not None
+        events_intruder = [
+            e for e in audit_for(env, "audit-corr-allow") if e.agent_id == "audit-corr-intruder"
+        ]
+        assert len(events_intruder) == 1
+        assert result_binding_refusal.audit_event_id == events_intruder[0].event_id
+        assert events_intruder[0].decision == Decision.DENY
+
+        # 3. Posture reconciliation refusal path
+        env_unrec = build_runtime(
+            workspace=security_workspace,
+            risk_aggregator=UnreconcilableAggregator(),
+        )
+        result_posture_refusal = env_unrec.runtime.execute(
+            session_id="audit-corr-unrec",
+            agent_id=env_unrec.agent_id,
+            tool_id="file_read",
+            resource=BENIGN_FILE,
+        )
+        assert result_posture_refusal.refusal_reason == "POSTURE_RECONCILIATION_FAILED"
+        assert result_posture_refusal.audit_event_id is not None
+        events_unrec = audit_for(env_unrec, "audit-corr-unrec")
+        assert len(events_unrec) == 1
+        assert result_posture_refusal.audit_event_id == events_unrec[0].event_id
+        assert events_unrec[0].decision == Decision.DENY
+
+    @pytest.mark.security_invariant
+    def test_invariant_audit_correlation_preserved_under_response_escalation(
+        self, build_runtime, security_workspace: Path
+    ) -> None:
+        """D4: Response overrides write to final_decision; audit_event_id matches the audit record recording that final decision."""
+        env = build_runtime(workspace=security_workspace)
+
+        result_escalated = env.runtime.execute(
+            session_id="audit-corr-escalate",
+            agent_id=env.agent_id,
+            tool_id="file_read",
+            resource=BENIGN_FILE,
+            user_prompt=CRITICAL_PAYLOAD,
+        )
+
+        assert result_escalated.audit_event_id is not None
+        events = audit_for(env, "audit-corr-escalate")
+        assert len(events) == 1
+        assert result_escalated.audit_event_id == events[0].event_id
+        assert events[0].decision == result_escalated.event.final_decision
+        assert events[0].decision == Decision.DENY
+
+    @pytest.mark.security_invariant
+    def test_invariant_identical_executions_produce_distinct_audit_event_ids(
+        self, build_runtime, security_workspace: Path
+    ) -> None:
+        """D7: Two executions with identical inputs produce distinct audit event IDs, demonstrating audit record identity rather than replay identity."""
+        env = build_runtime(workspace=security_workspace)
+
+        result_a = env.runtime.execute(
+            session_id="audit-corr-ident-a",
+            agent_id=env.agent_id,
+            tool_id="file_read",
+            resource=BENIGN_FILE,
+        )
+        result_b = env.runtime.execute(
+            session_id="audit-corr-ident-b",
+            agent_id=env.agent_id,
+            tool_id="file_read",
+            resource=BENIGN_FILE,
+        )
+
+        events_a = audit_for(env, "audit-corr-ident-a")
+        events_b = audit_for(env, "audit-corr-ident-b")
+        assert len(events_a) == 1
+        assert len(events_b) == 1
+
+        assert result_a.audit_event_id == events_a[0].event_id
+        assert result_b.audit_event_id == events_b[0].event_id
+        assert result_a.audit_event_id != result_b.audit_event_id

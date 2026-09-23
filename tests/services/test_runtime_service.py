@@ -1,3 +1,5 @@
+from unittest.mock import MagicMock
+
 from app.auth.authorization_service import AuthorizationService
 from app.detection.data_exfiltration_rule import DataExfiltrationRule
 from app.detection.engine import DetectionEngine
@@ -22,7 +24,7 @@ from app.services.findings_service import FindingsService
 from app.services.response_service import ResponseService
 from app.services.risk_aggregator import RiskAggregator
 from app.services.risk_service import RiskService
-from app.services.runtime_service import RuntimeService
+from app.services.runtime_service import PostureReconciliationError, RuntimeService
 from app.services.session_service import SessionService
 from app.services.tool_service import ToolService
 
@@ -333,7 +335,7 @@ def test_execute_overrides_decision_on_detection_findings():
 def test_execute_writes_audit_events():
     # 1. Test approved execution is audited
     service, _ = create_runtime_service(["file_read"])
-    service.execute(
+    result_allow = service.execute(
         session_id="session-allow",
         agent_id="agent-1",
         tool_id="file_read",
@@ -343,10 +345,12 @@ def test_execute_writes_audit_events():
     assert audit_events_allow[0].agent_id == "agent-1"
     assert audit_events_allow[0].tool_id == "file_read"
     assert audit_events_allow[0].decision == Decision.ALLOW
+    assert result_allow.audit_event_id is not None
+    assert result_allow.audit_event_id == audit_events_allow[0].event_id
 
     # 2. Test denied execution is audited
     service_deny, _ = create_runtime_service([])  # file_read not allowed
-    service_deny.execute(
+    result_deny = service_deny.execute(
         session_id="session-deny",
         agent_id="agent-1",
         tool_id="file_read",
@@ -354,10 +358,12 @@ def test_execute_writes_audit_events():
     audit_events_deny = service_deny._audit_service.list_events()
     assert len(audit_events_deny) == 1
     assert audit_events_deny[0].decision == Decision.DENY
+    assert result_deny.audit_event_id is not None
+    assert result_deny.audit_event_id == audit_events_deny[0].event_id
 
     # 3. Test prompt injection event is audited with final decision
     service_pi, _ = create_runtime_service(["file_read"])
-    service_pi.execute(
+    result_pi = service_pi.execute(
         session_id="session-pi",
         agent_id="agent-1",
         tool_id="file_read",
@@ -367,6 +373,56 @@ def test_execute_writes_audit_events():
     assert len(audit_events_pi) == 1
     # Authoritative decision is overridden to APPROVAL_REQUIRED
     assert audit_events_pi[0].decision == Decision.APPROVAL_REQUIRED
+    assert result_pi.audit_event_id is not None
+    assert result_pi.audit_event_id == audit_events_pi[0].event_id
+
+
+def test_execute_session_binding_refusal_correlates_audit_event():
+    service, _ = create_runtime_service(["file_read"])
+    service.execute(
+        session_id="shared-session",
+        agent_id="agent-1",
+        tool_id="file_read",
+    )
+    service._agent_service.register_agent(
+        Agent(
+            agent_id="agent-2",
+            name="Agent 2",
+            owner="security-team",
+            risk_tier=RiskTier.LOW,
+            approved_tools=["file_read"],
+            status=AgentStatus.ACTIVE,
+        )
+    )
+    refusal_result = service.execute(
+        session_id="shared-session",
+        agent_id="agent-2",
+        tool_id="file_read",
+    )
+    assert refusal_result.refusal_reason == "SESSION_BINDING_INVALID"
+    assert refusal_result.audit_event_id is not None
+    events = service._audit_service.list_events()
+    assert len(events) == 2
+    assert refusal_result.audit_event_id == events[1].event_id
+    assert events[1].decision == Decision.DENY
+    assert events[1].agent_id == "agent-2"
+
+
+def test_execute_posture_reconciliation_refusal_correlates_audit_event():
+    service, _ = create_runtime_service(["file_read"])
+    service._assess_agent_posture = MagicMock(side_effect=PostureReconciliationError("Unavailable"))
+    refusal_result = service.execute(
+        session_id="session-posture-err",
+        agent_id="agent-1",
+        tool_id="file_read",
+    )
+    assert refusal_result.refusal_reason == "POSTURE_RECONCILIATION_FAILED"
+    assert refusal_result.audit_event_id is not None
+    events = service._audit_service.list_events()
+    assert len(events) == 1
+    assert refusal_result.audit_event_id == events[0].event_id
+    assert events[0].decision == Decision.DENY
+
 
 
 def test_h1_cumulative_risk_posture_maintained_across_benign_executions():
