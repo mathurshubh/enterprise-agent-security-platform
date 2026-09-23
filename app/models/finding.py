@@ -47,6 +47,14 @@ class Finding(BaseModel):
         default_factory=lambda: datetime.now(timezone.utc)
     )
     recorded_at: datetime | None = None
+    # The evidence this finding was derived from, and the enforcement lifecycle it
+    # belongs to. A threshold crossing is re-derived by every later request in the
+    # session, so the detector has to be able to tell "the crossing I already
+    # reported" from "a new crossing". It reads that back from the finding rather
+    # than recomputing it, because the set of in-window events slides continuously
+    # while the underlying crossing does not.
+    evidence_event_sequences: tuple[int, ...] = ()
+    enforcement_epoch: int = Field(default=0, ge=0)
     evidence_sequence: int = Field(
         default=UNASSIGNED_SEQUENCE,
         ge=0,

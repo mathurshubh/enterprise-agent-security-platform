@@ -62,7 +62,12 @@ def test_detect_excessive_denials():
     # same crossing yields the same finding (M2a).
     assert UUID(findings[0].finding_id).version == 5
     assert findings[0].finding_id == session_finding_id(
-        "EXCESSIVE_DENIALS", "session-1", "agent-1", EXCESSIVE_DENIAL_THRESHOLD
+        "EXCESSIVE_DENIALS",
+        "session-1",
+        "agent-1",
+        EXCESSIVE_DENIAL_THRESHOLD,
+        findings[0].evidence_event_sequences,
+        findings[0].enforcement_epoch,
     )
 
 

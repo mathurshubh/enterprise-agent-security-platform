@@ -92,6 +92,7 @@ class PromptInjectionRule(DetectionRule):
                     f"{matched_indicator}"
                 ),
                 created_at=self._CREATED_AT,
+                evidence_event_sequences=(context.triggering_event_sequence,),
             )
         ]
 
@@ -115,5 +116,8 @@ class PromptInjectionRule(DetectionRule):
         context: DetectionContext,
         indicator: str,
     ) -> str:
-        raw_id = f"{self.rule_name}|{context.session_id}|{context.agent_id}|{indicator}"
+        raw_id = (
+            f"{self.rule_name}|{context.session_id}|{context.agent_id}|{indicator}"
+            f"|{context.triggering_event_sequence}"
+        )
         return str(uuid5(NAMESPACE_URL, raw_id))
