@@ -174,6 +174,35 @@ class AgentService:
                 if transition.agent_id == agent_id
             ]
 
+    def enforcement_epoch(
+        self,
+        agent_id: str,
+        *,
+        as_of: datetime,
+    ) -> int:
+        """Return how many times this agent had been reinstated by ``as_of``.
+
+        Derived from the append-only transition history rather than stored, and
+        evaluated at a supplied moment rather than "now". Detection identity
+        depends on it, so reading the agent's *current* epoch would make the
+        identity of a past event depend on when it is looked at: an event from
+        before a reinstatement would derive one epoch live and a different one on
+        replay, and the same behaviour would produce two different findings.
+
+        Neither ``baseline_sequence`` nor ``baseline_at`` can serve this purpose.
+        Two reinstatements with no evidence between them share a baseline sequence,
+        and a baseline timestamp is a wall-clock capture rather than a position in
+        the history being replayed.
+        """
+        with self._lock:
+            return sum(
+                1
+                for transition in self._transitions
+                if transition.agent_id == agent_id
+                and transition.action == EnforcementAction.REINSTATE
+                and transition.occurred_at <= as_of
+            )
+
     def _transition(
         self,
         agent: Agent,

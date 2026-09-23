@@ -34,21 +34,16 @@ The last step is asserted because a finding that exists but never reaches the
 projection would satisfy a narrower test while leaving the agent unenforceable —
 the precise outcome ADR-024 rejected.
 
-Two cases currently fail and are marked `xfail(strict=True)`: when the detection
-condition recurs in the *same* session, it derives the identity the pre-baseline
-finding already holds, and no distinct record results. They are strict so that
-remediation is forced to update them rather than leaving a silently passing
-expectation behind.
+All four cases pass. The two same-session cases were `xfail(strict=True)` while the
+defect stood: a recurring condition derived the identity the pre-baseline finding
+already held, so no distinct post-baseline evidence resulted and a reinstated agent
+repeating the identical condition was answered `ALLOW`. Occurrence identity now
+distinguishes a new occurrence from a re-derivation, and the expected failures were
+removed rather than left as silently passing expectations.
 
-The cause is stated as shared identity rather than as the skip in
-`record_new_findings`, because removing that skip alone does not satisfy these
-tests: the evidence store is keyed by identity, so the re-derived finding
-overwrites in place and keeps the original acceptance time. Locating the true
-boundary is Phase 3's job, and these tests deliberately do not presume it.
-
-Driven through the HTTP boundary, because the consequence is externally
+Driven through the HTTP boundary, because the consequence was externally
 observable: the same-session repeat of an injection that previously suspended the
-agent is answered `ALLOW`.
+agent was answered `ALLOW`.
 """
 
 import pytest
@@ -160,14 +155,6 @@ class TestContentDetectionAfterReinstatement:
         assert repeat["decision"] != "ALLOW"
 
     @pytest.mark.security_invariant
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "Known defect (Track A): the recurring condition derives the identity the "
-            "pre-baseline finding already holds, so no distinct post-baseline evidence "
-            "results and a reinstated agent repeating it is answered ALLOW."
-        ),
-    )
     def test_a_recurring_condition_in_the_same_session_is_enforceable(self) -> None:
         """Case 2 — identical to case 1 except that the session does not change."""
         agent_id, headers = agent_for("content-same")
@@ -212,14 +199,6 @@ class TestAccumulationDetectionAfterReinstatement:
         assert_post_baseline_evidence_is_enforceable(agent_id, before_count)
 
     @pytest.mark.security_invariant
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "Known defect (Track A): a threshold crossing re-derived in the same "
-            "session carries the pre-baseline finding's identity, so no "
-            "post-baseline evidence is recorded for the repeated crossing."
-        ),
-    )
     def test_a_recurring_crossing_in_the_same_session_is_enforceable(self) -> None:
         """Case 4 — identical to case 3 except that the session does not change."""
         agent_id, headers = agent_for("accumulation-same")

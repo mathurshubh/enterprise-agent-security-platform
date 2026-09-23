@@ -201,10 +201,10 @@ def test_invariant_the_runtime_evaluates_at_the_triggering_events_moment(
     real_detector = env.runtime._detection_service
 
     class CapturingDetector(DetectionService):
-        def detect_excessive_denials(self, events, *, evaluation_time):
+        def detect_excessive_denials(self, events, *, evaluation_time, **kwargs):
             captured.append(evaluation_time)
             return real_detector.detect_excessive_denials(
-                events, evaluation_time=evaluation_time
+                events, evaluation_time=evaluation_time, **kwargs
             )
 
     env.runtime._detection_service = CapturingDetector()
