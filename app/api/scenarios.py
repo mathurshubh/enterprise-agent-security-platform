@@ -107,6 +107,8 @@ def execute_scenario(scenario_id: str) -> ScenarioExecutionResponse:
     execution = runner.run(scenario)
 
     passed: bool | None = None
+    authorization_decision: str | None = None
+    final_decision: str | None = None
     observed_decision: str | None = None
     observed_response: str | None = None
     observed_risk_level: str | None = None
@@ -115,6 +117,8 @@ def execute_scenario(scenario_id: str) -> ScenarioExecutionResponse:
 
     if execution.result is not None:
         passed = execution.result.passed
+        authorization_decision = execution.result.authorization_decision
+        final_decision = execution.result.final_decision
         observed_decision = execution.result.observed_decision
         observed_response = execution.result.observed_response
         observed_risk_level = execution.result.observed_risk_level
@@ -128,6 +132,8 @@ def execute_scenario(scenario_id: str) -> ScenarioExecutionResponse:
         execution_mode=execution.execution_mode.value,
         status=execution.status.value,
         passed=passed,
+        authorization_decision=authorization_decision,
+        final_decision=final_decision,
         observed_decision=observed_decision,
         observed_response=observed_response,
         observed_risk_level=observed_risk_level,

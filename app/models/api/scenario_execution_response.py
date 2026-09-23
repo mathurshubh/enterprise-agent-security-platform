@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ScenarioExecutionResponse(BaseModel):
@@ -12,7 +12,21 @@ class ScenarioExecutionResponse(BaseModel):
     execution_mode: str
     status: str
     passed: bool | None = None
-    observed_decision: str | None = None
+    authorization_decision: str | None = Field(
+        default=None,
+        description="Deterministic authorization decision evaluated before detection.",
+    )
+    final_decision: str | None = Field(
+        default=None,
+        description="Final pipeline outcome after detection and response action application.",
+    )
+    observed_decision: str | None = Field(
+        default=None,
+        description=(
+            "Legacy compatibility alias for final_decision. Reflects final pipeline outcome, "
+            "not authorization decision."
+        ),
+    )
     observed_response: str | None = None
     observed_risk_level: str | None = None
     observed_findings: list[str] = []
@@ -20,3 +34,4 @@ class ScenarioExecutionResponse(BaseModel):
     error_message: str | None = None
     started_at: datetime
     finished_at: datetime | None = None
+

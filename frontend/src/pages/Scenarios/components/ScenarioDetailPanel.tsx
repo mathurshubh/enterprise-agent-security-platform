@@ -130,10 +130,14 @@ export default function ScenarioDetailPanel({ scenario }: ScenarioDetailPanelPro
             </span>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-[11px]">
             <div className="p-2 rounded bg-bg-secondary/40 border border-border-secondary">
-              <div className="text-text-muted text-[10px]">Decision</div>
-              <div className="font-semibold text-text-primary">{executionResult.observedDecision || '—'}</div>
+              <div className="text-text-muted text-[10px]">Auth Decision</div>
+              <div className="font-semibold text-text-primary">{executionResult.authorizationDecision || '—'}</div>
+            </div>
+            <div className="p-2 rounded bg-bg-secondary/40 border border-border-secondary">
+              <div className="text-text-muted text-[10px]">Final Decision</div>
+              <div className="font-semibold text-text-primary">{executionResult.finalDecision || executionResult.observedDecision || '—'}</div>
             </div>
             <div className="p-2 rounded bg-bg-secondary/40 border border-border-secondary">
               <div className="text-text-muted text-[10px]">Observed Risk</div>
