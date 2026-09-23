@@ -82,7 +82,11 @@ def test_record_event():
 
     result = service.record_event(event)
 
-    assert result == event
+    # The service assigns the canonical position; everything else is unchanged.
+    assert result.model_dump(exclude={"sequence_number"}) == event.model_dump(
+        exclude={"sequence_number"}
+    )
+    assert result.sequence_number == 1
 
 
 def test_list_events():
@@ -109,16 +113,16 @@ def test_list_events():
         decision=Decision.ALLOW,
     )
 
-    service.record_event(event_1)
-    service.record_event(event_2)
-    service.record_event(event_3)
+    recorded_1 = service.record_event(event_1)
+    recorded_2 = service.record_event(event_2)
+    recorded_3 = service.record_event(event_3)
 
     events = service.list_events("session-1")
 
     assert len(events) == 2
-    assert event_1 in events
-    assert event_2 in events
-    assert event_3 not in events
+    assert recorded_1 in events
+    assert recorded_2 in events
+    assert recorded_3 not in events
 
 
 class TestSessionLifecycleAndTombstones:

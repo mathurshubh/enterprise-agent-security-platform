@@ -21,6 +21,13 @@ Security invariants:
   events and does not require scanning retained events.
 - M4-EVENT-7 (Timestamp Ordering Contract): Eviction correctness is guaranteed by min-heap root
   ordering and does not depend on insertion-order/timestamp monotonicity.
+- M4-EVENT-8 (Canonical Deterministic Ordering): ``(timestamp, sequence_number)`` is
+  the canonical deterministic ordering key for a session's history. Every recorded
+  event carries a monotonic per-session ``sequence_number``, assigned once and never
+  reassigned, serving as the immutable tie-breaker for equal timestamps. Chronological
+  ordering (M4-EVENT-7) is unchanged; the tie-breaker makes a session's event order a
+  property of the history rather than of internal heap layout, and pruning never
+  renumbers survivors.
 """
 
 import heapq
@@ -103,6 +110,10 @@ class SessionService:
         self._retention_policy = retention_policy
         self._events_heap: list[tuple[datetime, int, SessionEvent]] = []
         self._event_counter: int = 0
+        # Canonical per-session position (M4-EVENT-8). Kept separately from the
+        # heap so that pruning never renumbers surviving events and a sequence is
+        # never reused after the events carrying it have been evicted.
+        self._session_sequences: dict[str, int] = {}
         self._lock = RLock()
 
     @property
@@ -284,15 +295,19 @@ class SessionService:
                     event.session_id, owner.agent_id, event.agent_id
                 )
 
+            next_sequence = self._session_sequences.get(event.session_id, 0) + 1
+            self._session_sequences[event.session_id] = next_sequence
+            recorded = event.model_copy(update={"sequence_number": next_sequence})
+
             heapq.heappush(
                 self._events_heap,
-                (event.timestamp, self._event_counter, event),
+                (recorded.timestamp, self._event_counter, recorded),
             )
             self._event_counter += 1
 
-            self._prune_events(now=event.timestamp)
+            self._prune_events(now=recorded.timestamp)
 
-            return event
+            return recorded
 
     def _prune_events(self, now: datetime) -> int:
         """Prune expired session events whose timestamp is older than the retention cutoff.
@@ -323,10 +338,18 @@ class SessionService:
         self,
         session_id: str,
     ) -> list[SessionEvent]:
-        """Return chronological session events for session_id.
+        """Return the session's events in canonical order.
 
-        M4-EVENT-6 / M4-EVENT-7: Read path returns deterministic chronological ordering
-        without assuming the heap array itself is in fully sorted order.
+        M4-EVENT-6 / M4-EVENT-7: chronological, without assuming the heap array is
+        itself sorted.
+
+        M4-EVENT-8: the ordering key is ``(timestamp, sequence_number)``. Chronology
+        remains primary; the persisted per-session sequence is the tie-breaker.
+        Sorting on timestamp alone left tied events in whatever order the heap array
+        happened to hold them, which is not insertion order and not stable across
+        differently shaped histories, so anything deriving identity or evidence from
+        "the first N events" had no deterministic answer. The tie-break is the
+        persisted sequence, never the heap position.
         """
         with self._lock:
             matching = [
@@ -334,4 +357,4 @@ class SessionService:
                 for item in self._events_heap
                 if item[2].session_id == session_id
             ]
-            return sorted(matching, key=lambda e: e.timestamp)
+            return sorted(matching, key=lambda e: (e.timestamp, e.sequence_number))

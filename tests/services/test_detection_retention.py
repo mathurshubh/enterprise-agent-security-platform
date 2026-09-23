@@ -85,9 +85,11 @@ class TestDetectionRetentionInvariants:
         # Recent event (trigger for now)
         event_recent = make_event("s1", "a1", timestamp=now)
 
-        service.record_event(event_expired)
-        service.record_event(event_in_grace)
-        service.record_event(event_recent)
+        # The recorded event carries its assigned sequence, so identity comparisons
+        # below use what the service returned rather than the pre-record value.
+        event_expired = service.record_event(event_expired)
+        event_in_grace = service.record_event(event_in_grace)
+        event_recent = service.record_event(event_recent)
 
         # Trigger pruning at time 'now'
         service.prune_events(now_utc=now)
@@ -187,8 +189,9 @@ class TestDetectionRetentionInvariants:
         now = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
 
         # Record events from days ago
-        ancient_event = make_event("s1", "a1", timestamp=now - timedelta(days=10))
-        service.record_event(ancient_event)
+        ancient_event = service.record_event(
+            make_event("s1", "a1", timestamp=now - timedelta(days=10))
+        )
 
         # Prune attempt does nothing
         evicted = service.prune_events(now_utc=now)
@@ -237,8 +240,9 @@ class TestDetectionRetentionInvariants:
         now = datetime(2026, 1, 1, 12, 30, 0, tzinfo=timezone.utc)
 
         # 1. Insert modern event (newer)
-        e_newer = make_event("s1", "a1", timestamp=now - timedelta(seconds=60))
-        service.record_event(e_newer)
+        e_newer = service.record_event(
+            make_event("s1", "a1", timestamp=now - timedelta(seconds=60))
+        )
 
         # 2. Insert out-of-order expired event (older)
         e_expired_late = make_event("s1", "a1", timestamp=now - timedelta(seconds=3000))
@@ -272,9 +276,9 @@ class TestDetectionRetentionInvariants:
         e10 = make_event("s1", "a1", timestamp=now + timedelta(seconds=10))
         e20 = make_event("s1", "a1", timestamp=now + timedelta(seconds=20))
 
-        service.record_event(e30)
-        service.record_event(e10)
-        service.record_event(e20)
+        e30 = service.record_event(e30)
+        e10 = service.record_event(e10)
+        e20 = service.record_event(e20)
 
         events = service.list_events("s1")
         assert events == [e10, e20, e30]
