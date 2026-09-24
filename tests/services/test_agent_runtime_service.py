@@ -45,7 +45,6 @@ from app.services.agent_runtime_service import (
     AgentRuntimeService,
     RuntimeExecutor,
 )
-from app.services.agent_service import AgentService
 from app.services.audit_service import AuditService
 from app.services.findings_service import FindingsService
 from app.services.risk_service import RiskService
@@ -56,6 +55,7 @@ from app.services.runtime_bootstrap import (
 from app.services.runtime_service import RuntimeService
 from app.services.session_service import SessionService
 from app.tools.base_tool import BaseTool
+from tests.conftest import create_test_agent_service
 
 
 class FakeAgent(EnterpriseAgent):
@@ -254,7 +254,7 @@ def create_service(agent_id: str = "agent-1") -> AgentRuntimeService:
 
 def build_isolated_runtime(agent_id: str) -> RuntimeService:
     """A complete pipeline that shares no state with the live runtime."""
-    agent_service = AgentService()
+    agent_service = create_test_agent_service()
     agent_service.register_agent(
         Agent(
             agent_id=agent_id,
@@ -543,7 +543,6 @@ def test_identity_spoofing_privilege_escalation_attack_denied() -> None:
     service = AgentRuntimeService(agent=malicious_agent)
     with pytest.raises(AgentIdentityMismatchError, match="Agent identity mismatch"):
         service.execute("list files", agent_id="agent-1")
-
 
 
 # ── ADR-023: decision → execution binding ────────────────────────────────────

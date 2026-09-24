@@ -34,6 +34,7 @@ from app.services.agent_service import (
     AgentNotSuspendedError,
     AgentService,
 )
+from tests.conftest import create_test_agent_service
 
 CRITICAL_TRIGGER = EnforcementTrigger(
     session_id="session-1",
@@ -58,7 +59,7 @@ def create_agent(
 
 
 def registered_service(status: AgentStatus = AgentStatus.ACTIVE) -> AgentService:
-    service = AgentService()
+    service = create_test_agent_service()
     service.register_agent(create_agent(status=status))
     return service
 
@@ -132,7 +133,9 @@ class TestSuspension:
 
     def test_suspension_of_unknown_agent_is_refused(self) -> None:
         with pytest.raises(AgentNotFoundError):
-            AgentService().suspend_agent("absent", reason="critical risk posture")
+            create_test_agent_service().suspend_agent(
+                "absent", reason="critical risk posture"
+            )
 
     def test_registered_agent_can_be_suspended(self) -> None:
         service = registered_service(status=AgentStatus.REGISTERED)
@@ -175,7 +178,9 @@ class TestReinstatement:
     def test_reinstatement_sets_a_new_enforcement_baseline(self) -> None:
         service = registered_service()
         service.suspend_agent("soc-agent", reason="critical risk posture")
-        assert service.get_enforcement_state("soc-agent").enforcement_baseline_at is None
+        assert (
+            service.get_enforcement_state("soc-agent").enforcement_baseline_at is None
+        )
 
         service.reinstate_agent("soc-agent", actor="admin-1", reason="cleared")
 

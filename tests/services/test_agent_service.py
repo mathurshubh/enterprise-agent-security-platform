@@ -8,8 +8,8 @@ from app.models.agent import (
 from app.services.agent_service import (
     AgentAlreadyExistsError,
     AgentNotFoundError,
-    AgentService,
 )
+from tests.conftest import create_test_agent_service
 
 
 def create_agent(agent_id: str = "soc-agent") -> Agent:
@@ -24,7 +24,7 @@ def create_agent(agent_id: str = "soc-agent") -> Agent:
 
 
 def test_register_agent():
-    service = AgentService()
+    service = create_test_agent_service()
 
     agent = create_agent()
 
@@ -34,7 +34,7 @@ def test_register_agent():
 
 
 def test_duplicate_agent_rejected():
-    service = AgentService()
+    service = create_test_agent_service()
 
     agent = create_agent()
 
@@ -45,14 +45,14 @@ def test_duplicate_agent_rejected():
 
 
 def test_get_unknown_agent():
-    service = AgentService()
+    service = create_test_agent_service()
 
     with pytest.raises(AgentNotFoundError):
         service.get_agent("missing-agent")
 
 
 def test_list_agents():
-    service = AgentService()
+    service = create_test_agent_service()
 
     service.register_agent(create_agent("agent-1"))
     service.register_agent(create_agent("agent-2"))

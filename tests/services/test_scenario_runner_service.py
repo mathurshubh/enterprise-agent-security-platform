@@ -122,9 +122,7 @@ def test_execution_models_instantiation():
 
 
 def test_run_normal_behavior_scenario():
-    runtime_service, session_service = create_runtime_service(
-        ["file_read"]
-    )
+    runtime_service, session_service = create_runtime_service(["file_read"])
     runner = ScenarioRunnerService(runtime_service)
 
     scenario = AttackScenario(
@@ -200,7 +198,10 @@ def test_run_grading_mismatch():
     assert result.result is not None
     assert result.result.passed is False
     assert len(result.result.mismatches) > 0
-    assert any("response: expected MONITOR, observed ALERT" in m for m in result.result.mismatches)
+    assert any(
+        "response: expected MONITOR, observed ALERT" in m
+        for m in result.result.mismatches
+    )
 
 
 def test_run_empty_scenario_fails_gracefully():
@@ -252,6 +253,7 @@ def test_run_prompt_execution_mode():
 def test_shared_runtime_service_consistency():
     """Verify that both runner and agent runtime service mutate the same state."""
     from app.api.dependencies import runtime_service as shared_runtime
+
     mock_agent = MockAgentRuntimeService(shared_runtime)
     runner_with_mock = ScenarioRunnerService(shared_runtime, mock_agent)
 
@@ -266,7 +268,7 @@ def test_shared_runtime_service_consistency():
 
     result = runner_with_mock.run(scenario)
     assert result.status == ExecutionStatus.COMPLETED
-    
+
     # Assert event exists in shared session_service state
     events = shared_runtime._session_service.list_events(result.session_id)
     assert len(events) == 1
@@ -276,10 +278,11 @@ def test_shared_runtime_service_consistency():
 def test_run_provider_connection_error_fails_gracefully():
     """Verify provider connection failures are caught and returned as structured FAILED status."""
     runtime_service, _ = create_runtime_service(["file_read"])
-    
+
     class FailingAgentRuntimeService(AgentRuntimeService):
         def __init__(self):
             pass
+
         def execute(self, query: str):
             raise RuntimeError("Connection refused to http://localhost:11434")
 
@@ -382,10 +385,12 @@ class TestScenarioDecisionSemanticsRegressions:
         """
         # build a sandbox where no tools are approved for SCENARIO_AGENT_ID
         from app.services.scenario_sandbox import build_scenario_sandbox
+
         sandbox = build_scenario_sandbox()
         # revoke tool approval for the scenario agent
         agent = sandbox.agent_service.get_agent(ScenarioRunnerService._RUNTIME_AGENT_ID)
         agent.approved_tools = []
+        sandbox.agent_service.agent_repository.save(agent)
         runner = ScenarioRunnerService(runtime_service=sandbox.runtime)
 
         scenario = AttackScenario(
@@ -412,6 +417,7 @@ class TestScenarioDecisionSemanticsRegressions:
         Verify that ScenarioRunner does not collapse final_decision=None into
         authorization_decision ('ALLOW').
         """
+
         class IncompletePipelineRuntimeService:
             def __init__(self, inner):
                 self._inner = inner
@@ -533,7 +539,9 @@ class TestScenarioExecutionEvidenceProjection:
     def test_evidence_projection_prompt_mode_untrusted_intent(self) -> None:
         runtime_service, _ = create_runtime_service(["file_read"])
         mock_agent_runtime = MockAgentRuntimeService(runtime_service)
-        runner = ScenarioRunnerService(runtime_service, agent_runtime_service=mock_agent_runtime)
+        runner = ScenarioRunnerService(
+            runtime_service, agent_runtime_service=mock_agent_runtime
+        )
 
         scenario = AttackScenario(
             scenario_id="scenario-prompt-evidence",
@@ -635,4 +643,3 @@ class TestScenarioExecutionEvidenceProjection:
         assert result.final_decision == "DENY"
         assert result.observed_response is None
         assert result.observed_risk_level is None
-

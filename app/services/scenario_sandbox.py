@@ -14,6 +14,10 @@ start from the same state and grade identically.
 from dataclasses import dataclass
 
 from app.registry.tool_registry import ToolRegistry
+from app.repositories.in_memory.agent_repository import InMemoryAgentRepository
+from app.repositories.in_memory.enforcement_state_repository import (
+    InMemoryEnforcementStateRepository,
+)
 from app.runtime.execution_authority import ExecutionAuthority
 from app.services.agent_service import AgentService
 from app.services.audit_service import AuditService
@@ -53,7 +57,10 @@ class ScenarioSandbox:
 
 def build_scenario_sandbox(agent_id: str = SCENARIO_AGENT_ID) -> ScenarioSandbox:
     """Build a throwaway pipeline that shares no state with the live runtime."""
-    agent_service = AgentService()
+    agent_service = AgentService(
+        agent_repository=InMemoryAgentRepository(),
+        enforcement_repository=InMemoryEnforcementStateRepository(),
+    )
     session_service = SessionService()
     audit_service = AuditService()
     findings_service = FindingsService()

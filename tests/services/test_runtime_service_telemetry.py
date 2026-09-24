@@ -17,7 +17,6 @@ from app.models.telemetry.behavioral_event import (
 from app.models.telemetry.event_taxonomy import TelemetryEventType
 from app.policy.policy_engine import PolicyEngine
 from app.registry.tool_registry import ToolRegistry
-from app.services.agent_service import AgentService
 from app.services.audit_service import AuditService
 from app.services.detection_service import DetectionService
 from app.services.findings_service import FindingsService
@@ -29,12 +28,13 @@ from app.services.session_service import SessionService
 from app.services.tool_service import ToolService
 from app.telemetry.contracts import TelemetryEmitter
 from app.telemetry.dispatcher import InMemoryTelemetryDispatcher
+from tests.conftest import create_test_agent_service
 
 
 def _create_test_runtime_service(
     telemetry_emitter: TelemetryEmitter | None = None,
 ) -> RuntimeService:
-    agent_service = AgentService()
+    agent_service = create_test_agent_service()
     agent_service.register_agent(
         Agent(
             agent_id="agent-1",
@@ -139,7 +139,9 @@ def test_runtime_service_decision_override_reflected_in_finalized_telemetry() ->
     emitted: list[BehavioralEvent] = []
     done_event = threading.Event()
 
-    dispatcher.subscribe(lambda e: (emitted.append(e), len(emitted) == 3 and done_event.set()))
+    dispatcher.subscribe(
+        lambda e: (emitted.append(e), len(emitted) == 3 and done_event.set())
+    )
     runtime_service = _create_test_runtime_service(telemetry_emitter=dispatcher)
 
     try:
@@ -157,7 +159,9 @@ def test_runtime_service_decision_override_reflected_in_finalized_telemetry() ->
         assert len(emitted) == 3
 
         # Authorization checked initially passed
-        assert emitted[1].event_type == TelemetryEventType.SECURITY_AUTHORIZATION_CHECKED
+        assert (
+            emitted[1].event_type == TelemetryEventType.SECURITY_AUTHORIZATION_CHECKED
+        )
         assert emitted[1].decision == Decision.ALLOW
 
         # Finalized decision was overridden to APPROVAL_REQUIRED with HIGH risk
@@ -203,7 +207,9 @@ def test_runtime_context_identity_propagation() -> None:
     emitted: list[BehavioralEvent] = []
     done_event = threading.Event()
 
-    dispatcher.subscribe(lambda e: (emitted.append(e), len(emitted) == 3 and done_event.set()))
+    dispatcher.subscribe(
+        lambda e: (emitted.append(e), len(emitted) == 3 and done_event.set())
+    )
     runtime_service = _create_test_runtime_service(telemetry_emitter=dispatcher)
 
     context = RuntimeContext(
@@ -239,7 +245,9 @@ def test_unsupplied_context_does_not_invent_identities() -> None:
     emitted: list[BehavioralEvent] = []
     done_event = threading.Event()
 
-    dispatcher.subscribe(lambda e: (emitted.append(e), len(emitted) == 3 and done_event.set()))
+    dispatcher.subscribe(
+        lambda e: (emitted.append(e), len(emitted) == 3 and done_event.set())
+    )
     runtime_service = _create_test_runtime_service(telemetry_emitter=dispatcher)
 
     try:

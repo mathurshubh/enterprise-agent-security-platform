@@ -21,6 +21,24 @@ from app.api.dependencies import jwt_service  # noqa: E402
 from app.models.jwt_claims import Role  # noqa: E402
 
 
+def create_test_agent_service(
+    agent_repository=None,
+    enforcement_repository=None,
+):
+    """Test helper creating an AgentService wired with concrete in-memory repositories."""
+    from app.repositories.in_memory.agent_repository import InMemoryAgentRepository
+    from app.repositories.in_memory.enforcement_state_repository import (
+        InMemoryEnforcementStateRepository,
+    )
+    from app.services.agent_service import AgentService
+
+    return AgentService(
+        agent_repository=agent_repository or InMemoryAgentRepository(),
+        enforcement_repository=enforcement_repository
+        or InMemoryEnforcementStateRepository(),
+    )
+
+
 def register_test_agent(
     agent_id: str,
     approved_tools: list[str] | None = None,

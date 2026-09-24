@@ -29,7 +29,6 @@ from app.policy.policy_engine import PolicyEngine
 from app.registry.tool_registry import ToolRegistry
 from app.runtime.execution_authority import ExecutionAuthority
 from app.services.agent_lock_manager import AgentLockManager
-from app.services.agent_service import AgentService
 from app.services.audit_service import AuditService
 from app.services.detection_service import DetectionService
 from app.services.enforcement_coordinator import EnforcementCoordinator
@@ -43,6 +42,7 @@ from app.services.session_service import SessionService
 from app.services.tool_service import ToolService
 from app.tools.directory_list_tool import DirectoryListTool
 from app.tools.file_read_tool import FileReadTool
+from tests.conftest import create_test_agent_service
 
 PROTECTED_FILE = "secrets.txt"
 BENIGN_FILE = "notes.txt"
@@ -72,7 +72,7 @@ def build_runtime():
         execution_authority: ExecutionAuthority | None = None,
         risk_aggregator: RiskAggregator | None = None,
     ) -> SimpleNamespace:
-        agent_service = AgentService()
+        agent_service = create_test_agent_service()
         agent_service.register_agent(
             Agent(
                 agent_id=agent_id,
