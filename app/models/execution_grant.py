@@ -1,11 +1,21 @@
 """ExecutionGrant — Domain entity for human-in-the-loop authorization resumption (ADR-031)."""
 
+import copy
 from datetime import datetime
 from enum import Enum
 from types import MappingProxyType
 from typing import Any, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
+
+
+def _deepcopy_mappingproxy(
+    x: MappingProxyType, memo: dict[int, Any]
+) -> MappingProxyType:
+    return MappingProxyType(copy.deepcopy(dict(x), memo))
+
+
+copy._deepcopy_dispatch[MappingProxyType] = _deepcopy_mappingproxy
 
 
 class GrantState(str, Enum):
