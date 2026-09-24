@@ -17,7 +17,6 @@ from app.models.telemetry.behavioral_event import (
 from app.models.telemetry.event_taxonomy import TelemetryEventType
 from app.policy.policy_engine import PolicyEngine
 from app.registry.tool_registry import ToolRegistry
-from app.services.audit_service import AuditService
 from app.services.detection_service import DetectionService
 from app.services.findings_service import FindingsService
 from app.services.response_service import ResponseService
@@ -28,7 +27,7 @@ from app.services.session_service import SessionService
 from app.services.tool_service import ToolService
 from app.telemetry.contracts import TelemetryEmitter
 from app.telemetry.dispatcher import InMemoryTelemetryDispatcher
-from tests.conftest import create_test_agent_service
+from tests.conftest import create_test_agent_service, create_test_audit_service
 
 
 def _create_test_runtime_service(
@@ -68,7 +67,7 @@ def _create_test_runtime_service(
         detection_service=DetectionService(),
         risk_service=RiskService(),
         response_service=ResponseService(),
-        audit_service=AuditService(),
+        audit_service=create_test_audit_service(),
         tool_registry=tool_registry,
         findings_service=FindingsService(),
         telemetry_emitter=telemetry_emitter,

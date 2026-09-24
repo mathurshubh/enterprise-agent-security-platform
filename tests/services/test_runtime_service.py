@@ -17,7 +17,6 @@ from app.models.tool_metadata import ToolMetadata
 from app.models.tool_operational import ToolOperational
 from app.models.tool_risk_level import ToolRiskLevel
 from app.policy.policy_engine import PolicyEngine
-from app.services.audit_service import AuditService
 from app.services.detection_service import DetectionService
 from app.services.findings_service import FindingsService
 from app.services.response_service import ResponseService
@@ -26,7 +25,7 @@ from app.services.risk_service import RiskService
 from app.services.runtime_service import PostureReconciliationError, RuntimeService
 from app.services.session_service import SessionService
 from app.services.tool_service import ToolService
-from tests.conftest import create_test_agent_service
+from tests.conftest import create_test_agent_service, create_test_audit_service
 
 
 def create_runtime_service(
@@ -109,7 +108,7 @@ def create_runtime_service(
         ]
     )
 
-    audit_service = AuditService()
+    audit_service = create_test_audit_service()
 
     return (
         RuntimeService(

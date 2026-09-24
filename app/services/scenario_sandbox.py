@@ -15,6 +15,9 @@ from dataclasses import dataclass
 
 from app.registry.tool_registry import ToolRegistry
 from app.repositories.in_memory.agent_repository import InMemoryAgentRepository
+from app.repositories.in_memory.audit_evidence_repository import (
+    InMemoryAuditEvidenceRepository,
+)
 from app.repositories.in_memory.enforcement_state_repository import (
     InMemoryEnforcementStateRepository,
 )
@@ -62,7 +65,9 @@ def build_scenario_sandbox(agent_id: str = SCENARIO_AGENT_ID) -> ScenarioSandbox
         enforcement_repository=InMemoryEnforcementStateRepository(),
     )
     session_service = SessionService()
-    audit_service = AuditService()
+    audit_service = AuditService(
+        audit_repository=InMemoryAuditEvidenceRepository(),
+    )
     findings_service = FindingsService()
     risk_service = RiskService()
     tool_registry = ToolRegistry()

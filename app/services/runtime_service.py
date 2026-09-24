@@ -96,7 +96,6 @@ class RuntimeService:
         self._detection_service = detection_service
         self._risk_service = risk_service
         self._response_service = response_service
-        self._audit_service = audit_service or AuditService()
         self._tool_registry = tool_registry
         self._findings_service = findings_service
         self._telemetry_emitter = telemetry_emitter
@@ -129,6 +128,11 @@ class RuntimeService:
                 "derive a response from the agent's enforcement posture does not run "
                 "with reduced enforcement; it is not constructed."
             )
+        if audit_service is None:
+            raise IncompleteRuntimeConfigurationError(
+                "audit_service is required to record authoritative audit evidence."
+            )
+        self._audit_service = audit_service
         self._risk_aggregator = risk_aggregator
         self._lock_manager = (
             lock_manager if lock_manager is not None else AgentLockManager()

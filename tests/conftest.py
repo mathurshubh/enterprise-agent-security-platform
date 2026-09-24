@@ -39,6 +39,20 @@ def create_test_agent_service(
     )
 
 
+def create_test_audit_service(
+    audit_repository=None,
+):
+    """Test helper creating an AuditService wired with concrete in-memory repository."""
+    from app.repositories.in_memory.audit_evidence_repository import (
+        InMemoryAuditEvidenceRepository,
+    )
+    from app.services.audit_service import AuditService
+
+    return AuditService(
+        audit_repository=audit_repository or InMemoryAuditEvidenceRepository(),
+    )
+
+
 def register_test_agent(
     agent_id: str,
     approved_tools: list[str] | None = None,
