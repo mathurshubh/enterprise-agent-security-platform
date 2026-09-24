@@ -9,6 +9,21 @@ from requests.exceptions import RequestException
 from app.models.attack_scenario import AttackScenario
 from app.models.execution_mode import ExecutionMode
 from app.models.execution_status import ExecutionStatus
+from app.models.runtime_result import RuntimeResult
+from app.models.scenario_evidence import (
+    IntentSource,
+    ScenarioAuditEvidence,
+    ScenarioAuthorizationCheck,
+    ScenarioAuthorizationEvidence,
+    ScenarioDetectionEvidence,
+    ScenarioExecutionEvidence,
+    ScenarioFinalDecisionEvidence,
+    ScenarioFindingSummary,
+    ScenarioRequestEvidence,
+    ScenarioResponseEvidence,
+    ScenarioRiskEvidence,
+    ScenarioToolInvocation,
+)
 from app.models.scenario_execution import ScenarioExecution
 from app.models.scenario_execution_result import ScenarioExecutionResult
 from app.registry.tool_registry import ToolNotRegisteredError
@@ -123,20 +138,12 @@ class ScenarioRunnerService:
                 for finding in runtime_result.findings
             ]
 
-            authorization_decision = runtime_result.event.decision.value
-            final_decision = (
-                runtime_result.event.final_decision.value
-                if runtime_result.event.final_decision is not None
-                else None
-            )
             # A scenario refused at a trust boundary produces no assessment to grade.
             if runtime_result.response_action is None or runtime_result.risk_assessment is None:
                 raise ValueError(
                     "Scenario request was refused before evaluation: "
                     f"{runtime_result.refusal_reason or 'unknown reason'}"
                 )
-            observed_response = runtime_result.response_action.response_type.value
-            observed_risk_level = runtime_result.risk_assessment.risk_level.value
 
             mismatches = []
 
@@ -181,15 +188,16 @@ class ScenarioRunnerService:
 
             passed = len(mismatches) == 0
 
+            evidence = self._build_execution_evidence(
+                runtime_result=runtime_result,
+                execution_mode=execution_mode,
+                scenario=scenario,
+            )
+
             result = ScenarioExecutionResult(
                 passed=passed,
-                authorization_decision=authorization_decision,
-                final_decision=final_decision,
-                observed_decision=final_decision,
-                observed_response=observed_response,
-                observed_risk_level=observed_risk_level,
-                observed_findings=observed_findings,
-                mismatches=mismatches,
+                mismatches=tuple(mismatches),
+                evidence=evidence,
             )
 
             finished_at = datetime.now(timezone.utc)
@@ -237,3 +245,158 @@ class ScenarioRunnerService:
                 finished_at=finished_at,
                 error_message=error_msg,
             )
+
+    def _build_execution_evidence(
+        self,
+        runtime_result: RuntimeResult,
+        execution_mode: ExecutionMode,
+        scenario: AttackScenario,
+    ) -> ScenarioExecutionEvidence:
+        """Project authoritative RuntimeResult evidence into ScenarioExecutionEvidence.
+
+        Translates already-established runtime evidence into the scenario evidence contract
+        without recalculating authorization, risk, detection, or response decisions.
+        """
+        # 1. Request / Intent Boundary
+        intent_source = (
+            IntentSource.UNTRUSTED_LLM_PARSER
+            if execution_mode == ExecutionMode.PROMPT
+            else IntentSource.DETERMINISTIC_SEQUENCE
+        )
+        tool_invocation = None
+        if runtime_result.event:
+            resource = (
+                runtime_result.authorization_result.resource
+                if runtime_result.authorization_result
+                else None
+            )
+            tool_invocation = ScenarioToolInvocation(
+                tool_id=runtime_result.event.tool_id,
+                resource=resource,
+            )
+
+        request_evidence = ScenarioRequestEvidence(
+            agent_id=runtime_result.event.agent_id if runtime_result.event else self._RUNTIME_AGENT_ID,
+            execution_mode=execution_mode.value,
+            user_prompt=scenario.user_prompt if scenario.user_prompt and scenario.user_prompt.strip() else None,
+            tool_sequence=tuple(scenario.tool_sequence),
+            tool_invocation=tool_invocation,
+            intent_source=intent_source,
+        )
+
+        # 2. Authorization Evidence (canonical ordered checks)
+        auth_evidence = None
+        if runtime_result.authorization_result is not None:
+            auth = runtime_result.authorization_result
+            ordered_checks = (
+                ScenarioAuthorizationCheck(
+                    name="Agent existence",
+                    key="agent_check",
+                    status=auth.agent_check.status.value,
+                    reason=auth.agent_check.reason,
+                    details=dict(auth.agent_check.details),
+                ),
+                ScenarioAuthorizationCheck(
+                    name="Tool existence",
+                    key="tool_check",
+                    status=auth.tool_check.status.value,
+                    reason=auth.tool_check.reason,
+                    details=dict(auth.tool_check.details),
+                ),
+                ScenarioAuthorizationCheck(
+                    name="Approved tool (RBAC)",
+                    key="approved_tool_check",
+                    status=auth.approved_tool_check.status.value,
+                    reason=auth.approved_tool_check.reason,
+                    details=dict(auth.approved_tool_check.details),
+                ),
+                ScenarioAuthorizationCheck(
+                    name="Agent status",
+                    key="status_check",
+                    status=auth.status_check.status.value,
+                    reason=auth.status_check.reason,
+                    details=dict(auth.status_check.details),
+                ),
+                ScenarioAuthorizationCheck(
+                    name="Risk tier alignment",
+                    key="risk_tier_check",
+                    status=auth.risk_tier_check.status.value,
+                    reason=auth.risk_tier_check.reason,
+                    details=dict(auth.risk_tier_check.details),
+                ),
+                ScenarioAuthorizationCheck(
+                    name="Resource policy",
+                    key="resource_check",
+                    status=auth.resource_check.status.value,
+                    reason=auth.resource_check.reason,
+                    details=dict(auth.resource_check.details),
+                ),
+            )
+            auth_evidence = ScenarioAuthorizationEvidence(
+                decision=auth.decision.value,
+                reason=auth.reason,
+                checks=ordered_checks,
+            )
+        elif runtime_result.refusal_reason is None and runtime_result.event is not None:
+            auth_evidence = ScenarioAuthorizationEvidence(
+                decision=runtime_result.event.decision.value,
+                reason="Evaluated from runtime event",
+                checks=(),
+            )
+
+        # 3. Detection Evidence (bounded finding summaries)
+        findings_summaries = tuple(
+            ScenarioFindingSummary(
+                finding_id=f.finding_id,
+                rule_name=f.rule_name,
+                severity=f.severity.value,
+                description=f.description,
+            )
+            for f in runtime_result.findings
+        )
+        detection_evidence = ScenarioDetectionEvidence(
+            findings=findings_summaries,
+            finding_count=len(findings_summaries),
+        )
+
+        # 4. Risk Evidence
+        risk_evidence = None
+        if runtime_result.risk_assessment is not None:
+            risk_evidence = ScenarioRiskEvidence(
+                level=runtime_result.risk_assessment.risk_level.value,
+                score=runtime_result.risk_assessment.risk_score,
+                finding_count=runtime_result.risk_assessment.finding_count,
+            )
+
+        # 5. Response Evidence
+        response_evidence = None
+        if runtime_result.response_action is not None:
+            response_evidence = ScenarioResponseEvidence(
+                action=runtime_result.response_action.response_type.value,
+                reason=runtime_result.response_action.reason,
+            )
+
+        # 6. Audit Evidence (Stage D correlation)
+        audit_evidence = None
+        if runtime_result.audit_event_id is not None:
+            audit_evidence = ScenarioAuditEvidence(
+                event_id=runtime_result.audit_event_id,
+            )
+
+        # 7. Final Decision Evidence
+        final_decision_evidence = None
+        if runtime_result.event and runtime_result.event.final_decision is not None:
+            final_decision_evidence = ScenarioFinalDecisionEvidence(
+                decision=runtime_result.event.final_decision.value,
+            )
+
+        return ScenarioExecutionEvidence(
+            request=request_evidence,
+            authorization=auth_evidence,
+            detection=detection_evidence,
+            risk=risk_evidence,
+            response=response_evidence,
+            audit=audit_evidence,
+            final_decision=final_decision_evidence,
+            refusal_reason=runtime_result.refusal_reason,
+        )

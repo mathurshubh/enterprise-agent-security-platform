@@ -4,6 +4,7 @@ from app.api.dependencies import scenario_registry
 from app.models.api.scenario_execution_response import ScenarioExecutionResponse
 from app.models.api.scenario_response import ScenarioResponse
 from app.models.attack_scenario import AttackScenario
+from app.models.scenario_evidence import ScenarioExecutionEvidence
 from app.registry.scenario_registry import ScenarioNotFoundError
 from app.services.scenario_runner_service import ScenarioRunnerService
 
@@ -114,16 +115,18 @@ def execute_scenario(scenario_id: str) -> ScenarioExecutionResponse:
     observed_risk_level: str | None = None
     observed_findings: list[str] = []
     mismatches: list[str] = []
+    evidence: ScenarioExecutionEvidence | None = None
 
     if execution.result is not None:
         passed = execution.result.passed
+        mismatches = list(execution.result.mismatches)
+        evidence = execution.result.evidence
         authorization_decision = execution.result.authorization_decision
         final_decision = execution.result.final_decision
         observed_decision = execution.result.observed_decision
         observed_response = execution.result.observed_response
         observed_risk_level = execution.result.observed_risk_level
         observed_findings = execution.result.observed_findings
-        mismatches = execution.result.mismatches
 
     return ScenarioExecutionResponse(
         execution_id=execution.execution_id,
@@ -132,13 +135,14 @@ def execute_scenario(scenario_id: str) -> ScenarioExecutionResponse:
         execution_mode=execution.execution_mode.value,
         status=execution.status.value,
         passed=passed,
+        mismatches=mismatches,
+        evidence=evidence,
         authorization_decision=authorization_decision,
         final_decision=final_decision,
         observed_decision=observed_decision,
         observed_response=observed_response,
         observed_risk_level=observed_risk_level,
         observed_findings=observed_findings,
-        mismatches=mismatches,
         error_message=execution.error_message,
         started_at=execution.started_at,
         finished_at=execution.finished_at,

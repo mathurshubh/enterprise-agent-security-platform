@@ -69,6 +69,27 @@ class TestExecuteScenario:
         assert data["observed_decision"] == "ALLOW"
         assert data["observed_risk_level"] == "LOW"
 
+        # Stage E-A: Authoritative structured execution evidence
+        assert "evidence" in data
+        assert data["evidence"] is not None
+        evidence = data["evidence"]
+        assert evidence["request"]["execution_mode"] in ("TOOL_SEQUENCE", "PROMPT")
+        assert evidence["request"]["intent_source"] in ("DETERMINISTIC_SEQUENCE", "UNTRUSTED_LLM_PARSER")
+        assert evidence["authorization"]["decision"] == "ALLOW"
+        assert len(evidence["authorization"]["checks"]) == 6
+        assert [c["key"] for c in evidence["authorization"]["checks"]] == [
+            "agent_check",
+            "tool_check",
+            "approved_tool_check",
+            "status_check",
+            "risk_tier_check",
+            "resource_check",
+        ]
+        assert evidence["final_decision"]["decision"] == "ALLOW"
+        assert evidence["audit"]["event_id"].startswith("evt-")
+        assert evidence["risk"]["score"] == 0
+        assert evidence["response"]["action"] == "MONITOR"
+
     def test_execute_nonexistent_scenario(self) -> None:
         response = client.post("/api/scenarios/NONEXISTENT-999/execute")
         assert response.status_code == 404
