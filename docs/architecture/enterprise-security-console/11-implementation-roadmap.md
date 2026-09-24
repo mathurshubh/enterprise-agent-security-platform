@@ -2,113 +2,181 @@
 
 ## Purpose
 
-This document specifies the **Four-Phase Implementation Roadmap** for delivering the Enterprise Security Console architecture from version `v0.12.0` through `v1.0.0`.
+This document specifies the **Implementation Roadmap** for the Enterprise Security Console and the visible **Product Demonstration Track**.
+
+It establishes an incremental progression from the platform's backend durable state foundation through dedicated operational, investigative, and control-plane UI surfaces, culminating in the mature Enterprise Browser Management Console.
 
 ---
 
-## Scope
+## Core Architectural & Product Principles
 
-Defines phase boundaries, backend prerequisites, implementation deliverables, and validation criteria across all four execution phases.
-
-### Release Scope & Status
-The backend provides read-only Management API endpoints for agents, tools, detection rules, audit events, sessions, and platform info, in addition to Scenario API endpoints under `/api/scenarios`. Findings, approvals, risk state, session timeline, streaming, cases, and topology endpoints listed below are roadmap prerequisites and are not active routes.
-
----
-
-## Phase Matrix Overview
+### 1. Client Trust Boundary
+> **"The frontend is an observability and control-plane client, never a security authority."**
 
 ```text
-Phase 1: Foundation (v0.12.0)      Phase 2: Behavioral Intel (v0.13.0)
-• Existing Backend APIs Only       • Gated by BI & Approval APIs
-• Sidebar Navigation Restructure   • Action Required Queue (Zone 1)
-• Promote /sessions & /scenarios   • Approval Queue Page (/approvals)
-• Basic Session Detail Page        • Findings Page (/findings)
-• Shared Component Refactoring     • TanStack Query Cache Layer
-                                                 │
-                                                 ▼
-Phase 4: Operations (v1.0.0)       Phase 3: Investigation (v0.14.0)
-• Gated by Streaming & Cases APIs  • Gated by Session Detail APIs
-• Session Forensic Replay          • Multi-Panel Session Workspace
-• Real-time SSE Alert Streaming    • Focal Behavioral Timeline
-• Incident Case Management         • Coordinated Panels A-F
-• Multi-Agent Governance Topology  • Evidence Chain Traversal
+Browser UI
+    ↓
+Control-Plane API
+    ↓
+Domain Services
+    ↓
+Deterministic Security Controls (PolicyEngine, DetectionEngine, RiskAggregator)
+    ↓
+Decision / Durable State
+```
+
+The browser UI is strictly untrusted:
+- The frontend **never** evaluates policy or makes authorization decisions.
+- The frontend **never** performs threat detection or calculates risk scores.
+- The frontend **never** executes state transitions directly or grants execution authority.
+- All security decisions remain 100% server-side, deterministic, and backed by domain services.
+
+### 2. Progressive Product Demonstrability
+The platform is designed to be progressively demonstrable through the UI. Reviewers, analysts, and operators can inspect real security posture, follow executions across the evidence chain, and interact with audited control-plane workflows.
+- **Zero Synthetic Mocks**: Every UI surface consumes real backend domain state.
+- **Backend Is Truth**: UI capabilities are introduced strictly as the enabling backend services and REST APIs become durable.
+
+---
+
+### Status Legend
+- **Implemented**: Fully operational in the checked-out codebase with test coverage.
+- **In Progress**: Active engineering cycle under implementation.
+- **Planned**: Target milestone on the roadmap.
+
+---
+
+## Existing UI Baseline (Implemented)
+
+The platform already possesses an operational console foundation and specialized scenario validation surfaces:
+
+1. **Console Management Shell (Implemented)**:
+   - Navigation and resource views for `/agents`, `/tools`, `/sessions`, `/rules`, and `/findings`.
+2. **Stage E-A — Scenario Execution Evidence Model (Implemented)**:
+   - Typed domain projection (`ScenarioExecutionEvidence`) capturing the complete deterministic evidence chain:
+     $$\text{Request} \longrightarrow \text{Authorization (6 checks)} \longrightarrow \text{Detection} \longrightarrow \text{Risk} \longrightarrow \text{Response} \longrightarrow \text{Audit ID} \longrightarrow \text{Final Decision}$$
+3. **Stage E-B — Live Scenario Timeline UI (Implemented)**:
+   - Interactive, color-coded visual execution timeline (`ScenarioTimeline.tsx`) rendering the authoritative evidence chain, check evaluations, risk tiers, response actions, and audit linkage for benchmark scenarios.
+
+---
+
+## Incremental UI & Product Demonstration Track
+
+```text
+Existing Baseline
+├── Stage E-A: Scenario Execution Evidence (Implemented)
+└── Stage E-B: Live Scenario Timeline UI (Implemented)
+      │
+      ▼
+v0.16 — Durable Security State & Control Plane Foundation (In Progress)
+Backend-first state migration enabling trustworthy UI observability
+      │
+      ▼
+v0.17 — Security Operations Dashboard (Planned)
+Operational security posture, agent status, and active session visibility
+      │
+      ▼
+v0.18 — Investigation / Evidence Explorer (Planned)
+Forensic execution timeline generalizing Stage E across live runtime events
+      │
+      ▼
+v0.19 — Governance Console (Planned)
+Administrative management client for agents, tools, sessions, and audit evidence
+      │
+      ▼
+v0.20 — Approval / Control Plane UI (Planned)
+Operator workflow client for ExecutionGrant review and authorization releases
+      │
+      ▼
+v1.3 — Enterprise Browser Management Console (Planned)
+Mature enterprise consolidation and operations console
 ```
 
 ---
 
-## Phase Breakdown & Deliverables
+### Milestone Breakdown
 
-### Phase 1 — Foundation & Navigation Restructure (`v0.12.0`)
-**Backend Prerequisites:** None (uses existing Management API: `/agents`, `/tools`, `/detection/rules`, `/audit/events`, `/sessions`, `/scenarios`, `/info`).
+### v0.16 — Durable Security State & Control Plane Foundation (In Progress)
+**Focus**: Backend-first durable state architecture (ADR-030, ADR-031).
 
-#### Key Deliverables:
-1. **Sidebar Navigation Restructure:** Implement 3-mode section headers (`MONITOR`, `INVESTIGATE`, `GOVERN`) and 9 canonical sidebar items in `src/components/layout/Sidebar.tsx`.
-2. **Promote Orphaned Routes:** Expose `/sessions` and `/scenarios` explicitly in the navigation sidebar.
-3. **Basic Session Detail View (`/sessions/:id`):** Implement basic single-panel session detail page filtering existing audit events by `agent_id` and timestamp.
-4. **Command Center Refactoring:** Maintain existing dashboard metrics as Zone 2 (Operational Awareness); add degraded-mode banner for Zone 1.
-5. **Shared Component Extraction:** Refactor duplicate JSX into `<MetricCard>` (`src/components/common/`) and `<SearchBar>`.
-6. **Type System Graph References:** Add upstream/downstream causal relationship interfaces to `src/types/`.
+#### Backend State Migration:
+- **Repository Protocols & DI Boundaries (PR #180)**: *Implemented*.
+- **`AgentRepository` Integration (PR #181)**: *Implemented*.
+- **`EnforcementStateRepository` Integration (PR #181)**: *Implemented*.
+- **`AuditEvidenceRepository` Integration (PR #182)**: *Implemented*.
+- **`SessionRepository` Migration**: *In Progress* (Highest-risk migration: combines active sessions, terminal tombstones, and the rolling detection horizon).
+- **`ToolRepository` Migration**: *Planned*.
 
----
-
-### Phase 2 — Behavioral Intelligence Integration (`v0.13.0`)
-**Backend Prerequisites:** Behavioral Intelligence endpoints (`GET /api/v1/findings`, `GET /api/v1/approvals/pending`, `POST /api/v1/approvals/:id/release`, `GET /api/v1/risk/state/:id`).
-
-#### Key Deliverables:
-1. **Action Required Work Queue (Zone 1):** Deploy primary work queue on Command Center landing surface for held sessions and high-severity findings.
-2. **Approval Queue Page (`/approvals`):** Build interactive queue page allowing authorized analysts to review and issue audited approval releases.
-3. **Findings & Alerts Page (`/findings`):** Build behavioral threat findings catalog with severity filtering and detail drawers.
-4. **Evidence Chain Traversal:** Enable hyperlinked navigation across Findings, Risk States, and Audit Events.
-5. **TanStack Query Caching:** Integrate TanStack Query cache layer into custom service hooks.
+#### UI Enablement:
+Durable state established in v0.16 provides the single source of truth required for trustworthy operational UI observability:
+- Durable agent configuration and dynamic enforcement posture.
+- Append-only, immutable audit evidence.
+- Durable session ownership and permanent terminal tombstones.
+- Sliding detection horizon events.
+*(Note: v0.16 establishes this backend foundation; UI surfaces consuming this state are scheduled for v0.17+).*
 
 ---
 
-### Phase 3 — Session Investigation Workspace (`v0.14.0`)
-**Backend Prerequisites:** Session timeline APIs (`GET /api/v1/sessions/:id/events`, `GET /api/v1/sessions/:id/timeline`, `GET /api/v1/sessions/:id/risk`).
+### v0.17 — Security Operations Dashboard (Planned)
+**Focus**: Operational security visibility for SOC analysts.
 
-#### Key Deliverables:
-1. **Multi-Panel Workspace Architecture (`/sessions/:id`):** Build coordinated multi-panel layout anchored by Focal Behavioral Timeline.
-2. **Focal Behavioral Timeline:** Interactive horizontal timeline renderer with color-coded event markers.
-3. **Coordinated Contextual Panels:** Implement Event Detail (Panel A), Evidence Chain (Panel B), Tool Activity (Panel C), and Risk Evolution (Panel D).
-4. **Selection State Synchronization:** Implement `SessionWorkspaceContext` to synchronize selection across all open workspace panels.
-
----
-
-### Phase 4 — Enterprise Operations & Real-Time Intelligence (`v1.0.0`)
-**Backend Prerequisites:** Real-time streaming (`GET /api/v1/telemetry/stream`), Incident Cases API (`/cases`), Multi-Agent Governance API (`/governance/topology`).
-
-#### Key Deliverables:
-1. **Session Forensic Replay:** Add playback controls (Play, Pause, Step, Speed) to the Session Workspace for step-by-step forensic replay ([ADR-020](../../adr/ADR-020-agent-security-operations.md)).
-2. **Real-Time SSE Streaming:** Connect TanStack Query cache invalidation to Server-Sent Events stream for instant alert delivery.
-3. **Incident Case Management (`/cases`):** Implement SOC incident case management and analyst annotation tools ([ADR-020](../../adr/ADR-020-agent-security-operations.md)).
-4. **Multi-Agent Governance Topology (`/agents/topology`):** Build interactive multi-agent delegation tree visualization ([ADR-021](../../adr/ADR-021-multi-agent-governance.md)).
+#### Planned Capabilities:
+- **Platform Posture Overview**: Aggregated agent health, suspension alerts, and active risk distribution.
+- **Agent Inventory & Dynamic Posture**: Status cards reflecting authoritative `EnforcementStateRepository` posture.
+- **Session Activity Monitor**: Active session inventory and activity metrics backed by `SessionRepository`.
+- **Findings & Alerts Summary**: High-severity threat detections and excessive denial trends.
+- **Recent Decision Activity**: Log of recent execution decisions (`ALLOW`, `ALERT`, `DENY`, `REQUIRE_APPROVAL`).
 
 ---
 
-## Design Rationale
+### v0.18 — Investigation / Evidence Explorer (Planned)
+**Focus**: Detailed forensic analysis of individual executions and security events.
 
-Gating frontend phase execution behind corresponding backend API readiness guarantees strict compliance with Principle 1 (Backend Is Truth). Delivering Phase 1 immediately provides clean navigation and reusable components without requiring backend alterations.
+#### Planned Capabilities:
+- **Runtime Evidence Chain Explorer**: Generalizes the existing Stage E-A/E-B scenario timeline to live runtime executions:
+  $$\text{REQUEST} \longrightarrow \text{INTENT} \longrightarrow \text{AUTHORIZATION} \longrightarrow \text{DETECTION} \longrightarrow \text{RISK} \longrightarrow \text{RESPONSE} \longrightarrow \text{AUDIT} \longrightarrow \text{FINAL DECISION}$$
+- **Granular Authorization Inspection**: Step-by-step breakdown of the 6 deterministic authorization checks (agent existence, tool existence, RBAC approved tools, agent status, risk tier alignment, resource policy).
+- **Threat Detection Evidence**: Detailed context for triggered rules (`PROMPT_INJECTION`, `SENSITIVE_FILE_ACCESS`, `DATA_EXFILTRATION`, `EXCESSIVE_DENIALS`).
+- **Refusal & Unreached Stages**: Clear visual indication when a fail-closed check halts the pipeline prior to downstream evaluation.
+- **Audit Cross-Referencing**: Direct verification against immutable `AuditEvidenceRepository` records.
 
 ---
 
-## Tradeoffs
+### v0.19 — Governance Console (Planned)
+**Focus**: Administrative governance, policy posture, and compliance auditing.
 
-- **Dependent Timelines:** Phase 2 and Phase 3 frontend timelines are directly bound to backend Behavioral Intelligence endpoint deployment schedules.
+#### Planned Capabilities:
+- **Agent Governance**: Registration, tier classification, tool approvals, and administrative lifecycle management (`ACTIVE`, `DISABLED`).
+- **Tool Inventory & Governance**: Declarative capabilities, parameter schemas, risk levels, and sensitivity classifications.
+- **Audit Evidence Explorer**: Filtered querying and export of append-only audit events by session, agent, and timestamp.
+- **Enforcement History**: Complete audit trail of dynamic suspension and administrative reinstatement transitions.
+- **Policy Registry**: Declarative policy inspection as policy domains become durable.
 
 ---
 
-## Dependencies
+### v0.20 — Approval / Control Plane UI (Planned)
+**Focus**: Human-in-the-loop control-plane interface for gated execution approvals (ADR-031).
+
+#### Planned Capabilities:
+- **Pending Approvals Queue**: Work queue of operations paused by `REQUIRE_APPROVAL` responses.
+- **Grant Context Viewer**: In-depth inspection of the proposed `ToolInvocation`, originating agent context, and accumulated risk findings.
+- **Analyst Decision Interface**: Audited release (`APPROVE`) or rejection (`REJECT`) controls.
+- **Strict Control-Plane Architecture**: The UI dispatches requests to `/api/v1/approvals/:id/release`. The domain service and `ApprovalGrantRepository` validate authorization and atomically update grant status. The browser never directly authorizes tool execution.
+
+---
+
+### v1.3 — Enterprise Browser Management Console (Planned)
+**Focus**: Mature, unified enterprise operations console.
+
+#### Scope:
+- Consolidates and scales the operational, investigative, and governance capabilities developed in v0.17 through v0.20.
+- Enterprise role-based access control (RBAC) across console surfaces (`ANALYST`, `ADMIN`, `AUDITOR`).
+- High-throughput forensic event replay and multi-agent governance topology visualization.
+- Production-grade streaming and alerting infrastructure.
+
+---
+
+## Alignment with Architecture Documentation
 
 - Governed by [ADR-022: Enterprise Security Console Evolution](../../adr/ADR-022-enterprise-security-console-evolution.md).
-
----
-
-## Relationship to Other Architecture Documents
-
-- Integrates all previous architecture documents ([01](01-overview.md)–[10](10-data-flow.md)) into a structured engineering execution plan.
-
----
-
-## Future Evolution
-
-Following version `v1.0.0`, future console updates will adhere to the Phase 4 architectural model, extending specific operational views without altering the core navigation, IA, or component patterns.
+- Complements the durable backend architecture defined in [ADR-030](../../adr/ADR-030-durable-state-repository-architecture.md) and [ADR-031](../../adr/ADR-031-execution-grant-approval-control-plane.md).
+- Preserves the release trajectory established in [`docs/design/v0.9-enterprise-tool-governance.md`](../../design/v0.9-enterprise-tool-governance.md).

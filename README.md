@@ -331,6 +331,44 @@ Future / Research (Tier 3)
 - **Advanced Incident Response:** Automated forensic capture and distributed kill switches.
 - **Provider Trust & Integrity Verification:** Dynamic evaluation of model adapter integrity and provider-side tampering.
 
+### Incremental Product Demonstration & UI Track
+
+The platform pairs its backend security controls with an incremental, visible product demonstration surface.
+
+> **Architectural Boundary:** *The frontend is an observability and control-plane client, never a security authority.* All authorization, policy evaluation, detection, risk assessment, and enforcement decisions remain 100% server-side and deterministic.
+
+```text
+Existing Baseline
+├── Stage E-A: Scenario Execution Evidence (Implemented)
+└── Stage E-B: Live Scenario Timeline UI (Implemented)
+      │
+      ▼
+v0.16 — Durable Security State & Control Plane Foundation (In Progress)
+Backend-first focus: AgentRepository, EnforcementStateRepository, AuditEvidenceRepository (#180–#182 merged); SessionRepository (in progress); ToolRepository (planned).
+      │
+      ▼
+v0.17 — Security Operations Dashboard (Planned)
+Operational security visibility: agent status, session activity, findings/risk overview.
+      │
+      ▼
+v0.18 — Investigation / Evidence Explorer (Planned)
+Execution-level forensic timeline generalizing Stage E across live runtime events.
+      │
+      ▼
+v0.19 — Governance Console (Planned)
+Administrative management client for agents, tools, sessions, and audit evidence.
+      │
+      ▼
+v0.20 — Approval / Control Plane UI (Planned)
+Operator workflow client for ExecutionGrant review and authorization releases.
+      │
+      ▼
+v1.3 — Enterprise Browser Management Console (Planned)
+Mature enterprise operations console consolidating and scaling operational workflows.
+```
+
+For the complete architectural specification and component breakdown, see [`docs/architecture/enterprise-security-console/11-implementation-roadmap.md`](docs/architecture/enterprise-security-console/11-implementation-roadmap.md).
+
 ### Newly Identified Threat Domains
 The platform threat model incorporates 14 critical threat domains identified in the Jan–Aug 2026 review:
 1. Indirect Prompt Injection
