@@ -169,11 +169,19 @@ class BaseEnforcementStateRepositoryContractTests(abc.ABC):
 
         repo.record_transition(trans, state, expected_epoch=0)
 
-        # Mutate retrieved state
+        # Invariant: retrieved state is a distinct instance from original
         retrieved = repo.get_state(agent_id)
         assert retrieved is not None
+        assert retrieved is not state
 
-        # Verify list collection isolation
+        # Invariant: successive reads produce distinct instances
+        retrieved2 = repo.get_state(agent_id)
+        assert retrieved2 is not None
+        assert retrieved2 is not retrieved
+
+        # Verify list collection and transition object isolation
         t_list = repo.list_transitions(agent_id)
+        assert len(t_list) == 1
+        assert t_list[0] is not trans
         t_list.clear()
         assert len(repo.list_transitions(agent_id)) == 1

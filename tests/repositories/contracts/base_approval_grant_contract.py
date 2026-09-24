@@ -240,3 +240,27 @@ class BaseApprovalGrantRepositoryContractTests(abc.ABC):
         assert len(repo.list_grants(state=GrantState.APPROVED)) == 1
         assert len(repo.list_grants(state=GrantState.PENDING)) == 1
         assert len(repo.list_grants(agent_id="unknown")) == 0
+
+    def test_defensive_copy_isolation(self) -> None:
+        """Stored and retrieved grants must be isolated defensive copies."""
+        repo = self.create_repository()
+        grant = self._sample_grant("g-iso-1")
+        repo.create_grant(grant)
+
+        # Invariant: retrieved grant is distinct instance from created grant
+        retrieved1 = repo.get_grant("g-iso-1")
+        assert retrieved1 is not None
+        assert retrieved1 is not grant
+
+        # Invariant: successive reads produce distinct instances
+        retrieved2 = repo.get_grant("g-iso-1")
+        assert retrieved2 is not None
+        assert retrieved2 is not retrieved1
+
+        # Verify list collection and item isolation
+        grants = repo.list_grants()
+        assert len(grants) == 1
+        assert grants[0] is not grant
+        assert grants[0] is not retrieved1
+        grants.clear()
+        assert len(repo.list_grants()) == 1

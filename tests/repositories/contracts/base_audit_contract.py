@@ -105,14 +105,25 @@ class BaseAuditEvidenceRepositoryContractTests(abc.ABC):
         assert not hasattr(AuditEvidenceRepository, "count")
 
     def test_defensive_copy_isolation(self) -> None:
+        """Stored and retrieved audit events must be isolated defensive copies."""
         repo = self.create_repository()
         event = self._sample_event("e-iso-1")
         repo.append(event)
 
+        # Invariant: retrieved instance is not the same Python object as the appended event
         retrieved1 = repo.get("e-iso-1")
         assert retrieved1 is not None
+        assert retrieved1 is not event
+
+        # Invariant: successive reads produce distinct instances
+        retrieved2 = repo.get("e-iso-1")
+        assert retrieved2 is not None
+        assert retrieved2 is not retrieved1
 
         # Verify query collection isolation
         query_res = repo.query()
+        assert len(query_res) == 1
+        assert query_res[0] is not event
+        assert query_res[0] is not retrieved1
         query_res.clear()
         assert len(repo.query()) == 1

@@ -92,6 +92,35 @@ class TestExecutionGrantImmutability:
         assert grant.execution_parameters["nested"]["items"] == ("original_item",)
         assert "depth" not in grant.execution_parameters["nested"]
 
+    def test_deepcopy_and_model_copy_isolation(self) -> None:
+        """Controlled deep copy produces distinct isolated instances without mutating copy._deepcopy_dispatch."""
+        import copy
+        from types import MappingProxyType
+
+        # Invariant: MappingProxyType is not globally registered in copy._deepcopy_dispatch
+        assert MappingProxyType not in copy._deepcopy_dispatch
+
+        grant = _sample_grant()
+
+        # Model copy (deep=True)
+        copied1 = grant.model_copy(deep=True)
+        assert copied1 is not grant
+        assert copied1.grant_id == grant.grant_id
+        assert copied1.execution_parameters == grant.execution_parameters
+
+        # Copy with update
+        copied2 = grant.model_copy(update={"state": GrantState.APPROVED}, deep=True)
+        assert copied2 is not grant
+        assert copied2.state == GrantState.APPROVED
+
+        # Standard library copy.deepcopy
+        copied3 = copy.deepcopy(grant)
+        assert copied3 is not grant
+        assert copied3.grant_id == grant.grant_id
+
+        # MappingProxyType remains unmutated in copy._deepcopy_dispatch
+        assert MappingProxyType not in copy._deepcopy_dispatch
+
 
 class TestExecutionGrantSerialization:
     """Verify serialization and roundtrip of deeply frozen ExecutionGrant."""

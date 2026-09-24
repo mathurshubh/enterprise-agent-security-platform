@@ -160,12 +160,39 @@ class BaseSessionRepositoryContractTests(abc.ABC):
     def test_no_arbitrary_deletion_method(self) -> None:
         assert not hasattr(SessionRepository, "delete_session")
 
-    def test_defensive_copy_isolation(self) -> None:
+    def test_save_defensive_copy_isolation(self) -> None:
+        """Mutating source session after save must not affect repository state."""
         repo = self.create_repository()
         session = self._sample_session("sess-iso-1")
         repo.save_session(session)
 
-        # Verify list collection isolation
+        # Mutate local object
+        session.agent_id = "tampered-agent"
+
+        retrieved = repo.get_session("sess-iso-1")
+        assert retrieved is not None
+        assert retrieved.agent_id != "tampered-agent"
+
+    def test_get_defensive_copy_isolation(self) -> None:
+        """Mutating retrieved session must not affect repository state."""
+        repo = self.create_repository()
+        session = self._sample_session("sess-iso-2")
+        repo.save_session(session)
+
+        retrieved1 = repo.get_session("sess-iso-2")
+        assert retrieved1 is not None
+        retrieved1.agent_id = "tampered-agent"
+
+        retrieved2 = repo.get_session("sess-iso-2")
+        assert retrieved2 is not None
+        assert retrieved2.agent_id != "tampered-agent"
+
+    def test_list_collection_isolation(self) -> None:
+        """Mutating the list returned by list_sessions() must not affect subsequent queries."""
+        repo = self.create_repository()
+        session = self._sample_session("sess-iso-3")
+        repo.save_session(session)
+
         sessions = repo.list_sessions()
         sessions.clear()
         assert len(repo.list_sessions()) == 1
