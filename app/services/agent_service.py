@@ -32,60 +32,78 @@ class AgentNotSuspendedError(Exception):
     """Raised when reinstating an agent that is not suspended."""
 
 
+class EnforcementConcurrencyError(Exception):
+    """Raised when an enforcement state transition fails due to concurrent modification (CAS epoch mismatch)."""
+
+
 class AgentService:
-    """Registry of agents and the authority for their enforcement state (M2b).
+    """Registry of agents and the authority for their enforcement state (M2b, PR #181).
 
     Enforcement state is monotonic from the runtime's perspective: the pipeline may
     suspend an agent, and only an explicit, attributed reinstatement returns it to
     service. No other method on this service produces that transition.
+
+    In PR #181, AgentRepository and EnforcementStateRepository are the sole authoritative
+    state sources (no internal dicts).
     """
 
     def __init__(
         self,
-        agent_repository: AgentRepository | None = None,
-        enforcement_repository: EnforcementStateRepository | None = None,
+        agent_repository: AgentRepository,
+        enforcement_repository: EnforcementStateRepository,
     ) -> None:
         self._lock = RLock()
         self._agent_repository = agent_repository
         self._enforcement_repository = enforcement_repository
-        # In PR #180, repositories are accepted as dependency wiring only.
-        # Existing in-memory state remains authoritative until PR #181.
-        self._agents: dict[str, Agent] = {}
-        self._enforcement: dict[str, AgentEnforcementState] = {}
-        # Append-only governance history, kept outside AgentEnforcementState so the
-        # current state remains a value object rather than a growing event log.
-        self._transitions: list[EnforcementTransition] = []
 
     @property
-    def agent_repository(self) -> AgentRepository | None:
-        """Injected AgentRepository protocol instance (if supplied)."""
+    def agent_repository(self) -> AgentRepository:
+        """Injected AgentRepository protocol instance."""
         return self._agent_repository
 
     @property
-    def enforcement_repository(self) -> EnforcementStateRepository | None:
-        """Injected EnforcementStateRepository protocol instance (if supplied)."""
+    def enforcement_repository(self) -> EnforcementStateRepository:
+        """Injected EnforcementStateRepository protocol instance."""
         return self._enforcement_repository
 
     def register_agent(self, agent: Agent) -> Agent:
         with self._lock:
-            if agent.agent_id in self._agents:
+            existing = self._agent_repository.get(agent.agent_id)
+            if existing is not None:
                 raise AgentAlreadyExistsError(
                     f"Agent '{agent.agent_id}' already exists"
                 )
 
-            self._agents[agent.agent_id] = agent
+            self._agent_repository.save(agent)
             return agent
 
     def get_agent(self, agent_id: str) -> Agent:
         with self._lock:
-            if agent_id not in self._agents:
+            agent = self._agent_repository.get(agent_id)
+            if agent is None:
                 raise AgentNotFoundError(f"Agent '{agent_id}' not found")
 
-            return self._agents[agent_id]
+            # Dynamic enforcement posture projection (fail-closed)
+            if agent.status != AgentStatus.DISABLED:
+                enf_state = self._enforcement_repository.get_state(agent_id)
+                if enf_state is not None and enf_state.suspended_at is not None:
+                    agent = agent.model_copy(update={"status": AgentStatus.SUSPENDED})
+
+            return agent
 
     def list_agents(self) -> list[Agent]:
         with self._lock:
-            return list(self._agents.values())
+            agents = self._agent_repository.list()
+            projected = []
+            for agent in agents:
+                if agent.status != AgentStatus.DISABLED:
+                    enf_state = self._enforcement_repository.get_state(agent.agent_id)
+                    if enf_state is not None and enf_state.suspended_at is not None:
+                        agent = agent.model_copy(
+                            update={"status": AgentStatus.SUSPENDED}
+                        )
+                projected.append(agent)
+            return projected
 
     def suspend_agent(
         self,
@@ -173,10 +191,10 @@ class AgentService:
         """Return the agent's current enforcement state."""
         with self._lock:
             self.get_agent(agent_id)
-            return self._enforcement.get(
-                agent_id,
-                AgentEnforcementState(agent_id=agent_id),
-            )
+            state = self._enforcement_repository.get_state(agent_id)
+            if state is None:
+                return AgentEnforcementState(agent_id=agent_id)
+            return state
 
     def list_transitions(
         self,
@@ -184,13 +202,7 @@ class AgentService:
     ) -> list[EnforcementTransition]:
         """Return recorded enforcement transitions in chronological order."""
         with self._lock:
-            if agent_id is None:
-                return list(self._transitions)
-            return [
-                transition
-                for transition in self._transitions
-                if transition.agent_id == agent_id
-            ]
+            return self._enforcement_repository.list_transitions(agent_id)
 
     def enforcement_epoch(
         self,
@@ -198,28 +210,9 @@ class AgentService:
         *,
         as_of: datetime,
     ) -> int:
-        """Return how many times this agent had been reinstated by ``as_of``.
-
-        Derived from the append-only transition history rather than stored, and
-        evaluated at a supplied moment rather than "now". Detection identity
-        depends on it, so reading the agent's *current* epoch would make the
-        identity of a past event depend on when it is looked at: an event from
-        before a reinstatement would derive one epoch live and a different one on
-        replay, and the same behaviour would produce two different findings.
-
-        Neither ``baseline_sequence`` nor ``baseline_at`` can serve this purpose.
-        Two reinstatements with no evidence between them share a baseline sequence,
-        and a baseline timestamp is a wall-clock capture rather than a position in
-        the history being replayed.
-        """
+        """Return how many times this agent had been reinstated by ``as_of``."""
         with self._lock:
-            return sum(
-                1
-                for transition in self._transitions
-                if transition.agent_id == agent_id
-                and transition.action == EnforcementAction.REINSTATE
-                and transition.occurred_at <= as_of
-            )
+            return self._enforcement_repository.get_epoch(agent_id, as_of=as_of)
 
     def _transition(
         self,
@@ -231,19 +224,31 @@ class AgentService:
         trigger: EnforcementTrigger | None,
         watermark: BaselineWatermark | None = None,
     ) -> Agent:
-        """Apply one enforcement transition atomically under the service lock."""
-        now = datetime.now(timezone.utc)
-        # Replace the stored record rather than mutating it, so a caller holding a
-        # reference never observes a partially updated agent.
-        updated = agent.model_copy(update={"status": new_status})
-        self._agents[agent.agent_id] = updated
+        """Apply one enforcement transition under the service lock via CAS and repository persistence."""
+        # Administrative DISABLED is a terminal/non-executable posture.
+        # A dynamic transition must never create enforcement state for a DISABLED agent.
+        if agent.status == AgentStatus.DISABLED:
+            return agent
 
-        state = self._enforcement.get(
-            agent.agent_id,
-            AgentEnforcementState(agent_id=agent.agent_id),
+        now = datetime.now(timezone.utc)
+
+        # get_epoch() returns the reinstatement/recovery epoch (R); the CAS expected
+        # transition epoch is derived as 2 * recovery_epoch for SUSPEND and
+        # 2 * recovery_epoch + 1 for REINSTATE.
+        recovery_epoch = self._enforcement_repository.get_epoch(
+            agent.agent_id, as_of=now
         )
         if action == EnforcementAction.SUSPEND:
-            state = state.model_copy(
+            expected_epoch = 2 * recovery_epoch
+        else:
+            expected_epoch = 2 * recovery_epoch + 1
+
+        state = self._enforcement_repository.get_state(agent.agent_id)
+        if state is None:
+            state = AgentEnforcementState(agent_id=agent.agent_id)
+
+        if action == EnforcementAction.SUSPEND:
+            new_state = state.model_copy(
                 update={
                     "suspended_at": now,
                     "suspension_reason": reason,
@@ -257,7 +262,7 @@ class AgentService:
                 else now
             )
             baseline_seq = watermark.baseline_sequence if watermark else 0
-            state = state.model_copy(
+            new_state = state.model_copy(
                 update={
                     "suspended_at": None,
                     "suspension_reason": None,
@@ -266,20 +271,34 @@ class AgentService:
                     "last_transition_at": now,
                 }
             )
-        self._enforcement[agent.agent_id] = state
 
-        self._transitions.append(
-            EnforcementTransition(
-                transition_id=f"transition-{uuid4()}",
-                agent_id=agent.agent_id,
-                action=action,
-                actor=actor,
-                reason=reason,
-                previous_status=agent.status,
-                new_status=new_status,
-                trigger=trigger,
-                occurred_at=now,
-            )
+        transition = EnforcementTransition(
+            transition_id=f"transition-{uuid4()}",
+            agent_id=agent.agent_id,
+            action=action,
+            actor=actor,
+            reason=reason,
+            previous_status=agent.status,
+            new_status=new_status,
+            trigger=trigger,
+            occurred_at=now,
         )
+
+        committed = self._enforcement_repository.record_transition(
+            transition=transition,
+            new_state=new_state,
+            expected_epoch=expected_epoch,
+        )
+        if not committed:
+            raise EnforcementConcurrencyError(
+                f"Concurrent modification detected for agent '{agent.agent_id}' "
+                f"(expected epoch {expected_epoch})"
+            )
+
+        # Fail-closed cross-repository persistence:
+        # If save() raises, we do NOT roll back EnforcementStateRepository.
+        # get_agent() projects SUSPENDED from EnforcementStateRepository, maintaining fail-closed security.
+        updated = agent.model_copy(update={"status": new_status})
+        self._agent_repository.save(updated)
 
         return updated

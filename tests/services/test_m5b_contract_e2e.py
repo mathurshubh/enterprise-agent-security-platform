@@ -22,7 +22,6 @@ from app.models.watermark import UNASSIGNED_SEQUENCE, BaselineWatermark
 from app.runtime.execution_authority import ExecutionAuthority
 from app.services.agent_lock_manager import AgentLockManager
 from app.services.agent_risk_aggregate import AgentRiskAggregate
-from app.services.agent_service import AgentService
 from app.services.enforcement_coordinator import EnforcementCoordinator
 from app.services.findings_service import FindingsService
 from app.services.risk_aggregator import RiskAggregator
@@ -33,6 +32,7 @@ from app.services.runtime_bootstrap import (
 )
 from app.services.runtime_service import RuntimeService
 from app.services.session_service import SessionService
+from tests.conftest import create_test_agent_service
 from tests.services.test_findings_service import make_finding
 
 
@@ -65,20 +65,41 @@ class TestM5BContractInvariantsB1ThroughB14:
         rebuilt_snapshot = rebuilt.snapshot()
 
         # Compare security-relevant fields (B-1)
-        assert incremental_snapshot.risk_score == rebuilt_snapshot.risk_score == 35  # 10 + 25
-        assert incremental_snapshot.risk_level == rebuilt_snapshot.risk_level == RiskLevel.MEDIUM
-        assert incremental_snapshot.last_applied_sequence == rebuilt_snapshot.last_applied_sequence == 2
+        assert (
+            incremental_snapshot.risk_score == rebuilt_snapshot.risk_score == 35
+        )  # 10 + 25
+        assert (
+            incremental_snapshot.risk_level
+            == rebuilt_snapshot.risk_level
+            == RiskLevel.MEDIUM
+        )
+        assert (
+            incremental_snapshot.last_applied_sequence
+            == rebuilt_snapshot.last_applied_sequence
+            == 2
+        )
         assert incremental_snapshot.finding_count == rebuilt_snapshot.finding_count == 2
-        assert incremental_snapshot.counts_by_severity == rebuilt_snapshot.counts_by_severity
-        assert incremental_snapshot.state == rebuilt_snapshot.state == PostureState.HEALTHY
+        assert (
+            incremental_snapshot.counts_by_severity
+            == rebuilt_snapshot.counts_by_severity
+        )
+        assert (
+            incremental_snapshot.state == rebuilt_snapshot.state == PostureState.HEALTHY
+        )
 
     def test_b2_contiguous_application(self) -> None:
         """B-2: Cursor advances contiguously for every accepted post-baseline finding."""
         agent_id = "agent-b2"
-        aggregate = AgentRiskAggregate(BaselineWatermark(agent_id=agent_id, baseline_sequence=0))
+        aggregate = AgentRiskAggregate(
+            BaselineWatermark(agent_id=agent_id, baseline_sequence=0)
+        )
 
-        f1 = make_finding("f1", agent_id=agent_id).model_copy(update={"evidence_sequence": 1})
-        f2 = make_finding("f2", agent_id=agent_id).model_copy(update={"evidence_sequence": 2})
+        f1 = make_finding("f1", agent_id=agent_id).model_copy(
+            update={"evidence_sequence": 1}
+        )
+        f2 = make_finding("f2", agent_id=agent_id).model_copy(
+            update={"evidence_sequence": 2}
+        )
 
         assert aggregate.apply_finding(f1) is True
         assert aggregate.last_applied_sequence == 1
@@ -88,9 +109,13 @@ class TestM5BContractInvariantsB1ThroughB14:
     def test_b3_idempotent_deduplication(self) -> None:
         """B-3: Sequence <= last_applied_sequence is an idempotent no-op."""
         agent_id = "agent-b3"
-        aggregate = AgentRiskAggregate(BaselineWatermark(agent_id=agent_id, baseline_sequence=0))
+        aggregate = AgentRiskAggregate(
+            BaselineWatermark(agent_id=agent_id, baseline_sequence=0)
+        )
 
-        f1 = make_finding("f1", agent_id=agent_id).model_copy(update={"evidence_sequence": 1})
+        f1 = make_finding("f1", agent_id=agent_id).model_copy(
+            update={"evidence_sequence": 1}
+        )
         aggregate.apply_finding(f1)
         v1 = aggregate.posture_version
 
@@ -102,9 +127,13 @@ class TestM5BContractInvariantsB1ThroughB14:
     def test_b4_fail_closed_on_sequence_gap(self) -> None:
         """B-4: Sequence gap (seq > last_applied + 1) transitions projection to STALE."""
         agent_id = "agent-b4"
-        aggregate = AgentRiskAggregate(BaselineWatermark(agent_id=agent_id, baseline_sequence=0))
+        aggregate = AgentRiskAggregate(
+            BaselineWatermark(agent_id=agent_id, baseline_sequence=0)
+        )
 
-        f3 = make_finding("f3", agent_id=agent_id).model_copy(update={"evidence_sequence": 3})
+        f3 = make_finding("f3", agent_id=agent_id).model_copy(
+            update={"evidence_sequence": 3}
+        )
         assert aggregate.apply_finding(f3) is False
         assert aggregate.state == PostureState.STALE
 
@@ -114,8 +143,12 @@ class TestM5BContractInvariantsB1ThroughB14:
         watermark = BaselineWatermark(agent_id=agent_id, baseline_sequence=5)
         aggregate = AgentRiskAggregate(watermark)
 
-        f4 = make_finding("f4", agent_id=agent_id).model_copy(update={"evidence_sequence": 4})
-        f5 = make_finding("f5", agent_id=agent_id).model_copy(update={"evidence_sequence": 5})
+        f4 = make_finding("f4", agent_id=agent_id).model_copy(
+            update={"evidence_sequence": 4}
+        )
+        f5 = make_finding("f5", agent_id=agent_id).model_copy(
+            update={"evidence_sequence": 5}
+        )
 
         assert aggregate.apply_finding(f4) is False
         assert aggregate.apply_finding(f5) is False
@@ -144,9 +177,9 @@ class TestM5BContractInvariantsB1ThroughB14:
         )
 
         # Apply finding with unknown rule
-        f_arbitrary = make_finding("f-arb", agent_id=agent_id, rule_id="ATTACKER_CONTROLLED_RULE").model_copy(
-            update={"evidence_sequence": 1}
-        )
+        f_arbitrary = make_finding(
+            "f-arb", agent_id=agent_id, rule_id="ATTACKER_CONTROLLED_RULE"
+        ).model_copy(update={"evidence_sequence": 1})
         aggregate.apply_finding(f_arbitrary)
 
         # Rule vocabulary boundary check
@@ -171,19 +204,26 @@ class TestM5BContractInvariantsB1ThroughB14:
     def test_b11_cursor_separation_from_active_risk_contribution(self) -> None:
         """B-11: Cursor tracks all findings; risk score tracks strictly active findings."""
         agent_id = "agent-b11"
-        aggregate = AgentRiskAggregate(BaselineWatermark(agent_id=agent_id, baseline_sequence=0))
+        aggregate = AgentRiskAggregate(
+            BaselineWatermark(agent_id=agent_id, baseline_sequence=0)
+        )
 
-        f1_resolved = make_finding("f1", agent_id=agent_id, status=FindingStatus.RESOLVED, severity=Severity.HIGH).model_copy(
-            update={"evidence_sequence": 1}
-        )
-        f2_active = make_finding("f2", agent_id=agent_id, status=FindingStatus.OPEN, severity=Severity.LOW).model_copy(
-            update={"evidence_sequence": 2}
-        )
+        f1_resolved = make_finding(
+            "f1",
+            agent_id=agent_id,
+            status=FindingStatus.RESOLVED,
+            severity=Severity.HIGH,
+        ).model_copy(update={"evidence_sequence": 1})
+        f2_active = make_finding(
+            "f2", agent_id=agent_id, status=FindingStatus.OPEN, severity=Severity.LOW
+        ).model_copy(update={"evidence_sequence": 2})
 
         aggregate.apply_finding(f1_resolved)
         assert aggregate.last_applied_sequence == 1
-        assert aggregate.finding_count == 0  # Resolved does NOT contribute to active count
-        assert aggregate.risk_score == 0     # Resolved does NOT contribute to score
+        assert (
+            aggregate.finding_count == 0
+        )  # Resolved does NOT contribute to active count
+        assert aggregate.risk_score == 0  # Resolved does NOT contribute to score
 
         aggregate.apply_finding(f2_active)
         assert aggregate.last_applied_sequence == 2
@@ -206,7 +246,9 @@ class TestM5BContractInvariantsB1ThroughB14:
         """B-13: Finding with seq > baseline_seq but recorded_at <= baseline_at triggers STALE."""
         agent_id = "agent-b13"
         t_baseline = datetime(2026, 9, 21, 12, 0, 0, tzinfo=timezone.utc)
-        watermark = BaselineWatermark(agent_id=agent_id, baseline_at=t_baseline, baseline_sequence=5)
+        watermark = BaselineWatermark(
+            agent_id=agent_id, baseline_at=t_baseline, baseline_sequence=5
+        )
         aggregate = AgentRiskAggregate(watermark)
 
         # Anomalous finding: seq 6 (> 5) but recorded_at is in the past (<= t_baseline)
@@ -263,7 +305,7 @@ class TestCompleteM5BLifecycleE2E:
         new baseline epoch
         """
         agent_id = "lifecycle-agent"
-        agent_service = AgentService()
+        agent_service = create_test_agent_service()
         agent_service.register_agent(
             Agent(
                 agent_id=agent_id,
@@ -352,7 +394,9 @@ class TestCompleteM5BLifecycleE2E:
         assert execution_authority.issuance_suspended(agent_id) is True
 
         # 8. Administrative Reinstatement -> establishes new baseline epoch
-        reinstated_agent = coordinator.reinstate(agent_id, actor="sec-admin", reason="remediated")
+        reinstated_agent = coordinator.reinstate(
+            agent_id, actor="sec-admin", reason="remediated"
+        )
         assert reinstated_agent.status == AgentStatus.ACTIVE
         assert execution_authority.issuance_suspended(agent_id) is False
 
@@ -374,12 +418,24 @@ class TestProductionDependencyWiring:
         assert dependencies.agent_lock_manager is not None
 
         # Verify RuntimeService has RiskAggregator and shared AgentLockManager
-        assert dependencies.runtime_service._risk_aggregator is dependencies.risk_aggregator
-        assert dependencies.runtime_service._lock_manager is dependencies.agent_lock_manager
+        assert (
+            dependencies.runtime_service._risk_aggregator
+            is dependencies.risk_aggregator
+        )
+        assert (
+            dependencies.runtime_service._lock_manager
+            is dependencies.agent_lock_manager
+        )
 
         # Verify EnforcementCoordinator has RiskAggregator and shared AgentLockManager
-        assert dependencies.enforcement_coordinator._risk_aggregator is dependencies.risk_aggregator
-        assert dependencies.enforcement_coordinator._lock_manager is dependencies.agent_lock_manager
+        assert (
+            dependencies.enforcement_coordinator._risk_aggregator
+            is dependencies.risk_aggregator
+        )
+        assert (
+            dependencies.enforcement_coordinator._lock_manager
+            is dependencies.agent_lock_manager
+        )
 
     def test_create_default_wires_the_shared_singleton_graph(self) -> None:
         """`create_default` must join the process's graph, not build its own (M5-B.6).
@@ -420,10 +476,17 @@ class TestProductionDependencyWiring:
             assert hasattr(dependencies.risk_service, retained)
 
         # M4-RISK: the materialized store and its readers are gone.
-        for removed in ("record_assessment", "get_assessment", "list_assessments", "clear"):
+        for removed in (
+            "record_assessment",
+            "get_assessment",
+            "list_assessments",
+            "clear",
+        ):
             assert not hasattr(dependencies.risk_service, removed)
 
-        assert "_risk_service.assess_session" in inspect.getsource(RuntimeService.execute)
+        assert "_risk_service.assess_session" in inspect.getsource(
+            RuntimeService.execute
+        )
 
     def test_the_healthy_path_still_returns_a_posture(self) -> None:
         """The positive control the removal must not break."""

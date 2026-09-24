@@ -80,17 +80,21 @@ class TestServiceDIRepositoryContracts:
         assert service.tool_repository is tool_repo
 
     def test_default_service_construction_preserves_none_repository(self) -> None:
-        """Existing parameterless construction continues to work with repositories defaulting to None."""
-        agent_service = AgentService()
+        """Existing parameterless construction continues to work for unmigrated services defaulting to None."""
         audit_service = AuditService()
         session_service = SessionService()
         tool_service = ToolService()
 
-        assert agent_service.agent_repository is None
-        assert agent_service.enforcement_repository is None
         assert audit_service.audit_repository is None
         assert session_service.session_repository is None
         assert tool_service.tool_repository is None
+
+    def test_agent_service_requires_repository_dependencies(self) -> None:
+        """AgentService in PR #181 requires explicit repository dependencies."""
+        import pytest
+
+        with pytest.raises(TypeError):
+            AgentService()  # type: ignore[call-arg]
 
 
 class TestProtocolCompliance:
@@ -161,9 +165,11 @@ class TestImportBoundaries:
             "InMemoryApprovalGrantRepository",
         ]
 
-        # Scan all service files except composition root / bootstrap
+        # Scan all service files except composition roots (runtime_bootstrap.py, scenario_sandbox.py)
         domain_service_files = [
-            f for f in services_dir.glob("*.py") if f.name != "runtime_bootstrap.py"
+            f
+            for f in services_dir.glob("*.py")
+            if f.name not in {"runtime_bootstrap.py", "scenario_sandbox.py"}
         ]
 
         for service_file in domain_service_files:
@@ -215,11 +221,15 @@ class TestCompositionRootWiring:
 class TestPR180BehaviorNeutrality:
     """Proves that PR #180 is strictly wiring-only with zero dual-writes or repository reads."""
 
-    def test_agent_registration_does_not_dual_write_to_repository_in_pr180(
+    def test_agent_registration_writes_authoritatively_to_repository_in_pr181(
         self,
     ) -> None:
         agent_repo = InMemoryAgentRepository()
-        service = AgentService(agent_repository=agent_repo)
+        enf_repo = InMemoryEnforcementStateRepository()
+        service = AgentService(
+            agent_repository=agent_repo,
+            enforcement_repository=enf_repo,
+        )
 
         agent = Agent(
             agent_id="test-agent",
@@ -230,10 +240,11 @@ class TestPR180BehaviorNeutrality:
         )
         service.register_agent(agent)
 
-        # Existing service internal state has the agent
+        # In PR #181, AgentRepository is the authoritative state source
+        stored = agent_repo.get("test-agent")
+        assert stored is not None
+        assert stored.agent_id == "test-agent"
         assert service.get_agent("test-agent").agent_id == "test-agent"
-        # In PR #180, repository is not dual-written yet (migration happens in PR #181)
-        assert agent_repo.get("test-agent") is None
 
     def test_audit_recording_does_not_dual_write_to_repository_in_pr180(self) -> None:
         audit_repo = InMemoryAuditEvidenceRepository()

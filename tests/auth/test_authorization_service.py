@@ -8,8 +8,8 @@ from app.models.tool_metadata import ToolMetadata
 from app.models.tool_operational import ToolOperational
 from app.models.tool_risk_level import ToolRiskLevel
 from app.policy.policy_engine import PolicyEngine
-from app.services.agent_service import AgentService
 from app.services.tool_service import ToolService
+from tests.conftest import create_test_agent_service
 
 
 def create_agent(
@@ -38,9 +38,7 @@ def create_tool(
             ),
             governance=ToolGovernance(
                 risk_level=ToolRiskLevel.LOW,
-                required_permissions=[
-                    "files:read"
-                ],
+                required_permissions=["files:read"],
                 approval_required=approval_required,
             ),
             capability=ToolCapability(
@@ -52,16 +50,12 @@ def create_tool(
 
 
 def test_allow_authorized_tool():
-    agent_service = AgentService()
+    agent_service = create_test_agent_service()
     tool_service = ToolService()
 
-    agent_service.register_agent(
-        create_agent(["file_read"])
-    )
+    agent_service.register_agent(create_agent(["file_read"]))
 
-    tool_service.register_tool(
-        create_tool("file_read")
-    )
+    tool_service.register_tool(create_tool("file_read"))
 
     service = AuthorizationService(
         agent_service,
@@ -78,16 +72,12 @@ def test_allow_authorized_tool():
 
 
 def test_deny_unapproved_tool():
-    agent_service = AgentService()
+    agent_service = create_test_agent_service()
     tool_service = ToolService()
 
-    agent_service.register_agent(
-        create_agent(["file_read"])
-    )
+    agent_service.register_agent(create_agent(["file_read"]))
 
-    tool_service.register_tool(
-        create_tool("shell_execute")
-    )
+    tool_service.register_tool(create_tool("shell_execute"))
 
     service = AuthorizationService(
         agent_service,
@@ -104,12 +94,10 @@ def test_deny_unapproved_tool():
 
 
 def test_approval_required():
-    agent_service = AgentService()
+    agent_service = create_test_agent_service()
     tool_service = ToolService()
 
-    agent_service.register_agent(
-        create_agent(["shell_execute"])
-    )
+    agent_service.register_agent(create_agent(["shell_execute"]))
 
     tool_service.register_tool(
         Tool(
@@ -134,7 +122,6 @@ def test_approval_required():
             )
         )
     )
-    
 
     service = AuthorizationService(
         agent_service,
@@ -151,12 +138,10 @@ def test_approval_required():
 
 
 def test_deny_unknown_agent():
-    agent_service = AgentService()
+    agent_service = create_test_agent_service()
     tool_service = ToolService()
 
-    tool_service.register_tool(
-        create_tool("file_read")
-    )
+    tool_service.register_tool(create_tool("file_read"))
 
     service = AuthorizationService(
         agent_service,
@@ -173,12 +158,10 @@ def test_deny_unknown_agent():
 
 
 def test_deny_unknown_tool():
-    agent_service = AgentService()
+    agent_service = create_test_agent_service()
     tool_service = ToolService()
 
-    agent_service.register_agent(
-        create_agent(["file_read"])
-    )
+    agent_service.register_agent(create_agent(["file_read"]))
 
     service = AuthorizationService(
         agent_service,
@@ -193,8 +176,9 @@ def test_deny_unknown_tool():
 
     assert decision == Decision.DENY
 
+
 def test_deny_suspended_agent():
-    agent_service = AgentService()
+    agent_service = create_test_agent_service()
     tool_service = ToolService()
 
     agent = create_agent(["file_read"])
@@ -202,9 +186,7 @@ def test_deny_suspended_agent():
 
     agent_service.register_agent(agent)
 
-    tool_service.register_tool(
-        create_tool("file_read")
-    )
+    tool_service.register_tool(create_tool("file_read"))
 
     service = AuthorizationService(
         agent_service,
@@ -221,7 +203,7 @@ def test_deny_suspended_agent():
 
 
 def test_deny_disabled_agent():
-    agent_service = AgentService()
+    agent_service = create_test_agent_service()
     tool_service = ToolService()
 
     agent = create_agent(["file_read"])
@@ -229,9 +211,7 @@ def test_deny_disabled_agent():
 
     agent_service.register_agent(agent)
 
-    tool_service.register_tool(
-        create_tool("file_read")
-    )
+    tool_service.register_tool(create_tool("file_read"))
 
     service = AuthorizationService(
         agent_service,
@@ -248,7 +228,7 @@ def test_deny_disabled_agent():
 
 
 def test_evaluate_allow_authorized_tool_structured_evidence():
-    agent_service = AgentService()
+    agent_service = create_test_agent_service()
     tool_service = ToolService()
     agent_service.register_agent(create_agent(["file_read"]))
     tool_service.register_tool(create_tool("file_read"))
@@ -269,7 +249,7 @@ def test_evaluate_allow_authorized_tool_structured_evidence():
 
 
 def test_evaluate_unknown_agent_short_circuits_with_structured_evidence():
-    agent_service = AgentService()
+    agent_service = create_test_agent_service()
     tool_service = ToolService()
     tool_service.register_tool(create_tool("file_read"))
 
@@ -293,7 +273,7 @@ def test_evaluate_unknown_agent_short_circuits_with_structured_evidence():
 
 
 def test_evaluate_unknown_tool_short_circuits_with_structured_evidence():
-    agent_service = AgentService()
+    agent_service = create_test_agent_service()
     tool_service = ToolService()
     agent_service.register_agent(create_agent(["file_read"]))
 
@@ -317,7 +297,7 @@ def test_evaluate_unknown_tool_short_circuits_with_structured_evidence():
 
 
 def test_evaluate_unapproved_tool_short_circuits_with_structured_evidence():
-    agent_service = AgentService()
+    agent_service = create_test_agent_service()
     tool_service = ToolService()
     agent_service.register_agent(create_agent(["file_read"]))
     tool_service.register_tool(create_tool("shell_execute"))
@@ -342,7 +322,7 @@ def test_evaluate_unapproved_tool_short_circuits_with_structured_evidence():
 
 
 def test_evaluate_suspended_agent_short_circuits_with_structured_evidence():
-    agent_service = AgentService()
+    agent_service = create_test_agent_service()
     tool_service = ToolService()
     agent = create_agent(["file_read"])
     agent.status = AgentStatus.SUSPENDED
@@ -369,7 +349,7 @@ def test_evaluate_suspended_agent_short_circuits_with_structured_evidence():
 
 
 def test_evaluate_risk_tier_mismatch_short_circuits_resource_check():
-    agent_service = AgentService()
+    agent_service = create_test_agent_service()
     tool_service = ToolService()
     agent = create_agent(["critical_tool"])
     agent.risk_tier = RiskTier.LOW
@@ -396,7 +376,7 @@ def test_evaluate_risk_tier_mismatch_short_circuits_resource_check():
 
 
 def test_evaluate_protected_resource_denied_with_structured_evidence():
-    agent_service = AgentService()
+    agent_service = create_test_agent_service()
     tool_service = ToolService()
     agent_service.register_agent(create_agent(["file_read"]))
     tool_service.register_tool(create_tool("file_read"))
@@ -415,7 +395,7 @@ def test_evaluate_protected_resource_denied_with_structured_evidence():
 
 
 def test_evaluate_critical_tool_requires_approval_without_check_failure():
-    agent_service = AgentService()
+    agent_service = create_test_agent_service()
     tool_service = ToolService()
     agent = create_agent(["critical_tool"])
     agent.risk_tier = RiskTier.HIGH
@@ -444,7 +424,7 @@ def test_authorization_result_and_check_immutability():
     import pytest
     from pydantic import ValidationError
 
-    agent_service = AgentService()
+    agent_service = create_test_agent_service()
     tool_service = ToolService()
     agent_service.register_agent(create_agent(["file_read"]))
     tool_service.register_tool(create_tool("file_read"))

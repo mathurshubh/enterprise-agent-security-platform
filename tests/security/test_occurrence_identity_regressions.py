@@ -38,6 +38,7 @@ from app.services.detection_service import (
     EXCESSIVE_DENIAL_THRESHOLD,
     DetectionService,
 )
+from tests.conftest import create_test_agent_service
 
 T0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
 
@@ -55,7 +56,9 @@ def denial(sequence: int, offset: float = 0.0) -> SessionEvent:
 
 def crossing(**kwargs) -> list:
     events = [denial(i + 1, i) for i in range(EXCESSIVE_DENIAL_THRESHOLD)]
-    kwargs.setdefault("evaluation_time", T0 + timedelta(seconds=EXCESSIVE_DENIAL_THRESHOLD))
+    kwargs.setdefault(
+        "evaluation_time", T0 + timedelta(seconds=EXCESSIVE_DENIAL_THRESHOLD)
+    )
     return DetectionService().detect_excessive_denials(events, **kwargs)
 
 
@@ -68,7 +71,7 @@ class TestTheEpochIsEvaluatedAtTheMomentBeingEvaluated:
     """
 
     def service_with_recovery_at(self, offset: float) -> AgentService:
-        service = AgentService()
+        service = create_test_agent_service()
         service.register_agent(
             Agent(
                 agent_id="a",
@@ -83,7 +86,7 @@ class TestTheEpochIsEvaluatedAtTheMomentBeingEvaluated:
         service.reinstate_agent("a", actor="admin", reason="cleared")
         # Place the recorded transition at the intended moment.
         recovered = service.list_transitions("a")[-1]
-        service._transitions[-1] = recovered.model_copy(
+        service.enforcement_repository._transitions[-1] = recovered.model_copy(
             update={"occurred_at": T0 + timedelta(seconds=offset)}
         )
         return service
@@ -203,7 +206,11 @@ class TestAccumulationOccurrenceIdentity:
             prior_findings=first,
         )
 
-        in_window = {e.sequence_number for e in events if e.timestamp >= T0 + timedelta(seconds=10)}
+        in_window = {
+            e.sequence_number
+            for e in events
+            if e.timestamp >= T0 + timedelta(seconds=10)
+        }
         assert 1 not in in_window, "the probe must age the earliest denial out"
         assert later[0].evidence_event_sequences == (1, 2, 3)
         assert later[0].finding_id == first[0].finding_id
