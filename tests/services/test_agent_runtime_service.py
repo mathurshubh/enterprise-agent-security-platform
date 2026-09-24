@@ -52,9 +52,12 @@ from app.services.runtime_bootstrap import (
     create_default_detection_registry,
 )
 from app.services.runtime_service import RuntimeService
-from app.services.session_service import SessionService
 from app.tools.base_tool import BaseTool
-from tests.conftest import create_test_agent_service, create_test_audit_service
+from tests.conftest import (
+    create_test_agent_service,
+    create_test_audit_service,
+    create_test_session_service,
+)
 
 
 class FakeAgent(EnterpriseAgent):
@@ -267,7 +270,7 @@ def build_isolated_runtime(agent_id: str) -> RuntimeService:
 
     return bootstrap_runtime_service(
         agent_service=agent_service,
-        session_service=SessionService(),
+        session_service=create_test_session_service(),
         audit_service=create_test_audit_service(),
         detection_registry=create_default_detection_registry(),
         agent_id=agent_id,

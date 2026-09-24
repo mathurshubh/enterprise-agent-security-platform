@@ -30,107 +30,62 @@ Security invariants:
   renumbers survivors.
 """
 
-import heapq
 from datetime import datetime, timedelta, timezone
-from threading import RLock
 
+from app.models.audit_event import Decision
 from app.models.detection_retention import DetectionRetentionPolicy
 from app.models.session import (
     Session,
+    SessionAlreadyExistsError,
+    SessionBindingError,
+    SessionNotFoundError,
+    SessionTerminalError,
     TerminalReason,
     TerminalSessionTombstone,
 )
 from app.models.session_event import SessionEvent
 from app.repositories.interfaces.session_repository import SessionRepository
 
-
-class SessionAlreadyExistsError(Exception):
-    pass
-
-
-class SessionNotFoundError(Exception):
-    pass
-
-
-class SessionBindingError(Exception):
-    """Raised when a session is used by an agent that does not own it.
-
-    A session is security-owned by exactly one agent. Evidence gathered in a session
-    feeds that agent's enforcement posture (M2b), so allowing another agent to write
-    into it would let one workload manipulate another workload's security state.
-    """
-
-    def __init__(
-        self, session_id: str, owner_agent_id: str, requested_agent_id: str
-    ) -> None:
-        super().__init__(
-            f"Session '{session_id}' is owned by agent '{owner_agent_id}', "
-            f"not '{requested_agent_id}'"
-        )
-        self.session_id = session_id
-        self.owner_agent_id = owner_agent_id
-        self.requested_agent_id = requested_agent_id
-
-
-class SessionTerminalError(SessionBindingError):
-    """Raised when an operation attempts to use or rebind a terminal session (M4-S-1).
-
-    Subclasses SessionBindingError so that existing security boundaries (such as
-    RuntimeService and HTTP API handlers) catch it and fail closed with
-    SESSION_BINDING_INVALID without leaking state or requiring broad refactoring.
-    """
-
-    def __init__(
-        self, session_id: str, owner_agent_id: str, requested_agent_id: str
-    ) -> None:
-        super().__init__(
-            session_id=session_id,
-            owner_agent_id=owner_agent_id,
-            requested_agent_id=requested_agent_id,
-        )
+__all__ = [
+    "SessionAlreadyExistsError",
+    "SessionBindingError",
+    "SessionNotFoundError",
+    "SessionService",
+    "SessionTerminalError",
+]
 
 
 class SessionService:
-    """Sessions and their ownership.
+    """Sessions and their ownership (M4-S, M4-EVENT, PR #183).
 
     Ownership is established once, atomically, and never changes. It is the integrity
     boundary for agent-scoped enforcement: behavioural evidence is only trustworthy if
     the agent it is attributed to is the agent that produced it.
+
+    In PR #183, SessionRepository is the sole authoritative state source (no internal dicts,
+    heaps, or local sequence counters).
     """
 
     def __init__(
         self,
+        session_repository: SessionRepository,
         retention_policy: DetectionRetentionPolicy | None = None,
-        session_repository: SessionRepository | None = None,
     ) -> None:
         """Initialize SessionService.
 
         Args:
+            session_repository: Injected SessionRepository protocol instance (required in PR #183).
             retention_policy: Authoritative detection retention policy (M4-EVENT).
                 If None, operates in explicit unbounded test/compatibility mode
                 where event pruning is disabled (M4-EVENT-5). Production bootstrapping
                 must pass an explicit policy derived from DetectionService.
-            session_repository: Injected SessionRepository protocol instance (PR #180).
-                Stored as dependency wiring; existing in-memory collections remain
-                authoritative until PR #182.
         """
         self._session_repository = session_repository
-        # In PR #180, repository is accepted as dependency wiring only.
-        # Existing in-memory state remains authoritative until PR #182.
-        self._sessions: dict[str, Session] = {}
-        self._tombstones: dict[str, TerminalSessionTombstone] = {}
         self._retention_policy = retention_policy
-        self._events_heap: list[tuple[datetime, int, SessionEvent]] = []
-        self._event_counter: int = 0
-        # Canonical per-session position (M4-EVENT-8). Kept separately from the
-        # heap so that pruning never renumbers surviving events and a sequence is
-        # never reused after the events carrying it have been evicted.
-        self._session_sequences: dict[str, int] = {}
-        self._lock = RLock()
 
     @property
-    def session_repository(self) -> SessionRepository | None:
-        """Injected SessionRepository protocol instance (if supplied)."""
+    def session_repository(self) -> SessionRepository:
+        """Injected SessionRepository protocol instance."""
         return self._session_repository
 
     @property
@@ -141,36 +96,24 @@ class SessionService:
         self,
         session: Session,
     ) -> Session:
-        with self._lock:
-            if session.session_id in self._tombstones:
-                raise SessionTerminalError(
-                    session.session_id,
-                    self._tombstones[session.session_id].agent_id,
-                    session.agent_id,
-                )
-
-            if session.session_id in self._sessions:
-                raise SessionAlreadyExistsError()
-
-            self._sessions[session.session_id] = session
-
-            return session
+        """Create a new active session via authoritative repository."""
+        return self._session_repository.create_session(session)
 
     def get_session(
         self,
         session_id: str,
     ) -> Session:
-        with self._lock:
-            try:
-                return self._sessions[session_id]
-            except KeyError as exc:
-                raise SessionNotFoundError() from exc
+        """Retrieve an active session, raising SessionNotFoundError if missing."""
+        session = self._session_repository.get_session(session_id)
+        if session is None:
+            raise SessionNotFoundError(f"Session '{session_id}' not found")
+        return session
 
     def list_sessions(
         self,
     ) -> list[Session]:
-        with self._lock:
-            return list(self._sessions.values())
+        """List all active sessions from authoritative repository."""
+        return self._session_repository.list_sessions()
 
     def bind_or_validate(
         self,
@@ -180,40 +123,14 @@ class SessionService:
     ) -> Session:
         """Return the session owned by ``agent_id``, establishing ownership if new.
 
-        Establishment and validation happen under one lock, so two concurrent first
-        uses cannot produce two competing owners: exactly one establishes ownership and
-        the other is measured against it.
-
-        Enforces M4-S-1 (Terminal Ownership Finality): a session ID in _tombstones
-        fails closed permanently and cannot be rebound by any agent.
-
-        Raises:
-            SessionTerminalError: the session has reached terminal state.
-            SessionBindingError: the session belongs to a different agent.
+        Delegates to repository's atomic bind_or_create_session primitive.
         """
-        with self._lock:
-            tombstone = self._tombstones.get(session_id)
-            if tombstone is not None:
-                raise SessionTerminalError(session_id, tombstone.agent_id, agent_id)
-
-            existing = self._sessions.get(session_id)
-
-            if existing is None:
-                now = now_utc or datetime.now(timezone.utc)
-                session = Session(
-                    session_id=session_id,
-                    agent_id=agent_id,
-                    started_at=now,
-                    last_activity_at=now,
-                )
-                self._sessions[session_id] = session
-                return session
-
-            if existing.agent_id != agent_id:
-                raise SessionBindingError(session_id, existing.agent_id, agent_id)
-
-            existing.last_activity_at = now_utc or datetime.now(timezone.utc)
-            return existing
+        now = now_utc or datetime.now(timezone.utc)
+        return self._session_repository.bind_or_create_session(
+            session_id=session_id,
+            agent_id=agent_id,
+            now=now,
+        )
 
     def end_session(
         self,
@@ -225,155 +142,112 @@ class SessionService:
         """Explicitly end an active session and atomically record a permanent tombstone (M4-S-2).
 
         Idempotent if called repeatedly by the owning agent.
-        Raises:
-            SessionNotFoundError: if session is unknown.
-            SessionBindingError: if called by an agent that does not own the session.
         """
-        with self._lock:
-            tombstone = self._tombstones.get(session_id)
-            if tombstone is not None:
-                if tombstone.agent_id != agent_id:
-                    raise SessionBindingError(session_id, tombstone.agent_id, agent_id)
+        now = now_utc or datetime.now(timezone.utc)
+        tombstone = self._session_repository.get_tombstone(session_id)
+        if tombstone is not None:
+            if tombstone.agent_id != agent_id:
+                raise SessionBindingError(session_id, tombstone.agent_id, agent_id)
+            return
+
+        existing = self._session_repository.get_session(session_id)
+        if existing is None:
+            raise SessionNotFoundError(f"Session '{session_id}' not found")
+
+        if existing.agent_id != agent_id:
+            raise SessionBindingError(session_id, existing.agent_id, agent_id)
+
+        target_tombstone = TerminalSessionTombstone(
+            session_id=session_id,
+            agent_id=agent_id,
+            terminated_at=now,
+            terminal_reason=TerminalReason.EXPLICIT_END,
+        )
+        if not self._session_repository.terminalize_session(
+            session_id, target_tombstone
+        ):
+            # Race condition handling: re-verify tombstone under lock/concurrency
+            recheck = self._session_repository.get_tombstone(session_id)
+            if recheck is not None:
+                if recheck.agent_id != agent_id:
+                    raise SessionBindingError(session_id, recheck.agent_id, agent_id)
                 return
-
-            existing = self._sessions.get(session_id)
-            if existing is None:
-                raise SessionNotFoundError(f"Session '{session_id}' not found")
-
-            if existing.agent_id != agent_id:
-                raise SessionBindingError(session_id, existing.agent_id, agent_id)
-
-            now = now_utc or datetime.now(timezone.utc)
-            del self._sessions[session_id]
-            self._tombstones[session_id] = TerminalSessionTombstone(
-                session_id=session_id,
-                agent_id=agent_id,
-                terminated_at=now,
-                terminal_reason=TerminalReason.EXPLICIT_END,
-            )
+            raise SessionNotFoundError(f"Session '{session_id}' not found")
 
     def expire_idle_sessions(
         self,
         idle_threshold_seconds: float,
         now_utc: datetime | None = None,
     ) -> list[str]:
-        """Authoritative idle expiration: transition idle active sessions to TERMINAL.
-
-        Enforces M4-S-2: Active-session removal and tombstone creation occur atomically.
-        """
+        """Authoritative idle expiration: transition idle active sessions to TERMINAL."""
         if idle_threshold_seconds <= 0:
             raise ValueError("idle_threshold_seconds must be positive")
 
-        with self._lock:
-            now = now_utc or datetime.now(timezone.utc)
-            expired_ids: list[str] = []
+        now = now_utc or datetime.now(timezone.utc)
+        expired_ids: list[str] = []
 
-            for session_id, session in list(self._sessions.items()):
-                elapsed = (now - session.last_activity_at).total_seconds()
-                if elapsed >= idle_threshold_seconds:
-                    del self._sessions[session_id]
-                    self._tombstones[session_id] = TerminalSessionTombstone(
-                        session_id=session_id,
-                        agent_id=session.agent_id,
-                        terminated_at=now,
-                        terminal_reason=TerminalReason.IDLE_TIMEOUT,
-                    )
-                    expired_ids.append(session_id)
+        for session in self._session_repository.list_sessions():
+            elapsed = (now - session.last_activity_at).total_seconds()
+            if elapsed >= idle_threshold_seconds:
+                tombstone = TerminalSessionTombstone(
+                    session_id=session.session_id,
+                    agent_id=session.agent_id,
+                    terminated_at=now,
+                    terminal_reason=TerminalReason.IDLE_TIMEOUT,
+                )
+                if self._session_repository.terminalize_session(
+                    session.session_id, tombstone
+                ):
+                    expired_ids.append(session.session_id)
 
-            return expired_ids
+        return expired_ids
 
     def is_terminal(self, session_id: str) -> bool:
         """Check if a session identifier is in terminal state."""
-        with self._lock:
-            return session_id in self._tombstones
+        return self._session_repository.get_tombstone(session_id) is not None
 
     def get_tombstone(self, session_id: str) -> TerminalSessionTombstone | None:
         """Retrieve the terminal tombstone for a session if it exists."""
-        with self._lock:
-            return self._tombstones.get(session_id)
+        return self._session_repository.get_tombstone(session_id)
 
     def record_event(
         self,
         event: SessionEvent,
     ) -> SessionEvent:
-        """Record a session event, refusing one attributed against session ownership.
-
-        M4-EVENT-6: Hot-path insertion is O(log N).
-        M4-EVENT-7: Stores into min-heap with sequence tie-breaker.
-        """
-        with self._lock:
-            tombstone = self._tombstones.get(event.session_id)
-            if tombstone is not None:
-                raise SessionTerminalError(
-                    event.session_id, tombstone.agent_id, event.agent_id
-                )
-
-            owner = self._sessions.get(event.session_id)
-            if owner is not None and owner.agent_id != event.agent_id:
-                raise SessionBindingError(
-                    event.session_id, owner.agent_id, event.agent_id
-                )
-
-            next_sequence = self._session_sequences.get(event.session_id, 0) + 1
-            self._session_sequences[event.session_id] = next_sequence
-            recorded = event.model_copy(update={"sequence_number": next_sequence})
-
-            heapq.heappush(
-                self._events_heap,
-                (recorded.timestamp, self._event_counter, recorded),
-            )
-            self._event_counter += 1
-
-            self._prune_events(now=recorded.timestamp)
-
-            return recorded
+        """Record a session event, strictly allocating sequence and persisting via repository."""
+        recorded = self._session_repository.record_event(event)
+        self._prune_events(now=recorded.timestamp)
+        return recorded
 
     def _prune_events(self, now: datetime) -> int:
-        """Prune expired session events whose timestamp is older than the retention cutoff.
-
-        M4-EVENT-6: Pruning is O(K log N) for K evicted events and does not require scanning
-        retained events.
-        M4-EVENT-7: Root is guaranteed minimum timestamp; out-of-order events bubble up correctly.
-        """
+        """Prune expired session events whose timestamp is older than the retention cutoff."""
         if self._retention_policy is None:
             return 0
 
         cutoff = now - timedelta(seconds=self._retention_policy.total_retention_seconds)
-        evicted = 0
-
-        while self._events_heap and self._events_heap[0][0] < cutoff:
-            heapq.heappop(self._events_heap)
-            evicted += 1
-
-        return evicted
+        return self._session_repository.prune_events(cutoff=cutoff)
 
     def prune_events(self, now_utc: datetime | None = None) -> int:
-        """Explicit maintenance trigger to prune expired events under the lock."""
-        with self._lock:
-            now = now_utc or datetime.now(timezone.utc)
-            return self._prune_events(now)
+        """Explicit maintenance trigger to prune expired events under the retention policy."""
+        now = now_utc or datetime.now(timezone.utc)
+        return self._prune_events(now)
 
     def list_events(
         self,
         session_id: str,
     ) -> list[SessionEvent]:
-        """Return the session's events in canonical order.
+        """Return the session's events in canonical (timestamp, sequence_number) order."""
+        return self._session_repository.list_events(session_id)
 
-        M4-EVENT-6 / M4-EVENT-7: chronological, without assuming the heap array is
-        itself sorted.
-
-        M4-EVENT-8: the ordering key is ``(timestamp, sequence_number)``. Chronology
-        remains primary; the persisted per-session sequence is the tie-breaker.
-        Sorting on timestamp alone left tied events in whatever order the heap array
-        happened to hold them, which is not insertion order and not stable across
-        differently shaped histories, so anything deriving identity or evidence from
-        "the first N events" had no deterministic answer. The tie-break is the
-        persisted sequence, never the heap position.
-        """
-        with self._lock:
-            matching = [
-                item[2]
-                for item in self._events_heap
-                if item[2].session_id == session_id
-            ]
-            return sorted(matching, key=lambda e: (e.timestamp, e.sequence_number))
+    def update_event_final_decision(
+        self,
+        session_id: str,
+        sequence_number: int,
+        final_decision: Decision,
+    ) -> None:
+        """Update the final_decision on an existing recorded session event in the repository."""
+        self._session_repository.update_event_final_decision(
+            session_id=session_id,
+            sequence_number=sequence_number,
+            final_decision=final_decision,
+        )

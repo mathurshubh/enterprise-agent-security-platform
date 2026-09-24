@@ -21,6 +21,7 @@ from app.repositories.in_memory.audit_evidence_repository import (
 from app.repositories.in_memory.enforcement_state_repository import (
     InMemoryEnforcementStateRepository,
 )
+from app.repositories.in_memory.session_repository import InMemorySessionRepository
 from app.runtime.execution_authority import ExecutionAuthority
 from app.services.agent_service import AgentService
 from app.services.audit_service import AuditService
@@ -64,7 +65,9 @@ def build_scenario_sandbox(agent_id: str = SCENARIO_AGENT_ID) -> ScenarioSandbox
         agent_repository=InMemoryAgentRepository(),
         enforcement_repository=InMemoryEnforcementStateRepository(),
     )
-    session_service = SessionService()
+    session_service = SessionService(
+        session_repository=InMemorySessionRepository(),
+    )
     audit_service = AuditService(
         audit_repository=InMemoryAuditEvidenceRepository(),
     )

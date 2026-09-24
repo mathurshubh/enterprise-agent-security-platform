@@ -53,6 +53,20 @@ def create_test_audit_service(
     )
 
 
+def create_test_session_service(
+    session_repository=None,
+    retention_policy=None,
+):
+    """Test helper creating a SessionService wired with concrete in-memory repository."""
+    from app.repositories.in_memory.session_repository import InMemorySessionRepository
+    from app.services.session_service import SessionService
+
+    return SessionService(
+        session_repository=session_repository or InMemorySessionRepository(),
+        retention_policy=retention_policy,
+    )
+
+
 def register_test_agent(
     agent_id: str,
     approved_tools: list[str] | None = None,
