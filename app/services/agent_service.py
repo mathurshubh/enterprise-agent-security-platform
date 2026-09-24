@@ -10,6 +10,10 @@ from app.models.agent_enforcement import (
     EnforcementTrigger,
 )
 from app.models.watermark import BaselineWatermark
+from app.repositories.interfaces.agent_repository import AgentRepository
+from app.repositories.interfaces.enforcement_state_repository import (
+    EnforcementStateRepository,
+)
 
 # Suspension is written by the deterministic runtime pipeline, never by an operator
 # request. Reinstatement is the opposite: it always names the operator who performed it.
@@ -36,13 +40,31 @@ class AgentService:
     service. No other method on this service produces that transition.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        agent_repository: AgentRepository | None = None,
+        enforcement_repository: EnforcementStateRepository | None = None,
+    ) -> None:
         self._lock = RLock()
+        self._agent_repository = agent_repository
+        self._enforcement_repository = enforcement_repository
+        # In PR #180, repositories are accepted as dependency wiring only.
+        # Existing in-memory state remains authoritative until PR #181.
         self._agents: dict[str, Agent] = {}
         self._enforcement: dict[str, AgentEnforcementState] = {}
         # Append-only governance history, kept outside AgentEnforcementState so the
         # current state remains a value object rather than a growing event log.
         self._transitions: list[EnforcementTransition] = []
+
+    @property
+    def agent_repository(self) -> AgentRepository | None:
+        """Injected AgentRepository protocol instance (if supplied)."""
+        return self._agent_repository
+
+    @property
+    def enforcement_repository(self) -> EnforcementStateRepository | None:
+        """Injected EnforcementStateRepository protocol instance (if supplied)."""
+        return self._enforcement_repository
 
     def register_agent(self, agent: Agent) -> Agent:
         with self._lock:
@@ -57,9 +79,7 @@ class AgentService:
     def get_agent(self, agent_id: str) -> Agent:
         with self._lock:
             if agent_id not in self._agents:
-                raise AgentNotFoundError(
-                    f"Agent '{agent_id}' not found"
-                )
+                raise AgentNotFoundError(f"Agent '{agent_id}' not found")
 
             return self._agents[agent_id]
 
@@ -123,9 +143,7 @@ class AgentService:
                 raise ValueError("Reinstatement requires a reason")
 
             if agent.status != AgentStatus.SUSPENDED:
-                raise AgentNotSuspendedError(
-                    f"Agent '{agent_id}' is not suspended"
-                )
+                raise AgentNotSuspendedError(f"Agent '{agent_id}' is not suspended")
 
             return self._transition(
                 agent=agent,

@@ -8,6 +8,7 @@ ToolRegistry (app.registry.tool_registry.ToolRegistry). Do not add new functiona
 
 from app.models.tool import Tool
 from app.registry.tool_registry import ToolRegistry
+from app.repositories.interfaces.tool_repository import ToolRepository
 
 
 class ToolAlreadyExistsError(Exception):
@@ -25,16 +26,26 @@ class ToolService:
     with ToolRegistry.
     """
 
-    def __init__(self, tool_registry: ToolRegistry | None = None) -> None:
-        self._tools: dict[str, Tool] = {}
+    def __init__(
+        self,
+        tool_registry: ToolRegistry | None = None,
+        tool_repository: ToolRepository | None = None,
+    ) -> None:
         self._tool_registry = tool_registry or ToolRegistry()
+        self._tool_repository = tool_repository
+        # In PR #180, repository is accepted as dependency wiring only.
+        # Existing in-memory state remains authoritative until PR #183.
+        self._tools: dict[str, Tool] = {}
+
+    @property
+    def tool_repository(self) -> ToolRepository | None:
+        """Injected ToolRepository protocol instance (if supplied)."""
+        return self._tool_repository
 
     def register_tool(self, tool: Tool) -> Tool:
         """Register a Tool descriptor in the compatibility service."""
         if tool.tool_id in self._tools or self._tool_registry.exists(tool.tool_id):
-            raise ToolAlreadyExistsError(
-                f"Tool '{tool.tool_id}' already exists"
-            )
+            raise ToolAlreadyExistsError(f"Tool '{tool.tool_id}' already exists")
 
         self._tools[tool.tool_id] = tool
         return tool
@@ -48,9 +59,7 @@ class ToolService:
             metadata = self._tool_registry.resolve(tool_id).metadata
             return Tool(metadata=metadata)
 
-        raise ToolNotFoundError(
-            f"Tool '{tool_id}' not found"
-        )
+        raise ToolNotFoundError(f"Tool '{tool_id}' not found")
 
     def list_tools(self) -> list[Tool]:
         """List all managed Tool descriptors."""
