@@ -29,7 +29,6 @@ from app.policy.policy_engine import PolicyEngine
 from app.registry.tool_registry import ToolRegistry
 from app.runtime.execution_authority import ExecutionAuthority
 from app.services.agent_lock_manager import AgentLockManager
-from app.services.audit_service import AuditService
 from app.services.detection_service import DetectionService
 from app.services.enforcement_coordinator import EnforcementCoordinator
 from app.services.findings_service import FindingsService
@@ -42,7 +41,7 @@ from app.services.session_service import SessionService
 from app.services.tool_service import ToolService
 from app.tools.directory_list_tool import DirectoryListTool
 from app.tools.file_read_tool import FileReadTool
-from tests.conftest import create_test_agent_service
+from tests.conftest import create_test_agent_service, create_test_audit_service
 
 PROTECTED_FILE = "secrets.txt"
 BENIGN_FILE = "notes.txt"
@@ -97,7 +96,7 @@ def build_runtime():
         detection_registry.register(SensitiveFileAccessRule())
         detection_registry.register(DataExfiltrationRule())
 
-        audit_service = AuditService()
+        audit_service = create_test_audit_service()
         # M5-B.4: the corpus must exercise the retention semantics production runs.
         # `runtime_bootstrap` derives the policy from the detection service's own
         # evaluation horizon rather than an arbitrary TTL, so the fixture derives it

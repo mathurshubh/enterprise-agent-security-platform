@@ -7,21 +7,33 @@ from app.repositories.interfaces.audit_evidence_repository import (
 class AuditService:
     def __init__(
         self,
-        audit_repository: AuditEvidenceRepository | None = None,
+        audit_repository: AuditEvidenceRepository,
     ) -> None:
         self._audit_repository = audit_repository
-        # In PR #180, repository is accepted as dependency wiring only.
-        # Existing in-memory state remains authoritative until PR #182.
-        self._events: list[AuditEvent] = []
 
     @property
-    def audit_repository(self) -> AuditEvidenceRepository | None:
-        """Injected AuditEvidenceRepository protocol instance (if supplied)."""
+    def audit_repository(self) -> AuditEvidenceRepository:
+        """Injected AuditEvidenceRepository protocol instance."""
         return self._audit_repository
 
     def record_event(self, event: AuditEvent) -> AuditEvent:
-        self._events.append(event)
+        self._audit_repository.append(event)
         return event
 
-    def list_events(self) -> list[AuditEvent]:
-        return self._events.copy()
+    def list_events(
+        self,
+        *,
+        session_id: str | None = None,
+        agent_id: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[AuditEvent]:
+        return self._audit_repository.query(
+            session_id=session_id,
+            agent_id=agent_id,
+            limit=limit,
+            offset=offset,
+        )
+
+    def get_event(self, event_id: str) -> AuditEvent | None:
+        return self._audit_repository.get(event_id)

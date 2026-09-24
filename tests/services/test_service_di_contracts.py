@@ -81,13 +81,18 @@ class TestServiceDIRepositoryContracts:
 
     def test_default_service_construction_preserves_none_repository(self) -> None:
         """Existing parameterless construction continues to work for unmigrated services defaulting to None."""
-        audit_service = AuditService()
         session_service = SessionService()
         tool_service = ToolService()
 
-        assert audit_service.audit_repository is None
         assert session_service.session_repository is None
         assert tool_service.tool_repository is None
+
+    def test_audit_service_requires_repository_dependency(self) -> None:
+        """AuditService in PR #182 requires an explicit repository dependency."""
+        import pytest
+
+        with pytest.raises(TypeError):
+            AuditService()  # type: ignore[call-arg]
 
     def test_agent_service_requires_repository_dependencies(self) -> None:
         """AgentService in PR #181 requires explicit repository dependencies."""
@@ -246,7 +251,7 @@ class TestPR180BehaviorNeutrality:
         assert stored.agent_id == "test-agent"
         assert service.get_agent("test-agent").agent_id == "test-agent"
 
-    def test_audit_recording_does_not_dual_write_to_repository_in_pr180(self) -> None:
+    def test_audit_recording_persists_authoritatively_to_repository(self) -> None:
         audit_repo = InMemoryAuditEvidenceRepository()
         service = AuditService(audit_repository=audit_repo)
 
@@ -261,8 +266,13 @@ class TestPR180BehaviorNeutrality:
         )
         service.record_event(event)
 
+        # In PR #182, AuditEvidenceRepository is the authoritative state source
         assert len(service.list_events()) == 1
-        assert len(audit_repo.query()) == 0
+        assert len(audit_repo.query()) == 1
+        stored = audit_repo.get("ev-test")
+        assert stored is not None
+        assert stored.event_id == "ev-test"
+        assert not hasattr(service, "_events")
 
     def test_session_creation_does_not_dual_write_to_repository_in_pr180(self) -> None:
         session_repo = InMemorySessionRepository()

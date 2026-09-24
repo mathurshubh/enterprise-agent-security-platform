@@ -29,7 +29,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.models.audit_event import AuditEvent, Decision
-from app.services.audit_service import AuditService
+from tests.conftest import create_test_audit_service
 
 
 def audit_event(decision: Decision = Decision.DENY) -> AuditEvent:
@@ -49,7 +49,7 @@ def test_invariant_a_recorded_decision_cannot_be_rewritten_through_the_read_path
     Asserted on the store's state as well as on the raised error, because a record
     that refused mutation but had already been altered would satisfy a narrower test.
     """
-    service = AuditService()
+    service = create_test_audit_service()
     service.record_event(audit_event())
 
     fetched = service.list_events()[0]
@@ -66,7 +66,7 @@ def test_invariant_the_producer_cannot_rewrite_what_it_recorded() -> None:
     `record_event` returns the object it was given, so the producer holds a live
     reference to the stored record for as long as it keeps one.
     """
-    service = AuditService()
+    service = create_test_audit_service()
     event = audit_event()
     returned = service.record_event(event)
 
@@ -85,7 +85,7 @@ def test_invariant_no_field_of_a_recorded_decision_is_writable() -> None:
     record whose timestamp or tool could be rewritten is equally unable to say what
     happened.
     """
-    service = AuditService()
+    service = create_test_audit_service()
     service.record_event(audit_event())
     stored = service.list_events()[0]
 
@@ -134,7 +134,7 @@ def test_deriving_a_changed_record_produces_a_new_one() -> None:
 @pytest.mark.security_regression
 def test_recording_and_reading_still_work() -> None:
     """The positive control: a frozen record is still ordinary evidence."""
-    service = AuditService()
+    service = create_test_audit_service()
     service.record_event(audit_event())
     service.record_event(
         AuditEvent(
