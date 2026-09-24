@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { Scenario, ScenarioExecutionResult } from '../../../types/scenario'
 import { useExecuteScenario } from '../../../hooks/useExecuteScenario'
+import ScenarioTimeline from './ScenarioTimeline'
 
 interface ScenarioDetailPanelProps {
   scenario: Scenario
@@ -162,6 +163,11 @@ export default function ScenarioDetailPanel({ scenario }: ScenarioDetailPanelPro
                 ))}
               </ul>
             </div>
+          )}
+
+          {/* ── Authoritative Execution Timeline ──────────────────── */}
+          {executionResult.evidence && (
+            <ScenarioTimeline evidence={executionResult.evidence} />
           )}
         </div>
       )}

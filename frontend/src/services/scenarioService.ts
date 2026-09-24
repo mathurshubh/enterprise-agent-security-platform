@@ -22,9 +22,80 @@ import { ApiRoutes } from '../api/routes'
 import type {
   Scenario,
   ScenarioCategory,
+  ScenarioExecutionEvidence,
   ScenarioExecutionResult,
   ScenarioSeverity,
 } from '../types/scenario'
+
+interface ScenarioToolInvocationResponse {
+  tool_id: string
+  resource?: string | null
+}
+
+interface ScenarioRequestEvidenceResponse {
+  agent_id: string
+  execution_mode: string
+  user_prompt?: string | null
+  intent_source: 'DETERMINISTIC_SEQUENCE' | 'UNTRUSTED_LLM_PARSER'
+  tool_sequence?: string[]
+  tool_invocation?: ScenarioToolInvocationResponse | null
+}
+
+interface ScenarioAuthorizationCheckResponse {
+  name: string
+  key: string
+  status: 'passed' | 'failed' | 'not_evaluated'
+  reason: string
+  details?: Record<string, string>
+}
+
+interface ScenarioAuthorizationEvidenceResponse {
+  decision: string
+  reason: string
+  checks: ScenarioAuthorizationCheckResponse[]
+}
+
+interface ScenarioFindingSummaryResponse {
+  rule_name: string
+  severity: string
+  finding_id: string
+  description: string
+}
+
+interface ScenarioDetectionEvidenceResponse {
+  findings: ScenarioFindingSummaryResponse[]
+  finding_count: number
+}
+
+interface ScenarioRiskEvidenceResponse {
+  level: string
+  score: number
+  finding_count: number
+}
+
+interface ScenarioResponseEvidenceResponse {
+  action: string
+  reason: string
+}
+
+interface ScenarioAuditEvidenceResponse {
+  event_id: string
+}
+
+interface ScenarioFinalDecisionEvidenceResponse {
+  decision: string
+}
+
+interface ScenarioExecutionEvidenceResponse {
+  request: ScenarioRequestEvidenceResponse
+  authorization?: ScenarioAuthorizationEvidenceResponse | null
+  detection?: ScenarioDetectionEvidenceResponse | null
+  risk?: ScenarioRiskEvidenceResponse | null
+  response?: ScenarioResponseEvidenceResponse | null
+  audit?: ScenarioAuditEvidenceResponse | null
+  final_decision?: ScenarioFinalDecisionEvidenceResponse | null
+  refusal_reason?: string | null
+}
 
 interface ScenarioResponse {
   scenario_id: string
@@ -62,6 +133,7 @@ interface ScenarioExecutionResponse {
   error_message: string | null
   started_at: string
   finished_at: string | null
+  evidence?: ScenarioExecutionEvidenceResponse | null
 }
 
 /**
@@ -97,6 +169,76 @@ export const getScenarios = async (): Promise<Scenario[]> => {
   return [...mapped].sort((a, b) => a.id.localeCompare(b.id))
 }
 
+const mapEvidenceResponse = (
+  raw?: ScenarioExecutionEvidenceResponse | null
+): ScenarioExecutionEvidence | null => {
+  if (!raw) return null
+
+  return {
+    request: {
+      agentId: raw.request.agent_id,
+      executionMode: raw.request.execution_mode,
+      userPrompt: raw.request.user_prompt ?? null,
+      intentSource: raw.request.intent_source,
+      toolSequence: raw.request.tool_sequence ?? [],
+      toolInvocation: raw.request.tool_invocation
+        ? {
+            toolId: raw.request.tool_invocation.tool_id,
+            resource: raw.request.tool_invocation.resource ?? null,
+          }
+        : null,
+    },
+    authorization: raw.authorization
+      ? {
+          decision: raw.authorization.decision,
+          reason: raw.authorization.reason,
+          checks: (raw.authorization.checks ?? []).map((c) => ({
+            name: c.name,
+            key: c.key,
+            status: c.status,
+            reason: c.reason,
+            details: c.details ?? {},
+          })),
+        }
+      : null,
+    detection: raw.detection
+      ? {
+          findingCount: raw.detection.finding_count,
+          findings: (raw.detection.findings ?? []).map((f) => ({
+            ruleName: f.rule_name,
+            severity: f.severity,
+            findingId: f.finding_id,
+            description: f.description,
+          })),
+        }
+      : null,
+    risk: raw.risk
+      ? {
+          level: raw.risk.level,
+          score: raw.risk.score,
+          findingCount: raw.risk.finding_count,
+        }
+      : null,
+    response: raw.response
+      ? {
+          action: raw.response.action,
+          reason: raw.response.reason,
+        }
+      : null,
+    audit: raw.audit
+      ? {
+          eventId: raw.audit.event_id,
+        }
+      : null,
+    finalDecision: raw.final_decision
+      ? {
+          decision: raw.final_decision.decision,
+        }
+      : null,
+    refusalReason: raw.refusal_reason ?? null,
+  }
+}
+
 /**
  * Execute a scenario by ID through the Runtime Security Pipeline.
  */
@@ -125,5 +267,6 @@ export const executeScenario = async (
     errorMessage: dto.error_message,
     startedAt: dto.started_at,
     finishedAt: dto.finished_at,
+    evidence: mapEvidenceResponse(dto.evidence),
   }
 }
