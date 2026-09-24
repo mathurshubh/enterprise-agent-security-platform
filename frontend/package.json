@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test:dev-proxy": "node --test tests/dev-proxy-auth.test.mjs"
+    "test:dev-proxy": "node --test tests/dev-proxy-auth.test.mjs",
+    "test:scenario-timeline": "node --test tests/scenario-timeline.test.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.101.4",
