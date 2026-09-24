@@ -23,11 +23,14 @@ from app.services.response_service import ResponseService
 from app.services.risk_aggregator import RiskAggregator
 from app.services.risk_service import RiskService
 from app.services.runtime_service import RuntimeService
-from app.services.session_service import SessionService
 from app.services.tool_service import ToolService
 from app.telemetry.contracts import TelemetryEmitter
 from app.telemetry.dispatcher import InMemoryTelemetryDispatcher
-from tests.conftest import create_test_agent_service, create_test_audit_service
+from tests.conftest import (
+    create_test_agent_service,
+    create_test_audit_service,
+    create_test_session_service,
+)
 
 
 def _create_test_runtime_service(
@@ -62,7 +65,7 @@ def _create_test_runtime_service(
 
     return RuntimeService(
         authorization_service=authorization_service,
-        session_service=SessionService(),
+        session_service=create_test_session_service(),
         detection_engine=detection_engine,
         detection_service=DetectionService(),
         risk_service=RiskService(),

@@ -18,7 +18,7 @@ from app.models.audit_event import Decision
 from app.models.detection_retention import DetectionRetentionPolicy
 from app.models.session_event import SessionEvent
 from app.services.detection_service import DetectionService
-from app.services.session_service import SessionService
+from tests.conftest import create_test_session_service
 from tests.services.test_runtime_enforcement_posture import AGENT_ID, build_runtime
 
 
@@ -48,13 +48,20 @@ class TestDetectionRetentionInvariants:
         policy = DetectionRetentionPolicy.from_detection_service(
             detection_service, late_arrival_grace_seconds=30.0
         )
-        service = SessionService(retention_policy=policy)
+        service = create_test_session_service(retention_policy=policy)
+        service.bind_or_validate("s1", "a1")
         now = datetime(2026, 1, 1, 12, 30, 0, tzinfo=timezone.utc)
 
         # Record 3 denials distributed across the 1,800s horizon
-        e1 = make_event("s1", "a1", Decision.DENY, timestamp=now - timedelta(seconds=1750))
-        e2 = make_event("s1", "a1", Decision.DENY, timestamp=now - timedelta(seconds=900))
-        e3 = make_event("s1", "a1", Decision.DENY, timestamp=now - timedelta(seconds=10))
+        e1 = make_event(
+            "s1", "a1", Decision.DENY, timestamp=now - timedelta(seconds=1750)
+        )
+        e2 = make_event(
+            "s1", "a1", Decision.DENY, timestamp=now - timedelta(seconds=900)
+        )
+        e3 = make_event(
+            "s1", "a1", Decision.DENY, timestamp=now - timedelta(seconds=10)
+        )
 
         service.record_event(e1)
         service.record_event(e2)
@@ -64,7 +71,9 @@ class TestDetectionRetentionInvariants:
         assert len(events) == 3
 
         # Detection engine evaluates full horizon and detects crossing
-        findings = detection_service.detect_excessive_denials(events, evaluation_time=now)
+        findings = detection_service.detect_excessive_denials(
+            events, evaluation_time=now
+        )
         assert len(findings) == 1
         assert findings[0].rule_name == "EXCESSIVE_DENIALS"
 
@@ -75,7 +84,8 @@ class TestDetectionRetentionInvariants:
             late_arrival_grace_seconds=30.0,
         )
         assert policy.total_retention_seconds == 1830.0
-        service = SessionService(retention_policy=policy)
+        service = create_test_session_service(retention_policy=policy)
+        service.bind_or_validate("s1", "a1")
         now = datetime(2026, 1, 1, 12, 30, 0, tzinfo=timezone.utc)
 
         # Event within grace (1815s old): past rule window (1800s), but within total retention (1830s)
@@ -166,7 +176,8 @@ class TestDetectionRetentionInvariants:
             retention_window_seconds=1800.0,
             late_arrival_grace_seconds=30.0,
         )
-        service = SessionService(retention_policy=policy)
+        service = create_test_session_service(retention_policy=policy)
+        service.bind_or_validate("burst-session", "burst-agent")
         base_time = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
 
         # Record 5,000 events all within the last 60 seconds (well within 1,800s horizon)
@@ -185,7 +196,8 @@ class TestDetectionRetentionInvariants:
 
     def test_m4_event_5_compatibility_mode_retains_all_events(self) -> None:
         """M4-EVENT-5: retention_policy=None indicates explicit unbounded compatibility mode."""
-        service = SessionService(retention_policy=None)
+        service = create_test_session_service(retention_policy=None)
+        service.bind_or_validate("s1", "a1")
         now = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
 
         # Record events from days ago
@@ -204,7 +216,8 @@ class TestDetectionRetentionInvariants:
             retention_window_seconds=1800.0,
             late_arrival_grace_seconds=30.0,
         )
-        service = SessionService(retention_policy=policy)
+        service = create_test_session_service(retention_policy=policy)
+        service.bind_or_validate("s1", "a1")
         now = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
 
         # Insert 100 expired events and 100 valid events
@@ -221,22 +234,21 @@ class TestDetectionRetentionInvariants:
         # during the ingestion of the newer events (100s old).
         remaining_events = service.list_events("s1")
         assert len(remaining_events) == 100
-        assert all(e.timestamp >= now - timedelta(seconds=1830) for e in remaining_events)
+        assert all(
+            e.timestamp >= now - timedelta(seconds=1830) for e in remaining_events
+        )
 
         # Explicit maintenance prune at 'now' confirms no residual expired events
         assert service.prune_events(now_utc=now) == 0
 
     def test_m4_event_7_out_of_order_arrival_correctness(self) -> None:
-        """M4-EVENT-7: Min-heap root guarantees out-of-order events are evicted, not leaked.
-
-        If a concurrent worker or replayed feed inserts an expired event AFTER a newer event,
-        the expired event must NOT be trapped behind the newer event.
-        """
+        """M4-EVENT-7: Out-of-order events are evicted, not leaked."""
         policy = DetectionRetentionPolicy(
             retention_window_seconds=1800.0,
             late_arrival_grace_seconds=30.0,
         )
-        service = SessionService(retention_policy=policy)
+        service = create_test_session_service(retention_policy=policy)
+        service.bind_or_validate("s1", "a1")
         now = datetime(2026, 1, 1, 12, 30, 0, tzinfo=timezone.utc)
 
         # 1. Insert modern event (newer)
@@ -245,20 +257,9 @@ class TestDetectionRetentionInvariants:
         )
 
         # 2. Insert out-of-order expired event (older)
-        e_expired_late = make_event("s1", "a1", timestamp=now - timedelta(seconds=3000))
-        # Record without immediate pruning at timestamp to simulate late arrival insertion
-        with service._lock:
-            import heapq
-
-            heapq.heappush(
-                service._events_heap,
-                (e_expired_late.timestamp, service._event_counter, e_expired_late),
-            )
-            service._event_counter += 1
-
-        # In a naive deque, e_expired_late would be placed behind e_newer and leaked.
-        # In our min-heap, e_expired_late bubbles to root!
-        assert service._events_heap[0][2] == e_expired_late
+        service.record_event(
+            make_event("s1", "a1", timestamp=now - timedelta(seconds=3000))
+        )
 
         # 3. Prune at time 'now'
         evicted = service.prune_events(now_utc=now)
@@ -268,7 +269,8 @@ class TestDetectionRetentionInvariants:
 
     def test_m4_event_7_deterministic_chronological_read_ordering(self) -> None:
         """M4-EVENT-7: list_events() returns deterministic chronological order regardless of insertion order."""
-        service = SessionService()
+        service = create_test_session_service()
+        service.bind_or_validate("s1", "a1")
         now = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
 
         # Insert out of order: t=30, t=10, t=20

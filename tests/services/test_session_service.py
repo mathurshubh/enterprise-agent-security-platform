@@ -1,5 +1,3 @@
-
-
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -11,9 +9,9 @@ from app.services.session_service import (
     SessionAlreadyExistsError,
     SessionBindingError,
     SessionNotFoundError,
-    SessionService,
     SessionTerminalError,
 )
+from tests.conftest import create_test_session_service
 
 
 def create_session(
@@ -27,7 +25,7 @@ def create_session(
 
 
 def test_create_session():
-    service = SessionService()
+    service = create_test_session_service()
 
     session = create_session()
 
@@ -37,7 +35,7 @@ def test_create_session():
 
 
 def test_duplicate_session_rejected():
-    service = SessionService()
+    service = create_test_session_service()
 
     session = create_session()
 
@@ -48,14 +46,14 @@ def test_duplicate_session_rejected():
 
 
 def test_get_unknown_session():
-    service = SessionService()
+    service = create_test_session_service()
 
     with pytest.raises(SessionNotFoundError):
         service.get_session("unknown-session")
 
 
 def test_list_sessions():
-    service = SessionService()
+    service = create_test_session_service()
 
     session_1 = create_session("session-1")
     session_2 = create_session("session-2")
@@ -71,7 +69,8 @@ def test_list_sessions():
 
 
 def test_record_event():
-    service = SessionService()
+    service = create_test_session_service()
+    service.create_session(create_session("session-1", "agent-1"))
 
     event = SessionEvent(
         session_id="session-1",
@@ -90,7 +89,9 @@ def test_record_event():
 
 
 def test_list_events():
-    service = SessionService()
+    service = create_test_session_service()
+    service.create_session(create_session("session-1", "agent-1"))
+    service.create_session(create_session("session-2", "agent-2"))
 
     event_1 = SessionEvent(
         session_id="session-1",
@@ -129,7 +130,7 @@ class TestSessionLifecycleAndTombstones:
     """M4-S: Session lifecycle, idle expiration, and terminal ownership tombstones."""
 
     def test_end_session_removes_active_session_and_records_tombstone(self) -> None:
-        service = SessionService()
+        service = create_test_session_service()
         service.bind_or_validate("session-1", "agent-a")
         t0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
 
@@ -150,7 +151,7 @@ class TestSessionLifecycleAndTombstones:
         assert tombstone.terminal_reason == TerminalReason.EXPLICIT_END
 
     def test_end_session_is_idempotent_for_owner(self) -> None:
-        service = SessionService()
+        service = create_test_session_service()
         service.bind_or_validate("session-1", "agent-a")
         t0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
         t1 = datetime(2026, 1, 1, 12, 5, 0, tzinfo=timezone.utc)
@@ -163,7 +164,7 @@ class TestSessionLifecycleAndTombstones:
         assert tombstone.terminated_at == t0
 
     def test_end_session_by_non_owner_is_refused(self) -> None:
-        service = SessionService()
+        service = create_test_session_service()
         service.bind_or_validate("session-1", "agent-a")
 
         with pytest.raises(SessionBindingError) as exc_info:
@@ -175,8 +176,10 @@ class TestSessionLifecycleAndTombstones:
         assert service.get_session("session-1").agent_id == "agent-a"
         assert service.is_terminal("session-1") is False
 
-    def test_end_session_by_non_owner_on_already_terminal_session_is_refused(self) -> None:
-        service = SessionService()
+    def test_end_session_by_non_owner_on_already_terminal_session_is_refused(
+        self,
+    ) -> None:
+        service = create_test_session_service()
         service.bind_or_validate("session-1", "agent-a")
         service.end_session("session-1", "agent-a")
 
@@ -186,13 +189,13 @@ class TestSessionLifecycleAndTombstones:
         assert exc_info.value.requested_agent_id == "agent-b"
 
     def test_end_session_on_unknown_session_raises_not_found(self) -> None:
-        service = SessionService()
+        service = create_test_session_service()
         with pytest.raises(SessionNotFoundError):
             service.end_session("unknown-session", "agent-a")
 
     def test_bind_or_validate_on_terminal_session_fails_closed(self) -> None:
         """M4-S-1: Terminal sessions cannot be rebound by any agent, including original owner."""
-        service = SessionService()
+        service = create_test_session_service()
         service.bind_or_validate("session-1", "agent-a")
         service.end_session("session-1", "agent-a")
 
@@ -210,7 +213,7 @@ class TestSessionLifecycleAndTombstones:
         assert exc_foreign.value.requested_agent_id == "agent-b"
 
     def test_create_session_on_terminal_session_fails_closed(self) -> None:
-        service = SessionService()
+        service = create_test_session_service()
         service.bind_or_validate("session-1", "agent-a")
         service.end_session("session-1", "agent-a")
 
@@ -221,7 +224,7 @@ class TestSessionLifecycleAndTombstones:
             service.create_session(Session(session_id="session-1", agent_id="agent-b"))
 
     def test_record_event_on_terminal_session_fails_closed(self) -> None:
-        service = SessionService()
+        service = create_test_session_service()
         service.bind_or_validate("session-1", "agent-a")
         service.end_session("session-1", "agent-a")
 
@@ -236,14 +239,14 @@ class TestSessionLifecycleAndTombstones:
             )
 
     def test_expire_idle_sessions_requires_positive_threshold(self) -> None:
-        service = SessionService()
+        service = create_test_session_service()
         with pytest.raises(ValueError, match="positive"):
             service.expire_idle_sessions(0)
         with pytest.raises(ValueError, match="positive"):
             service.expire_idle_sessions(-10)
 
     def test_expire_idle_sessions_transitions_only_idle_sessions(self) -> None:
-        service = SessionService()
+        service = create_test_session_service()
         base_time = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
 
         # session-idle: last activity at base_time
@@ -313,3 +316,35 @@ class TestSessionTerminalRuntimeEnforcement:
         assert denied.response_action is None
         assert denied.authorization is None
         assert denied.findings == []
+
+    def test_update_event_final_decision_via_session_service(self) -> None:
+        service = create_test_session_service()
+        service.bind_or_validate("sess-serv-update", "agent-1")
+        ev = service.record_event(
+            SessionEvent(
+                session_id="sess-serv-update",
+                agent_id="agent-1",
+                tool_id="file_read",
+                decision=Decision.ALLOW,
+            )
+        )
+        assert ev.final_decision is None
+
+        service.update_event_final_decision(
+            session_id="sess-serv-update",
+            sequence_number=ev.sequence_number,
+            final_decision=Decision.ALLOW,
+        )
+
+        persisted = service.list_events("sess-serv-update")[0]
+        assert persisted.final_decision == Decision.ALLOW
+        assert persisted.sequence_number == 1
+        assert persisted.decision == Decision.ALLOW
+
+        # Second conflicting update is rejected
+        with pytest.raises(ValueError, match="already finalized"):
+            service.update_event_final_decision(
+                session_id="sess-serv-update",
+                sequence_number=ev.sequence_number,
+                final_decision=Decision.DENY,
+            )

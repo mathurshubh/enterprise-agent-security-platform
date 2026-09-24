@@ -773,6 +773,11 @@ class RuntimeService:
             elif response_action.response_type == ResponseType.REQUIRE_APPROVAL:
                 final_decision = Decision.APPROVAL_REQUIRED
         recorded_event.final_decision = final_decision
+        self._session_service.update_event_final_decision(
+            session_id=session_id,
+            sequence_number=recorded_event.sequence_number,
+            final_decision=final_decision,
+        )
 
         # M2b: containment is a state transition, not a recommendation. A response of
         # SUSPEND_AGENT suspends the agent and withdraws its execution authority, so the

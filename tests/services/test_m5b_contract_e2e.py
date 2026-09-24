@@ -31,8 +31,7 @@ from app.services.runtime_bootstrap import (
     create_default_detection_registry,
 )
 from app.services.runtime_service import RuntimeService
-from app.services.session_service import SessionService
-from tests.conftest import create_test_agent_service
+from tests.conftest import create_test_agent_service, create_test_session_service
 from tests.services.test_findings_service import make_finding
 
 
@@ -325,7 +324,7 @@ class TestCompleteM5BLifecycleE2E:
 
         runtime = bootstrap_runtime_service(
             agent_service=agent_service,
-            session_service=SessionService(),
+            session_service=create_test_session_service(),
             audit_service=MagicMock(),
             detection_registry=create_default_detection_registry(),
             agent_id=agent_id,

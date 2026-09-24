@@ -81,11 +81,16 @@ class TestServiceDIRepositoryContracts:
 
     def test_default_service_construction_preserves_none_repository(self) -> None:
         """Existing parameterless construction continues to work for unmigrated services defaulting to None."""
-        session_service = SessionService()
         tool_service = ToolService()
 
-        assert session_service.session_repository is None
         assert tool_service.tool_repository is None
+
+    def test_session_service_requires_repository_dependency(self) -> None:
+        """SessionService in PR #183 requires an explicit repository dependency."""
+        import pytest
+
+        with pytest.raises(TypeError):
+            SessionService()  # type: ignore[call-arg]
 
     def test_audit_service_requires_repository_dependency(self) -> None:
         """AuditService in PR #182 requires an explicit repository dependency."""
@@ -139,12 +144,15 @@ class TestProtocolCompliance:
             hasattr(session_repo, "get_session")
             and hasattr(session_repo, "save_session")
             and hasattr(session_repo, "list_sessions")
+            and hasattr(session_repo, "create_session")
+            and hasattr(session_repo, "bind_or_create_session")
             and hasattr(session_repo, "get_tombstone")
             and hasattr(session_repo, "save_tombstone")
             and hasattr(session_repo, "terminalize_session")
             and hasattr(session_repo, "record_event")
             and hasattr(session_repo, "list_events")
             and hasattr(session_repo, "prune_events")
+            and hasattr(session_repo, "update_event_final_decision")
         )
         assert (
             hasattr(grant_repo, "create_grant")
@@ -274,7 +282,9 @@ class TestPR180BehaviorNeutrality:
         assert stored.event_id == "ev-test"
         assert not hasattr(service, "_events")
 
-    def test_session_creation_does_not_dual_write_to_repository_in_pr180(self) -> None:
+    def test_session_creation_writes_to_repository_authoritatively_in_pr183(
+        self,
+    ) -> None:
         session_repo = InMemorySessionRepository()
         service = SessionService(session_repository=session_repo)
 
@@ -282,7 +292,12 @@ class TestPR180BehaviorNeutrality:
         service.create_session(session)
 
         assert service.get_session("sess-test").session_id == "sess-test"
-        assert session_repo.get_session("sess-test") is None
+        stored = session_repo.get_session("sess-test")
+        assert stored is not None
+        assert stored.session_id == "sess-test"
+        assert not hasattr(service, "_sessions")
+        assert not hasattr(service, "_tombstones")
+        assert not hasattr(service, "_events_heap")
 
     def test_tool_registration_does_not_dual_write_to_repository_in_pr180(self) -> None:
         tool_repo = InMemoryToolRepository()

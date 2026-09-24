@@ -35,7 +35,7 @@ from app.models.audit_event import Decision
 from app.models.detection_retention import DetectionRetentionPolicy
 from app.models.session_event import SessionEvent
 from app.services.detection_service import DetectionService
-from app.services.session_service import SessionService
+from tests.conftest import create_test_session_service
 
 T0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
 
@@ -58,7 +58,8 @@ def test_invariant_tied_timestamps_are_ordered_by_the_persisted_sequence() -> No
     insertion order under timestamp-only sorting, so a narrower test would have
     passed against the defect.
     """
-    service = SessionService()
+    service = create_test_session_service()
+    service.bind_or_validate("s", "a")
 
     for offset in range(30, 0, -3):
         service.record_event(event(offset=offset, tool=f"m{offset}"))
@@ -79,7 +80,8 @@ def test_invariant_ordering_is_governed_by_the_sequence_not_the_timestamp() -> N
     Every event here shares one timestamp, so timestamp ordering carries no
     information and only the persisted sequence can order them.
     """
-    service = SessionService()
+    service = create_test_session_service()
+    service.bind_or_validate("s", "a")
 
     recorded = [service.record_event(event(offset=0, tool=f"t{i}")) for i in range(12)]
 
@@ -93,7 +95,9 @@ def test_invariant_ordering_is_governed_by_the_sequence_not_the_timestamp() -> N
 def test_invariant_the_sequence_is_scoped_to_the_session() -> None:
     """A service-wide counter would let one session's traffic shift another's
     positions, making a session's order depend on unrelated activity."""
-    service = SessionService()
+    service = create_test_session_service()
+    service.bind_or_validate("session-a", "a")
+    service.bind_or_validate("session-b", "a")
 
     first_a = service.record_event(event("session-a"))
     first_b = service.record_event(event("session-b"))
@@ -106,7 +110,8 @@ def test_invariant_the_sequence_is_scoped_to_the_session() -> None:
 
 @pytest.mark.security_invariant
 def test_invariant_the_sequence_is_monotonic_within_a_session() -> None:
-    service = SessionService()
+    service = create_test_session_service()
+    service.bind_or_validate("s", "a")
 
     recorded = [service.record_event(event(offset=i)) for i in range(10)]
 
@@ -123,7 +128,9 @@ def test_invariant_pruning_does_not_renumber_surviving_events() -> None:
     would no longer identify one place in the history.
     """
     policy = DetectionRetentionPolicy.from_detection_service(DetectionService())
-    service = SessionService(retention_policy=policy)
+    service = create_test_session_service(retention_policy=policy)
+    service.bind_or_validate("s", "a")
+    service.bind_or_validate("other", "a")
     horizon = policy.total_retention_seconds
 
     for i in range(3):
@@ -147,7 +154,8 @@ def test_invariant_pruning_does_not_renumber_surviving_events() -> None:
 @pytest.mark.security_regression
 def test_the_sequence_survives_retrieval_unchanged() -> None:
     """Assigned once and persisted, not recomputed per read."""
-    service = SessionService()
+    service = create_test_session_service()
+    service.bind_or_validate("s", "a")
     recorded = [service.record_event(event(offset=i)) for i in range(5)]
 
     first_read = [e.sequence_number for e in service.list_events("s")]
@@ -170,7 +178,8 @@ def test_chronological_order_still_holds_for_out_of_order_arrival() -> None:
     arrival with an earlier timestamp still reads in its chronological place,
     which is what the detection window depends on.
     """
-    service = SessionService()
+    service = create_test_session_service()
+    service.bind_or_validate("s", "a")
 
     late_first = service.record_event(event(offset=30))
     earliest = service.record_event(event(offset=10))

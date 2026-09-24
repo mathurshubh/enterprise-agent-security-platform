@@ -37,11 +37,14 @@ from app.services.risk_aggregator import RiskAggregator
 from app.services.risk_service import RiskService
 from app.services.runtime_bootstrap import register_default_tools
 from app.services.runtime_service import RuntimeService
-from app.services.session_service import SessionService
 from app.services.tool_service import ToolService
 from app.tools.directory_list_tool import DirectoryListTool
 from app.tools.file_read_tool import FileReadTool
-from tests.conftest import create_test_agent_service, create_test_audit_service
+from tests.conftest import (
+    create_test_agent_service,
+    create_test_audit_service,
+    create_test_session_service,
+)
 
 PROTECTED_FILE = "secrets.txt"
 BENIGN_FILE = "notes.txt"
@@ -103,7 +106,7 @@ def build_runtime():
         # the same way — a shorter test window would exercise pruning but not the
         # production contract.
         detection_service = DetectionService()
-        session_service = SessionService(
+        session_service = create_test_session_service(
             retention_policy=DetectionRetentionPolicy.from_detection_service(
                 detection_service
             )

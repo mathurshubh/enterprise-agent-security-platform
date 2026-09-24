@@ -169,6 +169,26 @@ class MockSessionRepository:
     def save_tombstone(self, tombstone: TerminalSessionTombstone) -> None:
         self._tombstones[tombstone.session_id] = tombstone
 
+    def create_session(self, session: Session) -> Session:
+        self._sessions[session.session_id] = session
+        return session
+
+    def bind_or_create_session(
+        self, session_id: str, agent_id: str, *, now: datetime
+    ) -> Session:
+        existing = self._sessions.get(session_id)
+        if existing is None:
+            session = Session(
+                session_id=session_id,
+                agent_id=agent_id,
+                started_at=now,
+                last_activity_at=now,
+            )
+            self._sessions[session_id] = session
+            return session
+        existing.last_activity_at = now
+        return existing
+
     def terminalize_session(
         self,
         session_id: str,
@@ -180,8 +200,11 @@ class MockSessionRepository:
         self._tombstones[session_id] = tombstone
         return True
 
-    def record_event(self, event: SessionEvent) -> None:
-        self._events.append(event)
+    def record_event(self, event: SessionEvent) -> SessionEvent:
+        seq = len(self._events) + 1
+        recorded = event.model_copy(update={"sequence_number": seq})
+        self._events.append(recorded)
+        return recorded
 
     def list_events(self, session_id: str) -> list[SessionEvent]:
         matching = [e for e in self._events if e.session_id == session_id]
@@ -191,6 +214,25 @@ class MockSessionRepository:
         initial = len(self._events)
         self._events = [e for e in self._events if e.timestamp >= cutoff]
         return initial - len(self._events)
+
+    def update_event_final_decision(
+        self,
+        session_id: str,
+        sequence_number: int,
+        final_decision: Decision,
+    ) -> None:
+        for ev in self._events:
+            if ev.session_id == session_id and ev.sequence_number == sequence_number:
+                if (
+                    ev.final_decision is not None
+                    and ev.final_decision != final_decision
+                ):
+                    raise ValueError(
+                        f"Event {sequence_number} already finalized as {ev.final_decision}"
+                    )
+                ev.final_decision = final_decision
+                return
+        raise ValueError(f"Event with sequence {sequence_number} not found")
 
 
 class MockApprovalGrantRepository:
@@ -256,7 +298,9 @@ class MockApprovalGrantRepository:
 def _dummy_tool() -> Tool:
     return Tool(
         metadata=ToolMetadata(
-            identity=ToolIdentity(tool_id="test_tool", name="Test Tool", description="Test Tool Desc"),
+            identity=ToolIdentity(
+                tool_id="test_tool", name="Test Tool", description="Test Tool Desc"
+            ),
             governance=ToolGovernance(risk_level=ToolRiskLevel.LOW),
             capability=ToolCapability(category="filesystem"),
             operational=ToolOperational(),
@@ -310,7 +354,9 @@ class TestRepositoryProtocolConformance:
         assert not hasattr(AuditEvidenceRepository, "update")
         assert not hasattr(AuditEvidenceRepository, "count")
 
-    def test_enforcement_state_repository_requires_mandatory_expected_epoch(self) -> None:
+    def test_enforcement_state_repository_requires_mandatory_expected_epoch(
+        self,
+    ) -> None:
         repo: EnforcementStateRepository = MockEnforcementStateRepository()
         now = datetime.now(timezone.utc)
         agent_id = "agent-cas-1"
@@ -354,7 +400,9 @@ class TestRepositoryProtocolConformance:
         assert param.kind == inspect.Parameter.KEYWORD_ONLY
         assert param.default is inspect.Parameter.empty
 
-    def test_session_repository_has_atomic_terminalization_and_no_deletion(self) -> None:
+    def test_session_repository_has_atomic_terminalization_and_no_deletion(
+        self,
+    ) -> None:
         repo: SessionRepository = MockSessionRepository()
         now = datetime.now(timezone.utc)
         session_id = "sess-lifecycle-1"

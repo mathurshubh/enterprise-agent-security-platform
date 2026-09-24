@@ -21,8 +21,8 @@ from app.models.session import Session
 from app.services.session_service import (
     SessionAlreadyExistsError,
     SessionBindingError,
-    SessionService,
 )
+from tests.conftest import create_test_session_service
 from tests.services.test_runtime_enforcement_posture import AGENT_ID, build_runtime
 
 ATTACKER = "attacker-agent"
@@ -44,7 +44,7 @@ def register_attacker(env) -> None:
 
 class TestOwnershipModel:
     def test_first_use_establishes_ownership(self) -> None:
-        service = SessionService()
+        service = create_test_session_service()
 
         session = service.bind_or_validate("session-1", "agent-a")
 
@@ -52,16 +52,19 @@ class TestOwnershipModel:
         assert service.get_session("session-1").agent_id == "agent-a"
 
     def test_the_owner_may_continue_using_the_session(self) -> None:
-        service = SessionService()
-        first = service.bind_or_validate("session-1", "agent-a")
+        from datetime import datetime, timezone
 
-        again = service.bind_or_validate("session-1", "agent-a")
+        service = create_test_session_service()
+        t0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        first = service.bind_or_validate("session-1", "agent-a", now_utc=t0)
+
+        again = service.bind_or_validate("session-1", "agent-a", now_utc=t0)
 
         assert again == first
         assert len(service.list_sessions()) == 1
 
     def test_another_agent_is_refused(self) -> None:
-        service = SessionService()
+        service = create_test_session_service()
         service.bind_or_validate("session-1", "agent-a")
 
         with pytest.raises(SessionBindingError) as refusal:
@@ -71,7 +74,7 @@ class TestOwnershipModel:
         assert refusal.value.requested_agent_id == "agent-b"
 
     def test_ownership_never_changes(self) -> None:
-        service = SessionService()
+        service = create_test_session_service()
         service.bind_or_validate("session-1", "agent-a")
 
         with pytest.raises(SessionBindingError):
@@ -80,14 +83,14 @@ class TestOwnershipModel:
         assert service.get_session("session-1").agent_id == "agent-a"
 
     def test_ownership_applies_to_explicitly_created_sessions(self) -> None:
-        service = SessionService()
+        service = create_test_session_service()
         service.create_session(Session(session_id="session-1", agent_id="agent-a"))
 
         with pytest.raises(SessionBindingError):
             service.bind_or_validate("session-1", "agent-b")
 
     def test_creating_a_session_twice_is_still_refused(self) -> None:
-        service = SessionService()
+        service = create_test_session_service()
         service.create_session(Session(session_id="session-1", agent_id="agent-a"))
 
         with pytest.raises(SessionAlreadyExistsError):
@@ -97,7 +100,7 @@ class TestOwnershipModel:
         """Defence in depth: the store refuses misattributed evidence directly."""
         from app.models.session_event import SessionEvent
 
-        service = SessionService()
+        service = create_test_session_service()
         service.bind_or_validate("session-1", "agent-a")
 
         with pytest.raises(SessionBindingError):
@@ -114,7 +117,7 @@ class TestOwnershipModel:
         assert service.get_session("session-1").agent_id == "agent-a"
 
     def test_sessions_are_isolated_from_one_another(self) -> None:
-        service = SessionService()
+        service = create_test_session_service()
 
         service.bind_or_validate("session-1", "agent-a")
         service.bind_or_validate("session-2", "agent-b")
@@ -126,13 +129,15 @@ class TestOwnershipModel:
 class TestConcurrentFirstUse:
     def test_exactly_one_agent_wins_a_contested_identifier(self) -> None:
         """Establishment and validation share one lock, so there is one owner."""
-        service = SessionService()
+        service = create_test_session_service()
         agents = [f"agent-{index}" for index in range(50)]
         outcomes: list[str] = []
 
         def claim(agent_id: str) -> None:
             try:
-                outcomes.append(service.bind_or_validate("contested", agent_id).agent_id)
+                outcomes.append(
+                    service.bind_or_validate("contested", agent_id).agent_id
+                )
             except SessionBindingError:
                 outcomes.append("refused")
 
@@ -185,7 +190,10 @@ class TestSessionHoppingIsRefused:
 
         # Nothing the attacker did reached the victim's security state.
         assert env.runtime._session_service.list_events(VICTIM_SESSION) == events_before
-        assert env.findings_service.list_findings(agent_id=AGENT_ID) == victim_findings_before
+        assert (
+            env.findings_service.list_findings(agent_id=AGENT_ID)
+            == victim_findings_before
+        )
         assert env.risk_aggregator.get_posture(AGENT_ID) == victim_posture_before
         assert env.agent_service.get_agent(AGENT_ID).status == AgentStatus.ACTIVE
 
@@ -325,7 +333,10 @@ class TestMultiSessionIsolation:
             )
             assert result.event.decision == Decision.ALLOW
 
-        sessions = {s.session_id: s.agent_id for s in env.runtime._session_service.list_sessions()}
+        sessions = {
+            s.session_id: s.agent_id
+            for s in env.runtime._session_service.list_sessions()
+        }
         assert sessions == {"own-1": AGENT_ID, "own-2": AGENT_ID}
 
     def test_evidence_stays_within_its_session_and_agent(self) -> None:
@@ -345,6 +356,8 @@ class TestMultiSessionIsolation:
         )
 
         owner_findings = env.findings_service.list_findings(agent_id=AGENT_ID)
-        assert [finding.rule_name for finding in owner_findings] == ["EXCESSIVE_DENIALS"]
+        assert [finding.rule_name for finding in owner_findings] == [
+            "EXCESSIVE_DENIALS"
+        ]
         assert owner_findings[0].session_id == "owner-denials"
         assert attacker_result.findings == []

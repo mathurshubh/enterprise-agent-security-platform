@@ -7,7 +7,6 @@ from app.detection.prompt_injection_rule import PromptInjectionRule
 from app.detection.registry import DetectionRegistry
 from app.detection.sensitive_file_access_rule import SensitiveFileAccessRule
 from app.models.agent import Agent, AgentStatus, RiskTier
-from app.models.detection_retention import DetectionRetentionPolicy
 from app.models.tool import Tool
 from app.models.tool_capability import ToolCapability
 from app.models.tool_governance import ToolGovernance
@@ -26,7 +25,10 @@ from app.services.findings_service import FindingsService
 from app.services.response_service import ResponseService
 from app.services.risk_aggregator import RiskAggregator
 from app.services.risk_service import RiskService
-from app.services.runtime_service import RuntimeService
+from app.services.runtime_service import (
+    IncompleteRuntimeConfigurationError,
+    RuntimeService,
+)
 from app.services.session_service import SessionService
 from app.services.tool_service import ToolNotFoundError, ToolService
 from app.telemetry.contracts import TelemetryEmitter
@@ -164,10 +166,9 @@ def bootstrap_runtime_service(
     detection_service_instance = DetectionService()
 
     if session_service is None:
-        retention_policy = DetectionRetentionPolicy.from_detection_service(
-            detection_service_instance
+        raise IncompleteRuntimeConfigurationError(
+            "RuntimeService requires an explicit SessionService dependency"
         )
-        session_service = SessionService(retention_policy=retention_policy)
 
     return RuntimeService(
         authorization_service=authorization_service,
