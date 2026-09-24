@@ -51,7 +51,9 @@ def create_default_detection_registry() -> DetectionRegistry:
     return registry
 
 
-def register_default_agent(agent_service: AgentService, agent_id: str = "agent-1") -> None:
+def register_default_agent(
+    agent_service: AgentService, agent_id: str = "agent-1"
+) -> None:
     """Register the platform's default agent if it is not already registered."""
     try:
         agent_service.get_agent(agent_id)
@@ -136,6 +138,7 @@ def bootstrap_runtime_service(
     detection_registry: DetectionRegistry,
     agent_id: str = "agent-1",
     tool_registry: ToolRegistry | None = None,
+    tool_service: ToolService | None = None,
     findings_service: FindingsService | None = None,
     risk_service: RiskService | None = None,
     telemetry_emitter: TelemetryEmitter | None = None,
@@ -147,13 +150,13 @@ def bootstrap_runtime_service(
     register_default_agent(agent_service, agent_id)
 
     registry = tool_registry or ToolRegistry()
-    tool_service = ToolService(tool_registry=registry)
-    register_default_tools(tool_service, registry)
+    active_tool_service = tool_service or ToolService(tool_registry=registry)
+    register_default_tools(active_tool_service, registry)
 
     policy_engine = PolicyEngine()
     authorization_service = AuthorizationService(
         agent_service=agent_service,
-        tool_service=tool_service,
+        tool_service=active_tool_service,
         policy_engine=policy_engine,
     )
 

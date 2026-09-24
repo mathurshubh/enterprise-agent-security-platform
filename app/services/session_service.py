@@ -41,6 +41,7 @@ from app.models.session import (
     TerminalSessionTombstone,
 )
 from app.models.session_event import SessionEvent
+from app.repositories.interfaces.session_repository import SessionRepository
 
 
 class SessionAlreadyExistsError(Exception):
@@ -59,7 +60,9 @@ class SessionBindingError(Exception):
     into it would let one workload manipulate another workload's security state.
     """
 
-    def __init__(self, session_id: str, owner_agent_id: str, requested_agent_id: str) -> None:
+    def __init__(
+        self, session_id: str, owner_agent_id: str, requested_agent_id: str
+    ) -> None:
         super().__init__(
             f"Session '{session_id}' is owned by agent '{owner_agent_id}', "
             f"not '{requested_agent_id}'"
@@ -77,7 +80,9 @@ class SessionTerminalError(SessionBindingError):
     SESSION_BINDING_INVALID without leaking state or requiring broad refactoring.
     """
 
-    def __init__(self, session_id: str, owner_agent_id: str, requested_agent_id: str) -> None:
+    def __init__(
+        self, session_id: str, owner_agent_id: str, requested_agent_id: str
+    ) -> None:
         super().__init__(
             session_id=session_id,
             owner_agent_id=owner_agent_id,
@@ -96,6 +101,7 @@ class SessionService:
     def __init__(
         self,
         retention_policy: DetectionRetentionPolicy | None = None,
+        session_repository: SessionRepository | None = None,
     ) -> None:
         """Initialize SessionService.
 
@@ -104,7 +110,13 @@ class SessionService:
                 If None, operates in explicit unbounded test/compatibility mode
                 where event pruning is disabled (M4-EVENT-5). Production bootstrapping
                 must pass an explicit policy derived from DetectionService.
+            session_repository: Injected SessionRepository protocol instance (PR #180).
+                Stored as dependency wiring; existing in-memory collections remain
+                authoritative until PR #182.
         """
+        self._session_repository = session_repository
+        # In PR #180, repository is accepted as dependency wiring only.
+        # Existing in-memory state remains authoritative until PR #182.
         self._sessions: dict[str, Session] = {}
         self._tombstones: dict[str, TerminalSessionTombstone] = {}
         self._retention_policy = retention_policy
@@ -115,6 +127,11 @@ class SessionService:
         # never reused after the events carrying it have been evicted.
         self._session_sequences: dict[str, int] = {}
         self._lock = RLock()
+
+    @property
+    def session_repository(self) -> SessionRepository | None:
+        """Injected SessionRepository protocol instance (if supplied)."""
+        return self._session_repository
 
     @property
     def retention_policy(self) -> DetectionRetentionPolicy | None:
@@ -287,7 +304,9 @@ class SessionService:
         with self._lock:
             tombstone = self._tombstones.get(event.session_id)
             if tombstone is not None:
-                raise SessionTerminalError(event.session_id, tombstone.agent_id, event.agent_id)
+                raise SessionTerminalError(
+                    event.session_id, tombstone.agent_id, event.agent_id
+                )
 
             owner = self._sessions.get(event.session_id)
             if owner is not None and owner.agent_id != event.agent_id:

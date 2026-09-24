@@ -13,6 +13,14 @@ from app.detection.registry import DetectionRegistry
 from app.models.detection_retention import DetectionRetentionPolicy
 from app.registry.scenario_registry import ScenarioRegistry
 from app.registry.tool_registry import ToolRegistry
+from app.repositories.in_memory import (
+    InMemoryAgentRepository,
+    InMemoryApprovalGrantRepository,
+    InMemoryAuditEvidenceRepository,
+    InMemoryEnforcementStateRepository,
+    InMemorySessionRepository,
+    InMemoryToolRepository,
+)
 from app.runtime.execution_authority import ExecutionAuthority
 from app.services.agent_lock_manager import AgentLockManager
 from app.services.agent_service import AgentService
@@ -31,25 +39,50 @@ from app.services.runtime_bootstrap import (
 from app.services.runtime_service import RuntimeService
 from app.services.session_service import SessionService
 from app.services.tool_inventory_service import ToolInventoryService
+from app.services.tool_service import ToolService
 from app.telemetry.dispatcher import InMemoryTelemetryDispatcher
 
-# ── Shared singletons ────────────────────────────────────────────────────────
+# ── Shared repository singletons (ADR-030 composition root) ──────────────────
 
-agent_service: AgentService = AgentService()
+agent_repository: InMemoryAgentRepository = InMemoryAgentRepository()
+enforcement_repository: InMemoryEnforcementStateRepository = (
+    InMemoryEnforcementStateRepository()
+)
+audit_repository: InMemoryAuditEvidenceRepository = InMemoryAuditEvidenceRepository()
+session_repository: InMemorySessionRepository = InMemorySessionRepository()
+tool_repository: InMemoryToolRepository = InMemoryToolRepository()
+approval_grant_repository: InMemoryApprovalGrantRepository = (
+    InMemoryApprovalGrantRepository()
+)
+
+# ── Shared service singletons ────────────────────────────────────────────────
+
+agent_service: AgentService = AgentService(
+    agent_repository=agent_repository,
+    enforcement_repository=enforcement_repository,
+)
 
 detection_retention_policy: DetectionRetentionPolicy = (
     DetectionRetentionPolicy.from_detection_service(DetectionService())
 )
 
 session_service: SessionService = SessionService(
-    retention_policy=detection_retention_policy
+    retention_policy=detection_retention_policy,
+    session_repository=session_repository,
 )
 
 tool_registry: ToolRegistry = ToolRegistry()
 
+tool_service: ToolService = ToolService(
+    tool_registry=tool_registry,
+    tool_repository=tool_repository,
+)
+
 tool_inventory_service: ToolInventoryService = ToolInventoryService(tool_registry)
 
-audit_service: AuditService = AuditService()
+audit_service: AuditService = AuditService(
+    audit_repository=audit_repository,
+)
 
 findings_service: FindingsService = FindingsService()
 
@@ -73,6 +106,7 @@ runtime_service: RuntimeService = bootstrap_runtime_service(
     agent_service=agent_service,
     session_service=session_service,
     audit_service=audit_service,
+    tool_service=tool_service,
     detection_registry=detection_registry,
     tool_registry=tool_registry,
     findings_service=findings_service,
