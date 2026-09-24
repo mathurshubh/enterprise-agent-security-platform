@@ -30,9 +30,9 @@ from app.api.runtime import ExecuteRequest
 from app.main import app
 from app.models.audit_event import Decision
 from app.models.execution_binding import ExecutionBinding
-from app.models.execution_grant import ExecutionGrant
 from app.models.jwt_claims import Role
 from app.models.response_action import ResponseType
+from app.models.runtime_execution_grant import RuntimeExecutionGrant
 from app.models.telemetry.behavioral_event import (
     BehavioralEvent,
     compute_parameter_hash,
@@ -227,7 +227,7 @@ def test_exit_gate_hand_crafted_grant_is_rejected(
     build_runtime, security_workspace: Path
 ) -> None:
     env = build_runtime(workspace=security_workspace)
-    forged = ExecutionGrant(
+    forged = RuntimeExecutionGrant(
         grant_id="grant-forged",
         authority_id=env.execution_authority.authority_id,
         binding=ExecutionBinding.from_operation("file_read", {"path": PROTECTED_FILE}),

@@ -30,7 +30,7 @@ from uuid import uuid4
 
 from app.models.audit_event import Decision
 from app.models.execution_binding import ExecutionBinding
-from app.models.execution_grant import ExecutionGrant
+from app.models.runtime_execution_grant import RuntimeExecutionGrant
 
 DEFAULT_GRANT_TTL_SECONDS = 30.0
 
@@ -124,7 +124,7 @@ class ExecutionAuthority:
         decision: Decision,
         *,
         agent_id: str,
-    ) -> ExecutionGrant | None:
+    ) -> RuntimeExecutionGrant | None:
         """Issue a grant for ``binding`` if and only if it may be authorized.
 
         Two conditions must hold: ``decision`` is a final ALLOW, and issuance for
@@ -154,7 +154,7 @@ class ExecutionAuthority:
             )
             self._outstanding[grant_id] = _OutstandingGrant(expires_at, agent_id)
 
-        return ExecutionGrant(
+        return RuntimeExecutionGrant(
             grant_id=grant_id,
             authority_id=self._authority_id,
             binding=binding,
@@ -179,7 +179,7 @@ class ExecutionAuthority:
         if grant is None:
             raise ExecutionBindingError(ExecutionRefusalReason.MISSING_GRANT, tool_id)
 
-        if not isinstance(grant, ExecutionGrant):
+        if not isinstance(grant, RuntimeExecutionGrant):
             raise ExecutionBindingError(
                 ExecutionRefusalReason.MALFORMED_GRANT,
                 tool_id,

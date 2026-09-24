@@ -4,13 +4,13 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import Any, Protocol, runtime_checkable
 
-from app.models.execution_grant import ExecutionGrant
 from app.models.execution_receipt import (
     ExecutionReceipt,
     ExecutionStatus,
     ReconciliationReason,
 )
 from app.models.runtime_context import RuntimeContext
+from app.models.runtime_execution_grant import RuntimeExecutionGrant
 from app.models.tool_descriptor import ToolDescriptor
 from app.models.tool_metadata import ToolMetadata
 from app.tools.base_tool import BaseTool
@@ -63,7 +63,7 @@ class ToolExecutorProtocol(Protocol):
         tool: BaseTool,
         parameters: Mapping[str, Any],
         context: RuntimeContext,
-        grant: ExecutionGrant | None = None,
+        grant: RuntimeExecutionGrant | None = None,
     ) -> Any:
         """Execute a tool only if ``grant`` authorizes exactly this operation (ADR-023)."""
         ...
