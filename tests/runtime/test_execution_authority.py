@@ -7,7 +7,7 @@ from pydantic import ValidationError
 
 from app.models.audit_event import Decision
 from app.models.execution_binding import ExecutionBinding
-from app.models.execution_grant import ExecutionGrant
+from app.models.runtime_execution_grant import RuntimeExecutionGrant
 from app.runtime.execution_authority import (
     DEFAULT_GRANT_TTL_SECONDS,
     ExecutionAuthority,
@@ -80,7 +80,7 @@ class TestIssuance:
         grant = ExecutionAuthority().issue(NOTES, Decision.ALLOW, agent_id="agent-1")
 
         with pytest.raises(ValidationError):
-            ExecutionGrant(**{**grant.model_dump(), "decision": Decision.DENY})
+            RuntimeExecutionGrant(**{**grant.model_dump(), "decision": Decision.DENY})
 
     @pytest.mark.parametrize("ttl", [0, -1.0])
     def test_ttl_must_be_positive(self, ttl) -> None:
@@ -176,7 +176,7 @@ class TestVerification:
 
     def test_hand_crafted_grant_is_rejected(self) -> None:
         authority = ExecutionAuthority()
-        forged = ExecutionGrant(
+        forged = RuntimeExecutionGrant(
             grant_id="grant-forged",
             authority_id=authority.authority_id,
             binding=SECRETS,
@@ -201,7 +201,7 @@ class TestVerification:
 
     def test_non_ascii_authority_identifier_fails_closed(self) -> None:
         authority = ExecutionAuthority()
-        forged = ExecutionGrant(
+        forged = RuntimeExecutionGrant(
             grant_id="grant-forged",
             authority_id="authoritÿ",
             binding=NOTES,

@@ -1,4 +1,4 @@
-"""ExecutionGrant — cryptographic authority to execute one ExecutionBinding (ADR-023)."""
+"""RuntimeExecutionGrant — cryptographic authority to execute one ExecutionBinding (ADR-023)."""
 
 from typing import Literal
 
@@ -8,7 +8,7 @@ from app.models.audit_event import Decision
 from app.models.execution_binding import ExecutionBinding
 
 
-class ExecutionGrant(BaseModel):
+class RuntimeExecutionGrant(BaseModel):
     """Signed, single-use, short-lived authority to execute exactly one binding.
 
     ``ExecutionBinding`` says *what* was authorized; a grant is the authority to

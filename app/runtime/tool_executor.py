@@ -26,12 +26,12 @@ from app.models.execution_binding import (
     ExecutionBinding,
     ExecutionBindingValidationError,
 )
-from app.models.execution_grant import ExecutionGrant
 from app.models.execution_receipt import (
     ExecutionStatus,
     compute_output_digest,
 )
 from app.models.runtime_context import RuntimeContext
+from app.models.runtime_execution_grant import RuntimeExecutionGrant
 from app.models.telemetry.behavioral_event import BehavioralEvent
 from app.models.telemetry.event_taxonomy import TelemetryEventType
 from app.models.tool_descriptor import ToolDescriptor
@@ -108,7 +108,7 @@ class DefaultToolExecutor:
         descriptor: ToolDescriptor,
         parameters: Mapping[str, Any],
         context: RuntimeContext | None = None,
-        grant: ExecutionGrant | None = None,
+        grant: RuntimeExecutionGrant | None = None,
     ) -> Any:
         """Verify the grant, then instantiate and execute a tool from a ToolDescriptor.
 
@@ -127,7 +127,7 @@ class DefaultToolExecutor:
         tool: BaseTool,
         parameters: Mapping[str, Any],
         context: RuntimeContext | None = None,
-        grant: ExecutionGrant | None = None,
+        grant: RuntimeExecutionGrant | None = None,
     ) -> Any:
         """Verify the grant, then execute a BaseTool handle."""
         self._authorize(tool.tool_id, parameters, grant)
@@ -137,7 +137,7 @@ class DefaultToolExecutor:
         self,
         tool_id: str,
         parameters: Mapping[str, Any],
-        grant: ExecutionGrant | None,
+        grant: RuntimeExecutionGrant | None,
     ) -> None:
         if self._authority is None:
             raise ExecutionBindingError(
@@ -194,7 +194,7 @@ class DefaultToolExecutor:
         self,
         tool: BaseTool,
         parameters: Mapping[str, Any],
-        grant: ExecutionGrant | None = None,
+        grant: RuntimeExecutionGrant | None = None,
         context: RuntimeContext | None = None,
     ) -> Any:
         if self._evidence_store is None or grant is None:
