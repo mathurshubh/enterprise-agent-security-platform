@@ -88,3 +88,31 @@ class ExecutionGrant(BaseModel):
     @field_serializer("execution_parameters", when_used="always")
     def _serialize_parameters(self, v: Any) -> Any:
         return _deep_unfreeze(v)
+
+    def __deepcopy__(self, memo: dict[int, Any] | None = None) -> "ExecutionGrant":
+        """Controlled deep copy preserving immutability without global interpreter dispatch mutation."""
+        if memo is None:
+            memo = {}
+        if id(self) in memo:
+            return memo[id(self)]
+
+        # ExecutionGrant is frozen and execution_parameters is already deeply frozen/immutable.
+        # Construct a distinct instance with copied attributes for complete object isolation.
+        copied = self.__class__.model_construct(
+            grant_id=self.grant_id,
+            session_id=self.session_id,
+            agent_id=self.agent_id,
+            tool_id=self.tool_id,
+            execution_parameters=self.execution_parameters,
+            originating_audit_event_id=self.originating_audit_event_id,
+            risk_score=self.risk_score,
+            required_response=self.required_response,
+            enforcement_epoch=self.enforcement_epoch,
+            state=self.state,
+            created_at=self.created_at,
+            expires_at=self.expires_at,
+            approved_by=self.approved_by,
+            consumed_at=self.consumed_at,
+        )
+        memo[id(self)] = copied
+        return copied
