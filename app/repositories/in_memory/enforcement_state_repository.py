@@ -48,8 +48,16 @@ class InMemoryEnforcementStateRepository(EnforcementStateRepository):
     ) -> bool:
         with self._lock:
             agent_id = transition.agent_id
-            current_epoch = self._epochs.get(agent_id, 0)
-            if current_epoch != expected_epoch:
+            persisted_state = self._states.get(agent_id)
+            current_epoch = (
+                persisted_state.epoch
+                if persisted_state is not None
+                else self._epochs.get(agent_id, 0)
+            )
+            # Concurrency & validity invariants:
+            # 1. Expected epoch must match current persisted epoch
+            # 2. new_state.epoch must advance by exactly +1
+            if current_epoch != expected_epoch or new_state.epoch != expected_epoch + 1:
                 return False
 
             self._states[agent_id] = new_state.model_copy(deep=True)

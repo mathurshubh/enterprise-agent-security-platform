@@ -27,12 +27,14 @@ from app.models.tool_identity import ToolIdentity
 from app.models.tool_metadata import ToolMetadata
 from app.models.tool_operational import ToolOperational
 from app.models.tool_risk_level import ToolRiskLevel
+from app.models.watermark import BaselineWatermark
 from app.policy.policy_engine import PolicyEngine
 from app.services.agent_service import (
     AgentAlreadyExistsError,
     AgentNotFoundError,
     AgentNotSuspendedError,
     AgentService,
+    EnforcementStateUnavailableError,
 )
 from tests.conftest import create_test_agent_service
 
@@ -270,3 +272,79 @@ class TestConcurrency:
 
         assert service.get_agent("soc-agent").status == AgentStatus.SUSPENDED
         assert len(service.list_transitions("soc-agent")) == 1
+
+
+class TestEnforcementPlaneInvariants:
+    """Verifies Plane 1 Enforcement State security control invariants."""
+
+    def test_monotonic_epoch_progression_in_enforcement_state(self) -> None:
+        service = registered_service()
+        agent_id = "soc-agent"
+
+        # 0. Initial state (no dynamic transition recorded yet)
+        state0 = service.get_enforcement_state(agent_id)
+        assert state0.epoch == 0
+
+        # 1. Suspend -> epoch advances to 1
+        service.suspend_agent(agent_id, reason="suspension 1")
+        state1 = service.get_enforcement_state(agent_id)
+        assert state1.epoch == 1
+        assert state1.suspended_at is not None
+
+        # 2. Reinstate -> epoch advances to 2
+        service.reinstate_agent(
+            agent_id,
+            actor="admin-1",
+            reason="clearance 1",
+            watermark=BaselineWatermark(agent_id=agent_id, baseline_sequence=10),
+        )
+        state2 = service.get_enforcement_state(agent_id)
+        assert state2.epoch == 2
+        assert state2.suspended_at is None
+        assert state2.enforcement_baseline_sequence == 10
+
+        # 3. Suspend again -> epoch advances to 3
+        service.suspend_agent(agent_id, reason="suspension 2")
+        state3 = service.get_enforcement_state(agent_id)
+        assert state3.epoch == 3
+        assert state3.suspended_at is not None
+
+        # 4. Reinstate again -> epoch advances to 4
+        service.reinstate_agent(
+            agent_id,
+            actor="admin-2",
+            reason="clearance 2",
+            watermark=BaselineWatermark(agent_id=agent_id, baseline_sequence=25),
+        )
+        state4 = service.get_enforcement_state(agent_id)
+        assert state4.epoch == 4
+        assert state4.suspended_at is None
+        assert state4.enforcement_baseline_sequence == 25
+
+    def test_enforcement_state_unavailable_error_propagates_fail_closed(self) -> None:
+        from unittest.mock import MagicMock
+
+        from app.repositories.in_memory.agent_repository import InMemoryAgentRepository
+        from app.repositories.in_memory.enforcement_state_repository import (
+            InMemoryEnforcementStateRepository,
+        )
+
+        agent_repo = InMemoryAgentRepository()
+        enf_repo = InMemoryEnforcementStateRepository()
+        service = AgentService(agent_repo, enf_repo)
+
+        service.register_agent(create_agent(agent_id="agent-outage"))
+
+        # Simulate storage failure in EnforcementStateRepository
+        def broken_get_state(agent_id: str):
+            raise OSError("PostgreSQL connection timeout / storage unavailable")
+
+        enf_repo.get_state = MagicMock(side_effect=broken_get_state)
+
+        with pytest.raises(EnforcementStateUnavailableError) as exc_info:
+            service.get_agent("agent-outage")
+        assert "Enforcement state repository unavailable" in str(exc_info.value)
+
+        with pytest.raises(EnforcementStateUnavailableError) as exc_info_list:
+            service.list_agents()
+        assert "Enforcement state repository unavailable" in str(exc_info_list.value)

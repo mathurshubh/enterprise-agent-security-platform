@@ -9,6 +9,7 @@ from app.policy.policy_engine import PolicyEngine
 from app.services.agent_service import (
     AgentNotFoundError,
     AgentService,
+    EnforcementStateUnavailableError,
 )
 from app.services.tool_service import (
     ToolNotFoundError,
@@ -53,6 +54,25 @@ class AuthorizationService:
                 risk_tier_check=not_evaluated_check("agent_check"),
                 resource_check=not_evaluated_check("agent_check"),
                 reason=f"Agent '{agent_id}' is not registered",
+            )
+        except EnforcementStateUnavailableError:
+            agent_check = AuthorizationCheck(
+                status=AuthorizationCheckStatus.FAILED,
+                reason="Security posture authority unavailable (fail-closed)",
+                details={"agent_id": agent_id},
+            )
+            return AuthorizationResult(
+                decision=Decision.DENY,
+                agent_id=agent_id,
+                tool_id=tool_id,
+                resource=resource,
+                agent_check=agent_check,
+                tool_check=not_evaluated_check("agent_check"),
+                approved_tool_check=not_evaluated_check("agent_check"),
+                status_check=not_evaluated_check("agent_check"),
+                risk_tier_check=not_evaluated_check("agent_check"),
+                resource_check=not_evaluated_check("agent_check"),
+                reason="Security posture authority unavailable (fail-closed)",
             )
 
         agent_check = AuthorizationCheck(
