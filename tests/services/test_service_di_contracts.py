@@ -79,11 +79,12 @@ class TestServiceDIRepositoryContracts:
 
         assert service.tool_repository is tool_repo
 
-    def test_default_service_construction_preserves_none_repository(self) -> None:
-        """Existing parameterless construction continues to work for unmigrated services defaulting to None."""
-        tool_service = ToolService()
+    def test_tool_service_requires_repository_dependency(self) -> None:
+        """ToolService in PR #184 requires an explicit repository dependency."""
+        import pytest
 
-        assert tool_service.tool_repository is None
+        with pytest.raises(TypeError):
+            ToolService()  # type: ignore[call-arg]
 
     def test_session_service_requires_repository_dependency(self) -> None:
         """SessionService in PR #183 requires an explicit repository dependency."""
@@ -299,7 +300,8 @@ class TestPR180BehaviorNeutrality:
         assert not hasattr(service, "_tombstones")
         assert not hasattr(service, "_events_heap")
 
-    def test_tool_registration_does_not_dual_write_to_repository_in_pr180(self) -> None:
+    def test_tool_service_persists_to_repository_in_pr184(self) -> None:
+        """ToolService in PR #184 persists directly to ToolRepository and owns no internal dicts."""
         tool_repo = InMemoryToolRepository()
         service = ToolService(tool_repository=tool_repo)
 
@@ -316,4 +318,7 @@ class TestPR180BehaviorNeutrality:
         service.register_tool(tool)
 
         assert service.get_tool("tool-test").tool_id == "tool-test"
-        assert tool_repo.get("tool-test") is None
+        stored = tool_repo.get("tool-test")
+        assert stored is not None
+        assert stored.tool_id == "tool-test"
+        assert not hasattr(service, "_tools")

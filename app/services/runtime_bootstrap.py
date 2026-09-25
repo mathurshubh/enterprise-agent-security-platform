@@ -16,6 +16,8 @@ from app.models.tool_operational import ToolOperational
 from app.models.tool_risk_level import ToolRiskLevel
 from app.policy.policy_engine import PolicyEngine
 from app.registry.tool_registry import ToolRegistry
+from app.repositories.in_memory.tool_repository import InMemoryToolRepository
+from app.repositories.interfaces.tool_repository import ToolRepository
 from app.runtime.execution_authority import ExecutionAuthority
 from app.services.agent_lock_manager import AgentLockManager
 from app.services.agent_service import AgentNotFoundError, AgentService
@@ -141,6 +143,7 @@ def bootstrap_runtime_service(
     agent_id: str = "agent-1",
     tool_registry: ToolRegistry | None = None,
     tool_service: ToolService | None = None,
+    tool_repository: ToolRepository | None = None,
     findings_service: FindingsService | None = None,
     risk_service: RiskService | None = None,
     telemetry_emitter: TelemetryEmitter | None = None,
@@ -152,7 +155,10 @@ def bootstrap_runtime_service(
     register_default_agent(agent_service, agent_id)
 
     registry = tool_registry or ToolRegistry()
-    active_tool_service = tool_service or ToolService(tool_registry=registry)
+    active_tool_service = tool_service or ToolService(
+        tool_repository=tool_repository or InMemoryToolRepository(),
+        tool_registry=registry,
+    )
     register_default_tools(active_tool_service, registry)
 
     policy_engine = PolicyEngine()

@@ -8,8 +8,10 @@ from app.models.tool_metadata import ToolMetadata
 from app.models.tool_operational import ToolOperational
 from app.models.tool_risk_level import ToolRiskLevel
 from app.policy.policy_engine import PolicyEngine
-from app.services.tool_service import ToolService
-from tests.conftest import create_test_agent_service
+from tests.conftest import (
+    create_test_agent_service,
+    create_test_tool_service,
+)
 
 
 def create_agent(
@@ -51,7 +53,7 @@ def create_tool(
 
 def test_allow_authorized_tool():
     agent_service = create_test_agent_service()
-    tool_service = ToolService()
+    tool_service = create_test_tool_service()
 
     agent_service.register_agent(create_agent(["file_read"]))
 
@@ -73,7 +75,7 @@ def test_allow_authorized_tool():
 
 def test_deny_unapproved_tool():
     agent_service = create_test_agent_service()
-    tool_service = ToolService()
+    tool_service = create_test_tool_service()
 
     agent_service.register_agent(create_agent(["file_read"]))
 
@@ -95,7 +97,7 @@ def test_deny_unapproved_tool():
 
 def test_approval_required():
     agent_service = create_test_agent_service()
-    tool_service = ToolService()
+    tool_service = create_test_tool_service()
 
     agent_service.register_agent(create_agent(["shell_execute"]))
 
@@ -139,7 +141,7 @@ def test_approval_required():
 
 def test_deny_unknown_agent():
     agent_service = create_test_agent_service()
-    tool_service = ToolService()
+    tool_service = create_test_tool_service()
 
     tool_service.register_tool(create_tool("file_read"))
 
@@ -159,7 +161,7 @@ def test_deny_unknown_agent():
 
 def test_deny_unknown_tool():
     agent_service = create_test_agent_service()
-    tool_service = ToolService()
+    tool_service = create_test_tool_service()
 
     agent_service.register_agent(create_agent(["file_read"]))
 
@@ -179,7 +181,7 @@ def test_deny_unknown_tool():
 
 def test_deny_suspended_agent():
     agent_service = create_test_agent_service()
-    tool_service = ToolService()
+    tool_service = create_test_tool_service()
 
     agent = create_agent(["file_read"])
     agent.status = AgentStatus.SUSPENDED
@@ -204,7 +206,7 @@ def test_deny_suspended_agent():
 
 def test_deny_disabled_agent():
     agent_service = create_test_agent_service()
-    tool_service = ToolService()
+    tool_service = create_test_tool_service()
 
     agent = create_agent(["file_read"])
     agent.status = AgentStatus.DISABLED
@@ -229,7 +231,7 @@ def test_deny_disabled_agent():
 
 def test_evaluate_allow_authorized_tool_structured_evidence():
     agent_service = create_test_agent_service()
-    tool_service = ToolService()
+    tool_service = create_test_tool_service()
     agent_service.register_agent(create_agent(["file_read"]))
     tool_service.register_tool(create_tool("file_read"))
 
@@ -250,7 +252,7 @@ def test_evaluate_allow_authorized_tool_structured_evidence():
 
 def test_evaluate_unknown_agent_short_circuits_with_structured_evidence():
     agent_service = create_test_agent_service()
-    tool_service = ToolService()
+    tool_service = create_test_tool_service()
     tool_service.register_tool(create_tool("file_read"))
 
     service = AuthorizationService(agent_service, tool_service, PolicyEngine())
@@ -274,7 +276,7 @@ def test_evaluate_unknown_agent_short_circuits_with_structured_evidence():
 
 def test_evaluate_unknown_tool_short_circuits_with_structured_evidence():
     agent_service = create_test_agent_service()
-    tool_service = ToolService()
+    tool_service = create_test_tool_service()
     agent_service.register_agent(create_agent(["file_read"]))
 
     service = AuthorizationService(agent_service, tool_service, PolicyEngine())
@@ -298,7 +300,7 @@ def test_evaluate_unknown_tool_short_circuits_with_structured_evidence():
 
 def test_evaluate_unapproved_tool_short_circuits_with_structured_evidence():
     agent_service = create_test_agent_service()
-    tool_service = ToolService()
+    tool_service = create_test_tool_service()
     agent_service.register_agent(create_agent(["file_read"]))
     tool_service.register_tool(create_tool("shell_execute"))
 
@@ -323,7 +325,7 @@ def test_evaluate_unapproved_tool_short_circuits_with_structured_evidence():
 
 def test_evaluate_suspended_agent_short_circuits_with_structured_evidence():
     agent_service = create_test_agent_service()
-    tool_service = ToolService()
+    tool_service = create_test_tool_service()
     agent = create_agent(["file_read"])
     agent.status = AgentStatus.SUSPENDED
     agent_service.register_agent(agent)
@@ -350,7 +352,7 @@ def test_evaluate_suspended_agent_short_circuits_with_structured_evidence():
 
 def test_evaluate_risk_tier_mismatch_short_circuits_resource_check():
     agent_service = create_test_agent_service()
-    tool_service = ToolService()
+    tool_service = create_test_tool_service()
     agent = create_agent(["critical_tool"])
     agent.risk_tier = RiskTier.LOW
     agent_service.register_agent(agent)
@@ -377,7 +379,7 @@ def test_evaluate_risk_tier_mismatch_short_circuits_resource_check():
 
 def test_evaluate_protected_resource_denied_with_structured_evidence():
     agent_service = create_test_agent_service()
-    tool_service = ToolService()
+    tool_service = create_test_tool_service()
     agent_service.register_agent(create_agent(["file_read"]))
     tool_service.register_tool(create_tool("file_read"))
 
@@ -396,7 +398,7 @@ def test_evaluate_protected_resource_denied_with_structured_evidence():
 
 def test_evaluate_critical_tool_requires_approval_without_check_failure():
     agent_service = create_test_agent_service()
-    tool_service = ToolService()
+    tool_service = create_test_tool_service()
     agent = create_agent(["critical_tool"])
     agent.risk_tier = RiskTier.HIGH
     agent_service.register_agent(agent)
@@ -425,7 +427,7 @@ def test_authorization_result_and_check_immutability():
     from pydantic import ValidationError
 
     agent_service = create_test_agent_service()
-    tool_service = ToolService()
+    tool_service = create_test_tool_service()
     agent_service.register_agent(create_agent(["file_read"]))
     tool_service.register_tool(create_tool("file_read"))
 
@@ -458,3 +460,84 @@ def test_authorization_result_and_check_immutability():
     )
     producer_dict["original_key"] = "tampered_val"
     assert check.details["original_key"] == "original_val"
+
+
+def test_evaluate_disabled_tool_short_circuits_with_structured_evidence():
+    """Verify that an operationally disabled tool fails closed at the authorization gate."""
+    from app.models.authorization_result import AuthorizationCheckStatus
+
+    agent_service = create_test_agent_service()
+    tool_service = create_test_tool_service()
+
+    agent_service.register_agent(create_agent(["file_read"]))
+
+    # Tool is registered but disabled in operational configuration
+    disabled_tool = Tool(
+        metadata=ToolMetadata(
+            identity=ToolIdentity(
+                tool_id="file_read",
+                name="File Read",
+                description="Read files",
+            ),
+            governance=ToolGovernance(
+                risk_level=ToolRiskLevel.LOW,
+                required_permissions=["files:read"],
+                approval_required=False,
+            ),
+            capability=ToolCapability(
+                category="filesystem",
+                reads_files=True,
+            ),
+            operational=ToolOperational(enabled=False),
+        )
+    )
+    tool_service.register_tool(disabled_tool)
+
+    service = AuthorizationService(agent_service, tool_service, PolicyEngine())
+
+    assert service.authorize("soc-agent", "file_read") == Decision.DENY
+
+    result = service.evaluate("soc-agent", "file_read")
+    assert result.decision == Decision.DENY
+    assert result.agent_check.status == AuthorizationCheckStatus.PASSED
+    assert result.tool_check.status == AuthorizationCheckStatus.FAILED
+    assert result.tool_check.reason == "Tool 'file_read' is disabled"
+    assert result.approved_tool_check.status == AuthorizationCheckStatus.NOT_EVALUATED
+    assert result.status_check.status == AuthorizationCheckStatus.NOT_EVALUATED
+    assert result.risk_tier_check.status == AuthorizationCheckStatus.NOT_EVALUATED
+    assert result.resource_check.status == AuthorizationCheckStatus.NOT_EVALUATED
+    assert result.reason == "Tool 'file_read' is disabled"
+
+
+def test_executable_registry_cannot_override_disabled_repository_state():
+    """Verify that executable presence in ToolRegistry cannot override ToolRepository governance state."""
+    from pathlib import Path
+
+    from app.registry.tool_registry import ToolRegistry
+    from app.repositories.in_memory.tool_repository import InMemoryToolRepository
+    from app.services.tool_service import ToolService
+    from app.tools.file_read_tool import FileReadTool
+
+    agent_service = create_test_agent_service()
+    tool_repo = InMemoryToolRepository()
+    tool_service = ToolService(tool_repository=tool_repo)
+
+    agent_service.register_agent(create_agent(["file_read"]))
+
+    # Register active tool in repository, then disable it
+    tool_service.register_tool(create_tool("file_read"))
+    tool_service.disable_tool("file_read")
+    assert tool_repo.get("file_read").enabled is False
+
+    # ToolRegistry has an active, executable implementation
+    tool_registry = ToolRegistry()
+    tool_registry.register(FileReadTool(Path("demo_workspace")))
+    assert tool_registry.resolve("file_read") is not None
+
+    service = AuthorizationService(agent_service, tool_service, PolicyEngine())
+
+    # Authorization must fail closed based on repository governance authority
+    result = service.evaluate("soc-agent", "file_read")
+    assert result.decision == Decision.DENY
+    assert result.reason == "Tool 'file_read' is disabled"
+    assert result.tool_check.status.value == "failed"

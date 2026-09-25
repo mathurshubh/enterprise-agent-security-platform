@@ -67,6 +67,20 @@ def create_test_session_service(
     )
 
 
+def create_test_tool_service(
+    tool_repository=None,
+    tool_registry=None,
+):
+    """Test helper creating a ToolService wired with concrete in-memory repository."""
+    from app.repositories.in_memory.tool_repository import InMemoryToolRepository
+    from app.services.tool_service import ToolService
+
+    return ToolService(
+        tool_repository=tool_repository or InMemoryToolRepository(),
+        tool_registry=tool_registry,
+    )
+
+
 def register_test_agent(
     agent_id: str,
     approved_tools: list[str] | None = None,

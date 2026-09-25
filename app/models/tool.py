@@ -30,3 +30,7 @@ class Tool(BaseModel):
     @property
     def description(self) -> str:
         return self.metadata.identity.description
+
+    @property
+    def enabled(self) -> bool:
+        return self.metadata.operational.enabled

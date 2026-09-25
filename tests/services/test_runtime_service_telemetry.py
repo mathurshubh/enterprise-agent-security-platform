@@ -23,13 +23,13 @@ from app.services.response_service import ResponseService
 from app.services.risk_aggregator import RiskAggregator
 from app.services.risk_service import RiskService
 from app.services.runtime_service import RuntimeService
-from app.services.tool_service import ToolService
 from app.telemetry.contracts import TelemetryEmitter
 from app.telemetry.dispatcher import InMemoryTelemetryDispatcher
 from tests.conftest import (
     create_test_agent_service,
     create_test_audit_service,
     create_test_session_service,
+    create_test_tool_service,
 )
 
 
@@ -49,7 +49,7 @@ def _create_test_runtime_service(
     )
 
     tool_registry = ToolRegistry()
-    tool_service = ToolService(tool_registry=tool_registry)
+    tool_service = create_test_tool_service(tool_registry=tool_registry)
     RuntimeService._register_default_tools(tool_service)
 
     policy_engine = PolicyEngine()

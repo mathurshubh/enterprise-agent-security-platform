@@ -37,13 +37,13 @@ from app.services.risk_aggregator import RiskAggregator
 from app.services.risk_service import RiskService
 from app.services.runtime_bootstrap import register_default_tools
 from app.services.runtime_service import RuntimeService
-from app.services.tool_service import ToolService
 from app.tools.directory_list_tool import DirectoryListTool
 from app.tools.file_read_tool import FileReadTool
 from tests.conftest import (
     create_test_agent_service,
     create_test_audit_service,
     create_test_session_service,
+    create_test_tool_service,
 )
 
 PROTECTED_FILE = "secrets.txt"
@@ -91,7 +91,7 @@ def build_runtime():
             tool_registry.register(FileReadTool(str(workspace)))
             tool_registry.register(DirectoryListTool(str(workspace)))
 
-        tool_service = ToolService(tool_registry=tool_registry)
+        tool_service = create_test_tool_service(tool_registry=tool_registry)
         register_default_tools(tool_service)
 
         detection_registry = DetectionRegistry()

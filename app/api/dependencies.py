@@ -74,8 +74,8 @@ session_service: SessionService = SessionService(
 tool_registry: ToolRegistry = ToolRegistry()
 
 tool_service: ToolService = ToolService(
-    tool_registry=tool_registry,
     tool_repository=tool_repository,
+    tool_registry=tool_registry,
 )
 
 tool_inventory_service: ToolInventoryService = ToolInventoryService(tool_registry)

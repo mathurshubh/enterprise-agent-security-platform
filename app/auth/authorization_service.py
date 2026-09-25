@@ -83,6 +83,26 @@ class AuthorizationService:
                 reason=f"Tool '{tool_id}' is not registered",
             )
 
+        if not tool.metadata.operational.enabled:
+            tool_check = AuthorizationCheck(
+                status=AuthorizationCheckStatus.FAILED,
+                reason=f"Tool '{tool_id}' is disabled",
+                details={"tool_id": tool_id},
+            )
+            return AuthorizationResult(
+                decision=Decision.DENY,
+                agent_id=agent_id,
+                tool_id=tool_id,
+                resource=resource,
+                agent_check=agent_check,
+                tool_check=tool_check,
+                approved_tool_check=not_evaluated_check("tool_check"),
+                status_check=not_evaluated_check("tool_check"),
+                risk_tier_check=not_evaluated_check("tool_check"),
+                resource_check=not_evaluated_check("tool_check"),
+                reason=f"Tool '{tool_id}' is disabled",
+            )
+
         tool_check = AuthorizationCheck(
             status=AuthorizationCheckStatus.PASSED,
             reason=f"Tool '{tool_id}' is registered",
