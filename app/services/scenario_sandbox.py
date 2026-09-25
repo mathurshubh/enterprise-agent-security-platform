@@ -22,6 +22,7 @@ from app.repositories.in_memory.enforcement_state_repository import (
     InMemoryEnforcementStateRepository,
 )
 from app.repositories.in_memory.session_repository import InMemorySessionRepository
+from app.repositories.in_memory.tool_repository import InMemoryToolRepository
 from app.runtime.execution_authority import ExecutionAuthority
 from app.services.agent_service import AgentService
 from app.services.audit_service import AuditService
@@ -83,6 +84,7 @@ def build_scenario_sandbox(agent_id: str = SCENARIO_AGENT_ID) -> ScenarioSandbox
         detection_registry=create_default_detection_registry(),
         agent_id=agent_id,
         tool_registry=tool_registry,
+        tool_repository=InMemoryToolRepository(),
         findings_service=findings_service,
         risk_service=risk_service,
         # No telemetry emitter: synthetic security-test activity must not enter the

@@ -24,11 +24,11 @@ from app.services.risk_aggregator import RiskAggregator
 from app.services.risk_service import RiskService
 from app.services.runtime_service import PostureReconciliationError, RuntimeService
 from app.services.session_service import SessionService
-from app.services.tool_service import ToolService
 from tests.conftest import (
     create_test_agent_service,
     create_test_audit_service,
     create_test_session_service,
+    create_test_tool_service,
 )
 
 
@@ -36,7 +36,7 @@ def create_runtime_service(
     approved_tools: list[str],
 ) -> tuple[RuntimeService, SessionService]:
     agent_service = create_test_agent_service()
-    tool_service = ToolService()
+    tool_service = create_test_tool_service()
     session_service = create_test_session_service()
 
     agent_service.register_agent(
