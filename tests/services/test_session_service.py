@@ -81,11 +81,12 @@ def test_record_event():
 
     result = service.record_event(event)
 
-    # The service assigns the canonical position; everything else is unchanged.
-    assert result.model_dump(exclude={"sequence_number"}) == event.model_dump(
-        exclude={"sequence_number"}
-    )
+    # The repository/service assigns canonical positions; everything else is unchanged.
+    assert result.model_dump(
+        exclude={"sequence_number", "agent_sequence"}
+    ) == event.model_dump(exclude={"sequence_number", "agent_sequence"})
     assert result.sequence_number == 1
+    assert result.agent_sequence == 1
 
 
 def test_list_events():

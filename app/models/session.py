@@ -87,3 +87,11 @@ class SessionTerminalError(SessionBindingError):
             owner_agent_id=owner_agent_id,
             requested_agent_id=requested_agent_id,
         )
+
+
+class SessionRepositoryError(Exception):
+    """Base exception for session repository persistence and infrastructure failures."""
+
+
+class HorizonUnavailableError(SessionRepositoryError):
+    """Raised when the authoritative behavioral detection horizon is unavailable (fail closed)."""

@@ -31,6 +31,9 @@ from uuid import uuid4
 from app.models.audit_event import Decision
 from app.models.execution_binding import ExecutionBinding
 from app.models.runtime_execution_grant import RuntimeExecutionGrant
+from app.repositories.interfaces.enforcement_state_repository import (
+    EnforcementStateRepository,
+)
 
 DEFAULT_GRANT_TTL_SECONDS = 30.0
 
@@ -89,6 +92,7 @@ class ExecutionAuthority:
         self,
         ttl_seconds: float = DEFAULT_GRANT_TTL_SECONDS,
         clock: Callable[[], float] = time.monotonic,
+        enforcement_repository: EnforcementStateRepository | None = None,
     ) -> None:
         if ttl_seconds <= 0:
             raise ValueError("ttl_seconds must be positive")
@@ -97,6 +101,7 @@ class ExecutionAuthority:
         self._authority_id = f"authority-{uuid4()}"
         self._ttl_seconds = ttl_seconds
         self._clock = clock
+        self._enforcement_repository = enforcement_repository
         self._lock = RLock()
         # Issued, unconsumed, unexpired grants: grant_id -> outstanding record.
         self._outstanding: dict[str, _OutstandingGrant] = {}
@@ -124,14 +129,17 @@ class ExecutionAuthority:
         decision: Decision,
         *,
         agent_id: str,
+        expected_epoch: int | None = None,
     ) -> RuntimeExecutionGrant | None:
         """Issue a grant for ``binding`` if and only if it may be authorized.
 
-        Two conditions must hold: ``decision`` is a final ALLOW, and issuance for
-        ``agent_id`` is open. Issuance closes when the agent is suspended, so a request
-        that passed authorization just before the suspension cannot still obtain
-        authority afterwards. Every grant is attributable to an agent; there is no
-        unattributed issuance path.
+        Conditions:
+        1. ``decision`` is a final ALLOW.
+        2. Issuance for ``agent_id`` is open (not suspended).
+        3. CAS epoch check: if ``expected_epoch`` is specified and an enforcement
+           repository is present, the persisted epoch must match ``expected_epoch``.
+           If a concurrent transition (reinstatement or suspension) advanced the epoch,
+           issuance fails closed (returns None).
         """
         if decision != Decision.ALLOW:
             return None
@@ -140,19 +148,46 @@ class ExecutionAuthority:
             if agent_id in self._issuance_suspended:
                 return None
 
-            now = self._clock()
-            self._prune(now)
+            if expected_epoch is not None and self._enforcement_repository is not None:
+                repo_lock = getattr(self._enforcement_repository, "_lock", None)
+                if repo_lock is not None:
+                    with repo_lock:
+                        persisted_state = self._enforcement_repository.get_state(agent_id)
+                        current_epoch = (
+                            persisted_state.epoch if persisted_state is not None else 0
+                        )
+                        if current_epoch != expected_epoch:
+                            return None
 
-            grant_id = f"grant-{uuid4()}"
-            expires_at = now + self._ttl_seconds
-            signature = self._sign(
-                grant_id,
-                self._authority_id,
-                binding,
-                now,
-                expires_at,
-            )
-            self._outstanding[grant_id] = _OutstandingGrant(expires_at, agent_id)
+                        return self._create_grant(binding, agent_id)
+                else:
+                    persisted_state = self._enforcement_repository.get_state(agent_id)
+                    current_epoch = (
+                        persisted_state.epoch if persisted_state is not None else 0
+                    )
+                    if current_epoch != expected_epoch:
+                        return None
+
+            return self._create_grant(binding, agent_id)
+
+    def _create_grant(
+        self,
+        binding: ExecutionBinding,
+        agent_id: str,
+    ) -> RuntimeExecutionGrant:
+        now = self._clock()
+        self._prune(now)
+
+        grant_id = f"grant-{uuid4()}"
+        expires_at = now + self._ttl_seconds
+        signature = self._sign(
+            grant_id,
+            self._authority_id,
+            binding,
+            now,
+            expires_at,
+        )
+        self._outstanding[grant_id] = _OutstandingGrant(expires_at, agent_id)
 
         return RuntimeExecutionGrant(
             grant_id=grant_id,

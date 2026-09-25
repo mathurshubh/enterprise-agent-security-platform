@@ -18,7 +18,14 @@ from app.models.finding import Finding
 from app.models.response_action import ResponseType
 from app.models.runtime_context import RuntimeContext
 from app.models.runtime_result import RuntimeResult
-from app.models.session_event import SessionEvent
+from app.models.session import (
+    SessionRepositoryError,
+)
+from app.models.session_event import (
+    AggregationScope,
+    HorizonQuery,
+    SessionEvent,
+)
 from app.models.telemetry.behavioral_event import (
     BehavioralEvent,
     compute_parameter_hash,
@@ -51,6 +58,8 @@ from app.telemetry.contracts import TelemetryEmitter
 SESSION_BINDING_INVALID = "SESSION_BINDING_INVALID"
 # Error code for a request refused because an agent's posture could not be reconciled.
 POSTURE_RECONCILIATION_FAILED = "POSTURE_RECONCILIATION_FAILED"
+# Error code for a request refused because the detection horizon was unavailable.
+HORIZON_UNAVAILABLE = "HORIZON_UNAVAILABLE"
 
 
 class IncompleteRuntimeConfigurationError(Exception):
@@ -101,6 +110,14 @@ class RuntimeService:
         self._telemetry_emitter = telemetry_emitter
         self._execution_authority = execution_authority
         self._agent_service = agent_service
+        if (
+            self._execution_authority is not None
+            and getattr(self._execution_authority, "_enforcement_repository", None) is None
+            and self._agent_service is not None
+        ):
+            self._execution_authority._enforcement_repository = (
+                self._agent_service.enforcement_repository
+            )
         # The security response path is a capability, not a set of optional
         # collaborators. Each dependency below participates in deriving a response
         # from the agent's enforcement posture, and a runtime missing any of them
@@ -420,6 +437,69 @@ class RuntimeService:
         self._last_result = result
         return result
 
+    def _refuse_horizon_unavailable(
+        self,
+        session_id: str,
+        agent_id: str,
+        tool_id: str,
+        resource: str | None,
+        param_hash: str,
+        trace_id: str | None,
+        principal: str | None,
+        tenant_id: str | None,
+        started_at: float,
+        error: Exception,
+    ) -> RuntimeResult:
+        """Fail closed when the authoritative detection horizon is unavailable."""
+        event = SessionEvent(
+            session_id=session_id,
+            agent_id=agent_id,
+            tool_id=tool_id,
+            decision=Decision.DENY,
+            final_decision=Decision.DENY,
+        )
+
+        audit_event = AuditEvent(
+            event_id=f"evt-{uuid.uuid4()}",
+            session_id=session_id,
+            agent_id=agent_id,
+            tool_id=tool_id,
+            decision=Decision.DENY,
+        )
+        self._audit_service.record_event(audit_event)
+
+        elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+        self._safe_emit(
+            BehavioralEvent(
+                event_type=TelemetryEventType.GOVERNANCE_DECISION_FINALIZED,
+                session_id=session_id,
+                agent_id=agent_id,
+                trace_id=trace_id,
+                principal=principal,
+                tenant_id=tenant_id,
+                tool_id=tool_id,
+                resource_target=resource,
+                parameter_hash=param_hash,
+                decision=Decision.DENY,
+                execution_time_ms=elapsed_ms,
+                error_code=HORIZON_UNAVAILABLE,
+            )
+        )
+
+        result = RuntimeResult(
+            event=event,
+            findings=[],
+            risk_assessment=None,
+            enforcement_posture=None,
+            response_action=None,
+            refusal_reason=HORIZON_UNAVAILABLE,
+            authorization=None,
+            audit_event_id=audit_event.event_id,
+        )
+        self._last_result = result
+        return result
+
+
     def _suspend_agent(
         self,
         agent_id: str,
@@ -642,6 +722,20 @@ class RuntimeService:
             )
         )
 
+        # Read authoritative enforcement context to capture epoch and baseline sequence
+        enforcement_state = None
+        if self._agent_service is not None:
+            try:
+                enforcement_state = self._agent_service.get_enforcement_state(agent_id)
+            except AgentNotFoundError:
+                enforcement_state = None
+        context_epoch = enforcement_state.epoch if enforcement_state is not None else 0
+        baseline_seq = (
+            enforcement_state.enforcement_baseline_sequence
+            if enforcement_state is not None
+            else 0
+        )
+
         if context is None:
             context = RuntimeContext(
                 session_id=session_id,
@@ -659,15 +753,18 @@ class RuntimeService:
         )
 
         recorded_event = self._session_service.record_event(event)
-        session_events = self._session_service.list_events(session_id)
 
         # Read at the moment of the triggering event, never as the agent's current
         # epoch. An event from before an enforcement-recovery boundary must derive
         # the same epoch whenever it is evaluated, or the same behaviour would
         # produce one identity live and another on replay. This is a read: the
         # runtime may escalate enforcement and can never relax it.
-        enforcement_epoch = self._agent_service.enforcement_epoch(
-            agent_id, as_of=recorded_event.timestamp
+        enforcement_epoch = (
+            self._agent_service.enforcement_epoch(
+                agent_id, as_of=recorded_event.timestamp
+            )
+            if self._agent_service is not None
+            else 0
         )
 
         content_findings = self._detection_engine.evaluate(
@@ -686,16 +783,47 @@ class RuntimeService:
                 },
             )
         )
+
+        # Plane 2A: Query authoritative detection horizon
+        rule_descriptor = self._detection_service.get_rule_descriptor(
+            "EXCESSIVE_DENIALS"
+        )
+        horizon_query = HorizonQuery(
+            agent_id=agent_id,
+            scope=rule_descriptor.scope,
+            session_id=(
+                session_id
+                if rule_descriptor.scope == AggregationScope.SESSION
+                else None
+            ),
+            window_seconds=rule_descriptor.horizon_seconds,
+            evaluation_time=recorded_event.timestamp,
+            baseline_agent_sequence=baseline_seq,
+        )
+
+        try:
+            eligible_events = self._session_service.list_eligible_events(
+                horizon_query
+            )
+        except SessionRepositoryError as exc:
+            return self._refuse_horizon_unavailable(
+                session_id=session_id,
+                agent_id=agent_id,
+                tool_id=tool_id,
+                resource=resource,
+                param_hash=param_hash,
+                trace_id=trace_id,
+                principal=principal,
+                tenant_id=tenant_id,
+                started_at=start_time,
+                error=exc,
+            )
+
         # The moment being evaluated is the event that triggered this evaluation,
         # not the moment the code happens to run, so the same evidence yields the
         # same finding whether evaluated live or replayed later.
-        #
-        # Prior findings are passed as data. The detector needs them to tell a
-        # re-derivation of a crossing it already reported from a genuinely new one,
-        # and passing the service instead would make detection depend on mutable
-        # state rather than on its inputs.
         session_findings = self._detection_service.detect_excessive_denials(
-            session_events,
+            eligible_events,
             evaluation_time=recorded_event.timestamp,
             prior_findings=self._findings_service.list_findings(
                 session_id=session_id, agent_id=agent_id
@@ -772,6 +900,22 @@ class RuntimeService:
                 final_decision = Decision.DENY
             elif response_action.response_type == ResponseType.REQUIRE_APPROVAL:
                 final_decision = Decision.APPROVAL_REQUIRED
+
+        # ADR-023 invariant: only a final ALLOW decision may produce an execution
+        # grant. ExecutionAuthority.issue enforces this as well; it additionally
+        # enforces CAS validation against expected_epoch so that concurrent enforcement
+        # transitions (recovery or suspension) fail closed without grant issuance.
+        authorization = None
+        if self._execution_authority is not None and binding is not None:
+            authorization = self._execution_authority.issue(
+                binding,
+                final_decision,
+                agent_id=agent_id,
+                expected_epoch=context_epoch,
+            )
+            if authorization is None and final_decision == Decision.ALLOW:
+                final_decision = Decision.DENY
+
         recorded_event.final_decision = final_decision
         self._session_service.update_event_final_decision(
             session_id=session_id,
@@ -818,17 +962,6 @@ class RuntimeService:
                 error_code=binding_error_code,
             )
         )
-
-        # ADR-023 invariant: only a final ALLOW decision may produce an execution
-        # grant. ExecutionAuthority.issue enforces this as well; it is restated here
-        # so the contract is visible where the decision is finalised.
-        authorization = None
-        if self._execution_authority is not None and binding is not None:
-            authorization = self._execution_authority.issue(
-                binding,
-                final_decision,
-                agent_id=agent_id,
-            )
 
         result = RuntimeResult(
             event=recorded_event,

@@ -101,14 +101,21 @@ Owns dynamic agent posture and monotonic epoch progression per [ADR-024](ADR-024
   - **Pristine State Isolation:** An uninitialized agent (`get_state(...) is None`) indicates pristine status with no dynamic containment, proceeding normally to administrative status evaluation.
 
 ### D. Detection Horizon Repository (`SessionEventHorizonRepository`)
-Maintains the temporal window of session events required for multi-turn behavioral detection per [ADR-027](ADR-027-state-lifecycle-decomposition.md):
-- `record_event(event: SessionEvent) -> None`
-- `get_horizon_events(session_id: str, since_timestamp: datetime) -> list[SessionEvent]`
-- `prune_expired_horizon(retention_threshold: datetime) -> int`
+Maintains the authoritative behavioral evidence required for multi-turn behavioral detection per [ADR-027](ADR-027-state-lifecycle-decomposition.md), decoupled from session lifecycle state via role-specific protocols backed by a unified atomic adapter:
+- `record_event(event: SessionEvent) -> SessionEvent`
+- `list_eligible_events(query: HorizonQuery) -> list[SessionEvent]`
+- `prune_events(before_timestamp: datetime) -> int`
+- `update_event_final_decision(session_id: str, sequence_number: int, final_decision: Decision) -> None`
 - **Invariants:**
-  - Durability is bounded by the active detection horizon: `retention >= max(rule_temporal_window) + safety_margin`.
-  - Events older than the retention threshold are pruned. This store does not provide permanent audit retention (audit retention belongs exclusively to `AuditEvidenceRepository`).
-  - Cycling a runtime process does not reset the accumulated event history within the active horizon.
+  - **Dual Monotonic Positioning:** Every recorded event receives two immutable sequences assigned exclusively by the repository:
+    - `sequence_number`: Session-local strictly monotonic sequence (`1..N`), used for session reconstruction and intra-session detection.
+    - `agent_sequence`: Agent-scoped monotonic sequence (increasing, non-gapless across sessions), used for cross-session detection and enforcement baseline watermarks.
+  - **Dual-Scoped Horizon Queries:** Supports both `AggregationScope.SESSION` (isolated to a session) and `AggregationScope.AGENT` (cross-session aggregation per agent).
+  - **Snapshot Temporal Semantics:** Evaluates events bounded strictly by $[T_{\text{eval}} - W, T_{\text{eval}}]$, excluding future-dated events to prevent clock skew leakage.
+  - **Watermark Isolation:** Evaluates only active events strictly newer than the agent's baseline watermark (`agent_sequence > query.baseline_agent_sequence`), preventing pre-recovery history from triggering false re-containment.
+  - **Pruning Invariant:** Bounded retention pruning deletes events older than the retention threshold without resetting or modifying sequence counters.
+  - **Fail-Closed Repository Boundary:** Repository exceptions normalize to `SessionRepositoryError` / `HorizonUnavailableError`, causing the runtime pipeline to fail closed (`HORIZON_UNAVAILABLE`) without granting execution authority.
+  - **Stale Context Interlock:** Execution grant issuance validates `expected_epoch` under lock via `ExecutionAuthority.issue(...)` to prevent issuance on stale enforcement context.
 
 ## 3. Multi-Adapter Strategy
 

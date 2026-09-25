@@ -171,6 +171,30 @@ Behavioral History (ADR-016) ──> Detection Context ──> Rule Evaluation �
 > **Detection Context Abstraction**  
 > The **Detection Context** is an ephemeral, read-only analytical view derived from immutable Behavioral History. It is created solely for rule evaluation, is never persisted into the Behavioral Event Store, and never modifies historical telemetry events. It cleanly separates immutable evidence storage from analytical rule execution.
 
+### Declarative Rule Descriptors & Pure Detection Boundary (Plane 2 / ADR-030)
+
+Under the Plane 2 architecture ([ADR-030](ADR-030-durable-state-repository-architecture.md)), behavioral detection separates evidence eligibility from rule evaluation:
+
+```text
+RuleDescriptor (Scope, Window) ───┐
+                                  │
+Authoritative HorizonQuery ───────┴─► SessionEventHorizonRepository
+                                          │
+                                (Pre-filtered Eligible Evidence)
+                                          │
+                                          ▼
+                               Pure Deterministic Detector
+```
+
+1. **Declarative Rule Metadata (`DetectionRuleDescriptor`):**
+   - Rules declaratively state their security scope and temporal horizon via `DetectionRuleDescriptor(name: str, scope: AggregationScope, horizon_seconds: float)`.
+   - Rules requiring cross-session behavioral tracking (such as `EXCESSIVE_DENIALS`) declare `scope=AggregationScope.AGENT` to prevent session boundary evasion.
+   - Rules specific to a single interaction context declare `scope=AggregationScope.SESSION`.
+
+2. **Pure Detector Invariant:**
+   - The repository establishes authoritative evidence eligibility (applying temporal boundaries, session/agent scope, and monotonic baseline watermarks).
+   - Detection rules execute as pure deterministic algorithms over already-eligible evidence, ensuring deterministic replay and testability.
+
 ## 2. Behavioral Finding Schema & Concept
 
 A **Behavioral Finding** is a canonical, derived architectural artifact representing an observed security pattern:

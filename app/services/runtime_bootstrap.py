@@ -176,6 +176,10 @@ def bootstrap_runtime_service(
             "RuntimeService requires an explicit SessionService dependency"
         )
 
+    active_execution_authority = execution_authority or ExecutionAuthority(
+        enforcement_repository=agent_service.enforcement_repository
+    )
+
     return RuntimeService(
         authorization_service=authorization_service,
         session_service=session_service,
@@ -187,7 +191,7 @@ def bootstrap_runtime_service(
         tool_registry=registry,
         findings_service=findings_service,
         telemetry_emitter=telemetry_emitter,
-        execution_authority=execution_authority,
+        execution_authority=active_execution_authority,
         # M2b: enforcement posture is agent-scoped, so the pipeline needs the agent
         # registry that owns enforcement state.
         agent_service=agent_service,

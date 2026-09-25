@@ -4,11 +4,13 @@ from datetime import datetime, timedelta
 from uuid import NAMESPACE_URL, uuid5
 
 from app.models.audit_event import Decision
+from app.models.detection_rule import DetectionRuleDescriptor
 from app.models.finding import Finding, Severity
-from app.models.session_event import SessionEvent
+from app.models.session_event import AggregationScope, SessionEvent
 
 EXCESSIVE_DENIAL_THRESHOLD = 3
 DEFAULT_EXCESSIVE_DENIALS_WINDOW_SECONDS = 1800.0
+EXCESSIVE_DENIALS_RULE_NAME = "EXCESSIVE_DENIALS"
 
 # Stable namespace for deterministic session-detection finding identifiers.
 SESSION_FINDING_NAMESPACE = uuid5(
@@ -56,7 +58,7 @@ def session_finding_id(
 
 
 class DetectionService:
-    """Evaluates multi-event session behavioral detection rules (M4 Step 2C-A)."""
+    """Evaluates behavioral detection rules over authoritative horizon evidence (M4 Step 2C-A, Plane 2)."""
 
     def __init__(
         self,
@@ -70,11 +72,19 @@ class DetectionService:
     def excessive_denials_window_seconds(self) -> float:
         return self._excessive_denials_window_seconds
 
+    def get_rule_descriptor(self, rule_name: str) -> DetectionRuleDescriptor:
+        """Return the declarative horizon descriptor for a specific rule."""
+        if rule_name == EXCESSIVE_DENIALS_RULE_NAME:
+            return DetectionRuleDescriptor(
+                name=EXCESSIVE_DENIALS_RULE_NAME,
+                scope=AggregationScope.AGENT,
+                horizon_seconds=self._excessive_denials_window_seconds,
+            )
+        raise KeyError(f"Unknown detection rule: '{rule_name}'")
+
     def get_rule_horizon(self, rule_name: str) -> float:
         """Return the declared evaluation horizon in seconds for a specific rule."""
-        if rule_name == "EXCESSIVE_DENIALS":
-            return self._excessive_denials_window_seconds
-        raise KeyError(f"Unknown detection rule: '{rule_name}'")
+        return self.get_rule_descriptor(rule_name).horizon_seconds
 
     def detect_excessive_denials(
         self,
@@ -86,82 +96,65 @@ class DetectionService:
     ) -> list[Finding]:
         """Report agents whose cumulative denial count within the evaluation window reaches the threshold.
 
-        Semantics (M4 Step 2C-A):
-        - Scope: (session_id, agent_id)
+        Semantics (M4 Step 2C-A, Plane 2):
+        - Scope: AggregationScope.AGENT (aggregates denials across sessions for the same agent)
         - Threshold: >= EXCESSIVE_DENIAL_THRESHOLD (3) cumulative DENY decisions
         - Evaluation: cumulative (intervening ALLOW or APPROVAL_REQUIRED decisions do not reset count)
-        - Temporal window: sliding window of excessive_denials_window_seconds (default: 1800s / 30m)
-        - Boundary: event.timestamp >= evaluation_time - window is included, strictly older (<) is excluded
-
-        ``evaluation_time`` is supplied by the caller and is never read from the
-        system clock here. A windowed rule answers a question about a moment, and
-        taking that moment from the clock makes the answer depend on when it was
-        asked rather than on the evidence: the same events evaluated later fall
-        outside the window and yield a different result. ADR-017 requires a replay
-        to produce the same findings as live analysis, which cannot hold while the
-        boundary moves on its own. The live caller passes the timestamp of the event
-        that triggered the evaluation; a replay passes the timestamp of the event
-        being replayed.
-
-        Required rather than defaulted: a default would leave the clock-reading path
-        reachable, and a caller that omitted the argument would silently reintroduce
-        the non-determinism instead of failing.
-
-        ``prior_findings`` are read-only input, never state this service keeps. They
-        are what lets a re-derivation be told apart from a new crossing:
-
-            same epoch, any pinned evidence still in window  -> the same crossing
-            all pinned evidence aged out                     -> re-arm
-            epoch changed                                    -> re-arm
-            re-armed and threshold met again                 -> a new crossing
-
-        Without them the detector cannot know it already reported a crossing, and
-        the only identity available describes the scope rather than the occurrence.
-
-        ``enforcement_epoch`` must be evaluated at ``evaluation_time`` by the caller,
-        not taken as the agent's current epoch, or an event from before a
-        reinstatement would derive one identity live and a different one on replay.
+        - Evidence Stream: Evaluates ordered agent evidence provided by the authoritative detection horizon.
         """
-        cutoff = evaluation_time - timedelta(seconds=self._excessive_denials_window_seconds)
+        cutoff = evaluation_time - timedelta(
+            seconds=self._excessive_denials_window_seconds
+        )
 
-        denied_events: dict[tuple[str, str], list[SessionEvent]] = defaultdict(list)
+        denied_events: dict[str, list[SessionEvent]] = defaultdict(list)
 
         for event in events:
-            if event.decision == Decision.DENY and event.timestamp >= cutoff:
-                denied_events[(event.session_id, event.agent_id)].append(event)
+            if (
+                event.decision == Decision.DENY
+                and cutoff <= event.timestamp <= evaluation_time
+            ):
+                denied_events[event.agent_id].append(event)
 
         findings: list[Finding] = []
 
-        for (session_id, agent_id), session_denials in denied_events.items():
-            if len(session_denials) < EXCESSIVE_DENIAL_THRESHOLD:
+        for agent_id, agent_denials in denied_events.items():
+            if len(agent_denials) < EXCESSIVE_DENIAL_THRESHOLD:
                 continue
 
+            latest_session_id = agent_denials[-1].session_id
+
             evidence = self._crossing_evidence(
-                session_denials,
+                agent_denials,
                 prior_findings=prior_findings,
-                session_id=session_id,
+                session_id=latest_session_id,
                 agent_id=agent_id,
                 enforcement_epoch=enforcement_epoch,
+            )
+
+            all_same_session = all(
+                e.session_id == agent_denials[0].session_id for e in agent_denials
+            )
+            description = (
+                f"Session contains {len(agent_denials)} denied actions"
+                if all_same_session
+                else f"Agent contains {len(agent_denials)} denied actions across sessions"
             )
 
             findings.append(
                 Finding(
                     finding_id=session_finding_id(
-                        "EXCESSIVE_DENIALS",
-                        session_id,
+                        EXCESSIVE_DENIALS_RULE_NAME,
+                        latest_session_id,
                         agent_id,
                         EXCESSIVE_DENIAL_THRESHOLD,
                         evidence,
                         enforcement_epoch,
                     ),
-                    session_id=session_id,
+                    session_id=latest_session_id,
                     agent_id=agent_id,
-                    rule_name="EXCESSIVE_DENIALS",
+                    rule_name=EXCESSIVE_DENIALS_RULE_NAME,
                     severity=Severity.MEDIUM,
-                    description=(
-                        f"Session contains {len(session_denials)} "
-                        "denied actions"
-                    ),
+                    description=description,
                     evidence_event_sequences=evidence,
                     enforcement_epoch=enforcement_epoch,
                 )
@@ -171,30 +164,25 @@ class DetectionService:
 
     def _crossing_evidence(
         self,
-        session_denials: list[SessionEvent],
+        agent_denials: list[SessionEvent],
         *,
         prior_findings: Sequence[Finding],
         session_id: str,
         agent_id: str,
         enforcement_epoch: int,
     ) -> tuple[int, ...]:
-        """Return the evidence identifying this crossing.
-
-        An active crossing keeps the evidence it was first reported with, so every
-        later request in the session re-derives the same identity. It stays active
-        while any of that evidence is still inside the window and the enforcement
-        epoch has not moved on; once neither holds, the rule re-arms and the next
-        crossing is identified by its own evidence.
-
-        The evidence is the earliest denials in the window rather than all of them,
-        because the full set grows with every request while the crossing does not.
-        """
-        in_window = {event.sequence_number for event in session_denials}
+        """Return the evidence identifying this crossing."""
+        use_agent_seq = any(e.agent_sequence > 0 for e in agent_denials)
+        if use_agent_seq:
+            in_window = {
+                e.agent_sequence for e in agent_denials if e.agent_sequence > 0
+            }
+        else:
+            in_window = {e.sequence_number for e in agent_denials}
 
         for prior in prior_findings:
             if (
-                prior.rule_name != "EXCESSIVE_DENIALS"
-                or prior.session_id != session_id
+                prior.rule_name != EXCESSIVE_DENIALS_RULE_NAME
                 or prior.agent_id != agent_id
                 or prior.enforcement_epoch != enforcement_epoch
                 or not prior.evidence_event_sequences
@@ -203,12 +191,21 @@ class DetectionService:
             if any(seq in in_window for seq in prior.evidence_event_sequences):
                 return prior.evidence_event_sequences
 
-        ordered = sorted(session_denials, key=lambda e: (e.timestamp, e.sequence_number))
-        return tuple(
-            event.sequence_number
-            for event in ordered[:EXCESSIVE_DENIAL_THRESHOLD]
-        )
+        if use_agent_seq:
+            ordered = sorted(agent_denials, key=lambda e: e.agent_sequence)
+            return tuple(
+                event.agent_sequence
+                for event in ordered[:EXCESSIVE_DENIAL_THRESHOLD]
+            )
+        else:
+            ordered = sorted(
+                agent_denials, key=lambda e: (e.timestamp, e.sequence_number)
+            )
+            return tuple(
+                event.sequence_number
+                for event in ordered[:EXCESSIVE_DENIAL_THRESHOLD]
+            )
 
     def registered_rule_names(self) -> set[str]:
         """Return a set of all session behavioral detection rule names."""
-        return {"EXCESSIVE_DENIALS"}
+        return {EXCESSIVE_DENIALS_RULE_NAME}
