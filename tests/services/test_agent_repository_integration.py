@@ -119,6 +119,7 @@ class RacingEnforcementRepository:
             )
             concurrent_state = AgentEnforcementState(
                 agent_id=transition.agent_id,
+                epoch=expected_epoch + 1,
                 suspended_at=datetime.now(timezone.utc),
                 suspension_reason="concurrent race condition",
             )

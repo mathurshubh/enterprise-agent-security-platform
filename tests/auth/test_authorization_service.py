@@ -541,3 +541,73 @@ def test_executable_registry_cannot_override_disabled_repository_state():
     assert result.decision == Decision.DENY
     assert result.reason == "Tool 'file_read' is disabled"
     assert result.tool_check.status.value == "failed"
+
+
+def test_authorization_fails_closed_when_enforcement_state_unavailable():
+    """Verify fail-closed DENY when dynamic enforcement state repository is unavailable."""
+    from unittest.mock import MagicMock
+
+    from app.models.authorization_result import AuthorizationCheckStatus
+    from app.repositories.in_memory.agent_repository import InMemoryAgentRepository
+    from app.repositories.in_memory.enforcement_state_repository import (
+        InMemoryEnforcementStateRepository,
+    )
+    from app.services.agent_service import AgentService
+
+    agent_repo = InMemoryAgentRepository()
+    enf_repo = InMemoryEnforcementStateRepository()
+    agent_service = AgentService(agent_repo, enf_repo)
+    tool_service = create_test_tool_service()
+
+    agent_service.register_agent(create_agent(["file_read"]))
+    tool_service.register_tool(create_tool("file_read"))
+
+    service = AuthorizationService(agent_service, tool_service, PolicyEngine())
+
+    # Simulate EnforcementStateRepository storage failure
+    def broken_get_state(agent_id: str):
+        raise OSError("Enforcement DB partition / storage unavailable")
+
+    enf_repo.get_state = MagicMock(side_effect=broken_get_state)
+
+    # 1. High-level authorize() must fail closed to DENY
+    assert service.authorize("soc-agent", "file_read") == Decision.DENY
+
+    # 2. Detailed evaluate() must return structured evidence of posture authority failure
+    result = service.evaluate("soc-agent", "file_read")
+    assert result.decision == Decision.DENY
+    assert result.reason == "Security posture authority unavailable (fail-closed)"
+    assert result.agent_check.status == AuthorizationCheckStatus.FAILED
+    assert result.agent_check.reason == "Security posture authority unavailable (fail-closed)"
+
+    # All downstream checks short-circuit to NOT_EVALUATED
+    assert result.tool_check.status == AuthorizationCheckStatus.NOT_EVALUATED
+    assert result.approved_tool_check.status == AuthorizationCheckStatus.NOT_EVALUATED
+    assert result.status_check.status == AuthorizationCheckStatus.NOT_EVALUATED
+    assert result.risk_tier_check.status == AuthorizationCheckStatus.NOT_EVALUATED
+    assert result.resource_check.status == AuthorizationCheckStatus.NOT_EVALUATED
+
+
+def test_authorization_succeeds_for_pristine_agent_without_dynamic_enforcement_state():
+    """Verify pristine agent (None dynamic enforcement state in repo) authorizes normally."""
+    from app.models.authorization_result import AuthorizationCheckStatus
+
+    agent_service = create_test_agent_service()
+    tool_service = create_test_tool_service()
+
+    agent_service.register_agent(create_agent(["file_read"]))
+    tool_service.register_tool(create_tool("file_read"))
+
+    # Explicitly verify repository has no dynamic state for pristine agent
+    assert agent_service.get_enforcement_state("soc-agent").suspended_at is None
+    assert agent_service.get_enforcement_state("soc-agent").epoch == 0
+
+    service = AuthorizationService(agent_service, tool_service, PolicyEngine())
+
+    # Pristine agent evaluates normally
+    assert service.authorize("soc-agent", "file_read") == Decision.ALLOW
+
+    result = service.evaluate("soc-agent", "file_read")
+    assert result.decision == Decision.ALLOW
+    assert result.agent_check.status == AuthorizationCheckStatus.PASSED
+    assert result.status_check.status == AuthorizationCheckStatus.PASSED

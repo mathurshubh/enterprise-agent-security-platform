@@ -89,12 +89,16 @@ Owns the persistence of `AuditEvent` records per [ADR-028](ADR-028-audit-evidenc
 
 ### C. Enforcement State Repository (`EnforcementStateRepository`)
 Owns dynamic agent posture and monotonic epoch progression per [ADR-024](ADR-024-agent-enforcement-state.md) and [ADR-026](ADR-026-materialized-risk-projection-and-enforcement-epochs.md):
-- `get_posture(agent_id: str) -> AgentEnforcementPosture`
-- `compare_and_set_posture(agent_id: str, expected_epoch: int, new_posture: AgentEnforcementPosture) -> bool`
+- `get_state(agent_id: str) -> AgentEnforcementState | None`
+- `record_transition(transition: EnforcementTransition, new_state: AgentEnforcementState, *, expected_epoch: int) -> bool`
+- `list_transitions(agent_id: str | None = None) -> list[EnforcementTransition]`
+- `get_epoch(agent_id: str, *, as_of: datetime) -> int`
 - **Invariants:**
-  - Updates succeed if and only if `expected_epoch == persisted_epoch`.
-  - On success, the epoch increments atomically: `new_epoch = expected_epoch + 1`.
-  - If a race occurs between concurrent replicas attempting to update posture, exactly one succeeds; the losing replica fails closed and re-evaluates against the newly persisted epoch.
+  - **Direct Epoch Authority:** `AgentEnforcementState.epoch` is persisted directly on the state entity; optimistic concurrency does not depend on derived history counts.
+  - **Strict CAS Concurrency:** Updates succeed if and only if `expected_epoch == persisted_epoch` AND `new_state.epoch == expected_epoch + 1`.
+  - **Single-Transaction Atomicity:** State update and transition ledger append are committed together atomically. If CAS or validation fails, neither record is persisted.
+  - **Fail-Closed Availability:** Storage or infrastructure exceptions are normalized to `EnforcementStateUnavailableError` at the boundary. The authorization gate catches this and deterministically returns `Decision.DENY` without issuing execution grants.
+  - **Pristine State Isolation:** An uninitialized agent (`get_state(...) is None`) indicates pristine status with no dynamic containment, proceeding normally to administrative status evaluation.
 
 ### D. Detection Horizon Repository (`SessionEventHorizonRepository`)
 Maintains the temporal window of session events required for multi-turn behavioral detection per [ADR-027](ADR-027-state-lifecycle-decomposition.md):

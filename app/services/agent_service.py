@@ -13,6 +13,7 @@ from app.models.watermark import BaselineWatermark
 from app.repositories.interfaces.agent_repository import AgentRepository
 from app.repositories.interfaces.enforcement_state_repository import (
     EnforcementStateRepository,
+    EnforcementStateUnavailableError,
 )
 
 # Suspension is written by the deterministic runtime pipeline, never by an operator
@@ -85,7 +86,15 @@ class AgentService:
 
             # Dynamic enforcement posture projection (fail-closed)
             if agent.status != AgentStatus.DISABLED:
-                enf_state = self._enforcement_repository.get_state(agent_id)
+                try:
+                    enf_state = self._enforcement_repository.get_state(agent_id)
+                except EnforcementStateUnavailableError:
+                    raise
+                except Exception as exc:
+                    raise EnforcementStateUnavailableError(
+                        f"Enforcement state repository unavailable for agent '{agent_id}': {exc}"
+                    ) from exc
+
                 if enf_state is not None and enf_state.suspended_at is not None:
                     agent = agent.model_copy(update={"status": AgentStatus.SUSPENDED})
 
@@ -97,7 +106,15 @@ class AgentService:
             projected = []
             for agent in agents:
                 if agent.status != AgentStatus.DISABLED:
-                    enf_state = self._enforcement_repository.get_state(agent.agent_id)
+                    try:
+                        enf_state = self._enforcement_repository.get_state(agent.agent_id)
+                    except EnforcementStateUnavailableError:
+                        raise
+                    except Exception as exc:
+                        raise EnforcementStateUnavailableError(
+                            f"Enforcement state repository unavailable for agent '{agent.agent_id}': {exc}"
+                        ) from exc
+
                     if enf_state is not None and enf_state.suspended_at is not None:
                         agent = agent.model_copy(
                             update={"status": AgentStatus.SUSPENDED}
@@ -232,24 +249,17 @@ class AgentService:
 
         now = datetime.now(timezone.utc)
 
-        # get_epoch() returns the reinstatement/recovery epoch (R); the CAS expected
-        # transition epoch is derived as 2 * recovery_epoch for SUSPEND and
-        # 2 * recovery_epoch + 1 for REINSTATE.
-        recovery_epoch = self._enforcement_repository.get_epoch(
-            agent.agent_id, as_of=now
-        )
-        if action == EnforcementAction.SUSPEND:
-            expected_epoch = 2 * recovery_epoch
-        else:
-            expected_epoch = 2 * recovery_epoch + 1
-
         state = self._enforcement_repository.get_state(agent.agent_id)
         if state is None:
             state = AgentEnforcementState(agent_id=agent.agent_id)
 
+        expected_epoch = state.epoch
+        next_epoch = expected_epoch + 1
+
         if action == EnforcementAction.SUSPEND:
             new_state = state.model_copy(
                 update={
+                    "epoch": next_epoch,
                     "suspended_at": now,
                     "suspension_reason": reason,
                     "last_transition_at": now,
@@ -264,6 +274,7 @@ class AgentService:
             baseline_seq = watermark.baseline_sequence if watermark else 0
             new_state = state.model_copy(
                 update={
+                    "epoch": next_epoch,
                     "suspended_at": None,
                     "suspension_reason": None,
                     "enforcement_baseline_at": baseline_at,

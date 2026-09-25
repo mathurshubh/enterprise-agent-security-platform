@@ -200,11 +200,11 @@ A caller obtains an `ALLOW` decision for one operation and executes a different 
 #### Residual Risk
 - Code already executing inside the platform process can obtain a `BaseTool` from `ToolRegistry.get()` and call `execute()` directly. ADR-023 closes the confused-deputy path between components; it is not a defence against malicious in-process code.
 
-### Threat 10: Enforcement Evasion and Poisoning [Elevation of Privilege / Tampering / Denial of Service]
+### Threat 10: Enforcement Evasion, Concurrency, and Availability [Elevation of Privilege / Tampering / Denial of Service]
 
 #### Threat
 
-An agent evades or subverts containment in one of four ways: rotating `session_id` so accumulated risk is evaluated as new (finding H-3); relying on containment being advisory, since `SUSPEND_AGENT` downgraded one decision and was then discarded (finding H-4); writing into a session another agent owns, so the evidence gathered there is attributed to the victim and drives the victim toward suspension (finding NEW-002, a confused-deputy path into the containment mechanism); or inducing containment of a legitimate agent through inflated evidence.
+An agent evades or subverts containment in several ways: rotating `session_id` so accumulated risk is evaluated as new (finding H-3); relying on containment being advisory, since `SUSPEND_AGENT` downgraded one decision and was then discarded (finding H-4); writing into a session another agent owns, so the evidence gathered there is attributed to the victim and drives the victim toward suspension (finding NEW-002, a confused-deputy path into the containment mechanism); concurrent enforcement races where multiple workers attempt conflicting posture mutations; exploiting stale permissive postures during concurrent execution; inducing containment of a legitimate agent through inflated evidence; or taking advantage of storage/repository unavailability to achieve fail-open tool execution.
 
 #### Mitigations
 
@@ -214,13 +214,17 @@ An agent evades or subverts containment in one of four ways: rotating `session_i
 - **Session Ownership (M-5, NEW-002):** `SessionService.bind_or_validate()` establishes ownership on first use under one lock and refuses any other agent. `RuntimeService` settles ownership before reading or writing session state, so a refused request records no session event, produces no finding, changes no posture, triggers no enforcement and issues no grant.
 - **Attributed Evidence (defence in depth):** threshold detections group by session *and* agent, so ownership is never inferred from which denial happened to be recorded first.
 - **False Containment Resistance:** threshold evidence is counted once per crossing, so unrelated traffic cannot inflate an agent toward suspension; scenario execution is isolated ([ADR-013](../adr/ADR-013-scenario-runner-service-boundaries.md) amendment) so a security test cannot contain a live agent.
-- **Attributed Recovery:** reinstatement is ADMIN-only, requires a reason, records the acting principal, and establishes an enforcement baseline so historical evidence does not immediately re-contain the agent.
+- **Attributed Recovery:** reinstatement is ADMIN-only, requires a reason, records the acting principal, and establishes an enforcement baseline watermark so historical evidence does not immediately re-contain the agent.
+- **Monotonic Concurrency & Atomic CAS (Plane 1):** `AgentEnforcementState.epoch` is persisted directly on the state entity, never derived from audit history. Posture transitions require `expected_epoch == current_epoch` and advance `epoch` by exactly $+1$. State mutation and transition ledger append occur in a single atomic transaction. Stale concurrent writers fail closed with `EnforcementConcurrencyError`.
+- **Fail-Closed Posture Authority:** Any storage or repository failure raises `EnforcementStateUnavailableError`. `AuthorizationService.evaluate()` intercepts this, immediately short-circuits to `Decision.DENY` with reason `"Security posture authority unavailable (fail-closed)"`, sets `agent_check.status = FAILED`, marks downstream checks as `NOT_EVALUATED`, and issues no `RuntimeExecutionGrant`.
+- **Administrative Lifecycle Superiority:** Administrative `AgentStatus.DISABLED` strictly dominates dynamic posture. Dynamic enforcement cannot mutate or create dynamic state for an administratively disabled agent.
 
 #### Residual Risk
 
 - **Session identifier squatting.** While callers choose identifiers, an agent may claim one another agent intended to use, denying the victim that identifier. It yields no access to an established session, its evidence, or another agent's posture. Server-issued unpredictable identifiers close it.
 - **In-flight execution.** Revocation cannot stop a request that has already passed grant verification and entered tool execution.
 - **Decision and audit consistency.** Under concurrency a request may be audited `ALLOW` and then obtain no grant because the gate closed in between. Execution stays closed; the audit record is the inconsistency.
+- **Distributed Authorization-Read Consistency:** Plane 1 establishes the CAS and fail-closed enforcement-state foundations required to prevent stale concurrent writers and unavailable-posture fail-open behavior. Distributed authorization-read consistency across horizontal workers remains a durable-adapter/control-plane invariant.
 
 ---
 

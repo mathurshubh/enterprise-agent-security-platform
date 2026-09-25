@@ -66,11 +66,22 @@ class EnforcementTransition(BaseModel):
 
 
 class AgentEnforcementState(BaseModel):
-    """The current enforcement state of one agent."""
+    """The current enforcement state of one agent.
+
+    Invariants:
+    - Authoritative Epoch: ``epoch`` is the persisted monotonic concurrency version.
+      Initial clean state is 0. Every committed enforcement transition increments
+      ``epoch`` by exactly +1.
+    """
 
     model_config = ConfigDict(frozen=True)
 
     agent_id: str
+    epoch: int = Field(
+        default=0,
+        ge=0,
+        description="Monotonic concurrency version incremented on every transition.",
+    )
     suspended_at: datetime | None = None
     suspension_reason: str | None = None
     # Reinstatement resets enforcement eligibility, not security history: findings

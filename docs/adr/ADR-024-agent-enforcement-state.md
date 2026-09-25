@@ -44,18 +44,23 @@ Enforcement state belongs to the **agent**, is **monotonic** from the runtime's 
 4. **Runtime enforcement is one-way.** The runtime may contain an agent; only an authorized administrative workflow returns one to service.
 5. **A session is security-owned by exactly one agent** for its lifetime. A request from any other agent is refused before any session state is read or written.
 6. **Refusal at a trust boundary is not an assessment.** Such a result reports no risk and no response, and names the boundary that refused it.
+7. **Administrative status remains superior to dynamic posture.** `Agent.status` governs administrative lifecycle (`ACTIVE`, `DISABLED`), while `AgentEnforcementState` governs dynamic runtime posture (`ACTIVE`, `SUSPENDED`). An administrative `DISABLED` agent is non-executable; dynamic enforcement produces no transitions and creates no dynamic state for a `DISABLED` agent.
+8. **Persisted epoch is the authoritative concurrency version.** `AgentEnforcementState.epoch` is persisted directly on the entity, never derived from audit history. Every committed transition advances `epoch` by exactly $+1$.
+9. **Atomic compare-and-set state and ledger commit.** State mutation and transition ledger append occur in a single atomic transaction. Stale epochs (`persisted_epoch != expected_epoch`) or invalid increments (`new_state.epoch != expected_epoch + 1`) reject the transition and commit neither state nor transition.
+10. **Fail-closed posture authority.** If the enforcement state repository is unavailable or partitioned, upstream authorization fails closed (`Decision.DENY`), records structured audit failure, short-circuits downstream checks, and issues no execution grant.
 
 ## Components
 
 | Component | Answers | Location |
 |---|---|---|
-| `AgentEnforcementState` | Is this agent contained, why, and from when does evidence count? | `app/models/agent_enforcement.py` |
+| `AgentEnforcementState` | Is this agent contained, why, under which epoch, and from when does evidence count? | `app/models/agent_enforcement.py` |
 | `EnforcementTransition` | How did it get there, and who decided? | `app/models/agent_enforcement.py` |
 | `AgentRiskPosture` | What does the agent's accumulated behaviour mean for enforcement? | `app/models/agent_risk_posture.py` |
 | `AgentService` | Authority on agent status and its history | `app/services/agent_service.py` |
 | `SessionService` | Authority on session ownership | `app/services/session_service.py` |
 | `ExecutionAuthority` | May this agent obtain execution authority at all? | `app/runtime/execution_authority.py` |
 | `EnforcementCoordinator` | Administrative recovery | `app/services/enforcement_coordinator.py` |
+| `EnforcementStateRepository` | Authoritative persistence for dynamic posture and atomic CAS epochs | `app/repositories/interfaces/enforcement_state_repository.py` |
 
 ## Enforcement pipeline
 

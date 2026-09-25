@@ -63,7 +63,7 @@ class BaseEnforcementStateRepositoryContractTests(abc.ABC):
             "t-1", agent_id=agent_id, action=EnforcementAction.SUSPEND, occurred_at=now
         )
         s1 = AgentEnforcementState(
-            agent_id=agent_id, suspended_at=now, suspension_reason="test"
+            agent_id=agent_id, epoch=1, suspended_at=now, suspension_reason="test"
         )
 
         # Initial epoch is 0
@@ -71,6 +71,7 @@ class BaseEnforcementStateRepositoryContractTests(abc.ABC):
 
         state = repo.get_state(agent_id)
         assert state is not None
+        assert state.epoch == 1
         assert state.suspension_reason == "test"
         assert len(repo.list_transitions(agent_id)) == 1
 
@@ -81,11 +82,14 @@ class BaseEnforcementStateRepositoryContractTests(abc.ABC):
             action=EnforcementAction.REINSTATE,
             occurred_at=now,
         )
-        s2 = AgentEnforcementState(agent_id=agent_id)
+        s2 = AgentEnforcementState(agent_id=agent_id, epoch=2)
         assert repo.record_transition(t2, s2, expected_epoch=1) is True
 
         assert len(repo.list_transitions(agent_id)) == 2
         assert repo.get_epoch(agent_id, as_of=now) == 1
+        state2 = repo.get_state(agent_id)
+        assert state2 is not None
+        assert state2.epoch == 2
 
     def test_record_transition_cas_mismatch_fails_closed_and_leaves_state_unchanged(
         self,
@@ -98,7 +102,7 @@ class BaseEnforcementStateRepositoryContractTests(abc.ABC):
             "t-1", agent_id=agent_id, action=EnforcementAction.SUSPEND, occurred_at=now
         )
         s1 = AgentEnforcementState(
-            agent_id=agent_id, suspended_at=now, suspension_reason="initial"
+            agent_id=agent_id, epoch=1, suspended_at=now, suspension_reason="initial"
         )
         assert repo.record_transition(t1, s1, expected_epoch=0) is True
 
@@ -110,45 +114,51 @@ class BaseEnforcementStateRepositoryContractTests(abc.ABC):
             occurred_at=now,
         )
         s_stale = AgentEnforcementState(
-            agent_id=agent_id, suspension_reason="stale-overwrite"
+            agent_id=agent_id, epoch=1, suspension_reason="stale-overwrite"
         )
         assert repo.record_transition(t_stale, s_stale, expected_epoch=0) is False
 
         # Verify all-or-nothing: state, transitions, and epochs are completely unchanged
         current_state = repo.get_state(agent_id)
         assert current_state is not None
+        assert current_state.epoch == 1
         assert current_state.suspension_reason == "initial"
         assert len(repo.list_transitions(agent_id)) == 1
 
         # Next transition with correct expected_epoch=1 succeeds
-        assert repo.record_transition(t_stale, s_stale, expected_epoch=1) is True
+        s_next = AgentEnforcementState(
+            agent_id=agent_id, epoch=2, suspension_reason="reinstated"
+        )
+        assert repo.record_transition(t_stale, s_next, expected_epoch=1) is True
         assert len(repo.list_transitions(agent_id)) == 2
+        current_state2 = repo.get_state(agent_id)
+        assert current_state2 is not None
+        assert current_state2.epoch == 2
 
     def test_deterministic_ordering_with_timestamp_ties(self) -> None:
         """Transitions sharing equal timestamps must deterministically sort by (occurred_at, transition_id)."""
         repo = self.create_repository()
         same_time = datetime(2026, 9, 24, 12, 0, 0, tzinfo=timezone.utc)
-        state = AgentEnforcementState(agent_id="agent-order")
 
         repo.record_transition(
             self._sample_transition(
                 "trans-c", agent_id="agent-order", occurred_at=same_time
             ),
-            state,
+            AgentEnforcementState(agent_id="agent-order", epoch=1),
             expected_epoch=0,
         )
         repo.record_transition(
             self._sample_transition(
                 "trans-a", agent_id="agent-order", occurred_at=same_time
             ),
-            state,
+            AgentEnforcementState(agent_id="agent-order", epoch=2),
             expected_epoch=1,
         )
         repo.record_transition(
             self._sample_transition(
                 "trans-b", agent_id="agent-order", occurred_at=same_time
             ),
-            state,
+            AgentEnforcementState(agent_id="agent-order", epoch=3),
             expected_epoch=2,
         )
 
@@ -163,7 +173,7 @@ class BaseEnforcementStateRepositoryContractTests(abc.ABC):
         repo = self.create_repository()
         agent_id = "agent-iso-enf"
         state = AgentEnforcementState(
-            agent_id=agent_id, suspension_reason="orig-reason"
+            agent_id=agent_id, epoch=1, suspension_reason="orig-reason"
         )
         trans = self._sample_transition("t-1", agent_id=agent_id)
 
@@ -184,4 +194,64 @@ class BaseEnforcementStateRepositoryContractTests(abc.ABC):
         assert len(t_list) == 1
         assert t_list[0] is not trans
         t_list.clear()
+        assert len(repo.list_transitions(agent_id)) == 1
+
+    def test_record_transition_rejects_non_monotonic_epoch_increment(self) -> None:
+        """Repository invariant: new_state.epoch must equal expected_epoch + 1 exactly."""
+        repo = self.create_repository()
+        agent_id = "agent-monotonic-epoch"
+
+        # Attempt 1: epoch did not advance (expected=0, new_state.epoch=0)
+        t_same = self._sample_transition("t-same", agent_id=agent_id)
+        s_same = AgentEnforcementState(agent_id=agent_id, epoch=0)
+        assert repo.record_transition(t_same, s_same, expected_epoch=0) is False
+        assert repo.get_state(agent_id) is None
+        assert repo.list_transitions(agent_id) == []
+
+        # Attempt 2: epoch skipped ahead (expected=0, new_state.epoch=2)
+        t_skip = self._sample_transition("t-skip", agent_id=agent_id)
+        s_skip = AgentEnforcementState(agent_id=agent_id, epoch=2)
+        assert repo.record_transition(t_skip, s_skip, expected_epoch=0) is False
+        assert repo.get_state(agent_id) is None
+        assert repo.list_transitions(agent_id) == []
+
+        # Successful transition: expected=0, new_state.epoch=1
+        t_valid = self._sample_transition("t-valid", agent_id=agent_id)
+        s_valid = AgentEnforcementState(agent_id=agent_id, epoch=1)
+        assert repo.record_transition(t_valid, s_valid, expected_epoch=0) is True
+        assert repo.get_state(agent_id).epoch == 1
+
+        # Attempt 3 at epoch 1: epoch does not advance (expected=1, new_state.epoch=1)
+        t_same2 = self._sample_transition("t-same2", agent_id=agent_id)
+        s_same2 = AgentEnforcementState(agent_id=agent_id, epoch=1)
+        assert repo.record_transition(t_same2, s_same2, expected_epoch=1) is False
+        assert repo.get_state(agent_id).epoch == 1
+        assert len(repo.list_transitions(agent_id)) == 1
+
+        # Attempt 4 at epoch 1: epoch skips (expected=1, new_state.epoch=3)
+        t_skip2 = self._sample_transition("t-skip2", agent_id=agent_id)
+        s_skip2 = AgentEnforcementState(agent_id=agent_id, epoch=3)
+        assert repo.record_transition(t_skip2, s_skip2, expected_epoch=1) is False
+        assert repo.get_state(agent_id).epoch == 1
+        assert len(repo.list_transitions(agent_id)) == 1
+
+    def test_cas_atomicity_guarantee_on_failure(self) -> None:
+        """On CAS failure, state, transitions, and epochs are unchanged atomically."""
+        repo = self.create_repository()
+        agent_id = "agent-cas-atomicity"
+
+        t1 = self._sample_transition("t-1", agent_id=agent_id)
+        s1 = AgentEnforcementState(agent_id=agent_id, epoch=1, suspension_reason="orig")
+        assert repo.record_transition(t1, s1, expected_epoch=0) is True
+
+        # Failed attempt with bad expected_epoch
+        t_fail = self._sample_transition("t-fail", agent_id=agent_id)
+        s_fail = AgentEnforcementState(agent_id=agent_id, epoch=3, suspension_reason="corrupt")
+        assert repo.record_transition(t_fail, s_fail, expected_epoch=99) is False
+
+        # Verify nothing mutated
+        state = repo.get_state(agent_id)
+        assert state is not None
+        assert state.epoch == 1
+        assert state.suspension_reason == "orig"
         assert len(repo.list_transitions(agent_id)) == 1
