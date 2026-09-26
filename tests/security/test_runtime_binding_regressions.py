@@ -33,6 +33,7 @@ from app.models.execution_binding import ExecutionBinding
 from app.models.jwt_claims import Role
 from app.models.response_action import ResponseType
 from app.models.runtime_execution_grant import RuntimeExecutionGrant
+from app.models.sandbox_execution_result import SandboxExecutionResult
 from app.models.telemetry.behavioral_event import (
     BehavioralEvent,
     compute_parameter_hash,
@@ -96,8 +97,20 @@ def _authorize(env, path: str, session_id: str):
     )
 
 
+class _RegressionSandbox:
+    def execute(self, *, tool, parameters, capabilities, context):
+        return SandboxExecutionResult(
+            success=True,
+            output=tool.execute(dict(parameters)),
+        )
+
+
 def _execute(env, grant, parameters: dict[str, str], tool_id: str = "file_read"):
-    executor = DefaultToolExecutor(authority=env.execution_authority)
+    executor = DefaultToolExecutor(
+        authority=env.execution_authority,
+        sandbox=_RegressionSandbox(),
+        capability_registry=env.runtime.capability_registry,
+    )
     descriptor = env.tool_registry.resolve(tool_id)
     return executor.execute_descriptor(descriptor, parameters, grant=grant)
 

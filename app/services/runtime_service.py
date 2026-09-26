@@ -14,6 +14,12 @@ from app.models.execution_binding import (
     ExecutionBinding,
     ExecutionBindingValidationError,
 )
+from app.models.execution_capability import (
+    ExecutionCapabilities,
+    FilesystemCapability,
+    NetworkCapability,
+    ResourceLimits,
+)
 from app.models.finding import Finding
 from app.models.response_action import ResponseType
 from app.models.runtime_context import RuntimeContext
@@ -40,6 +46,8 @@ from app.models.tool_operational import ToolOperational
 from app.models.tool_risk_level import ToolRiskLevel
 from app.models.watermark import BaselineWatermark
 from app.registry.tool_registry import ToolRegistry
+from app.runtime.capability_registry import InMemoryCapabilityProfileRegistry
+from app.runtime.contracts import CapabilityProfileRegistryProtocol
 from app.runtime.execution_authority import ExecutionAuthority
 from app.services.agent_lock_manager import AgentLockManager
 from app.services.agent_risk_aggregate import ProjectionInvariantError
@@ -98,6 +106,7 @@ class RuntimeService:
         agent_service: AgentService | None = None,
         risk_aggregator: RiskAggregator | None = None,
         lock_manager: AgentLockManager | None = None,
+        capability_registry: CapabilityProfileRegistryProtocol | None = None,
     ) -> None:
         self._authorization_service = authorization_service
         self._session_service = session_service
@@ -110,6 +119,7 @@ class RuntimeService:
         self._telemetry_emitter = telemetry_emitter
         self._execution_authority = execution_authority
         self._agent_service = agent_service
+        self._capability_registry = capability_registry or self._create_default_capability_registry()
         if (
             self._execution_authority is not None
             and getattr(self._execution_authority, "_enforcement_repository", None) is None
@@ -155,6 +165,35 @@ class RuntimeService:
             lock_manager if lock_manager is not None else AgentLockManager()
         )
         self._last_result = None
+
+    def _create_default_capability_registry(self) -> InMemoryCapabilityProfileRegistry:
+        reg = InMemoryCapabilityProfileRegistry()
+        workspace = "/tmp"
+        if self._tool_registry:
+            for tool_id in self._tool_registry.list_tool_ids():
+                desc = self._tool_registry.resolve(tool_id)
+                tool_inst = desc.instance
+                tool_workspace = (
+                    getattr(tool_inst, "workspace", None)
+                    or getattr(tool_inst, "_workspace", None)
+                ) if tool_inst else None
+                ws = str(tool_workspace) if tool_workspace else workspace
+                reg.register_profile(
+                    ExecutionCapabilities(
+                        capability_profile_id=f"profile-{tool_id}",
+                        filesystem=FilesystemCapability(
+                            workspace_root=ws,
+                            read_only=True,
+                        ),
+                        network=NetworkCapability(),
+                        resources=ResourceLimits(),
+                    )
+                )
+        return reg
+
+    @property
+    def capability_registry(self) -> CapabilityProfileRegistryProtocol | None:
+        return self._capability_registry
 
     @property
     def telemetry_emitter(self) -> TelemetryEmitter | None:
@@ -907,11 +946,22 @@ class RuntimeService:
         # transitions (recovery or suspension) fail closed without grant issuance.
         authorization = None
         if self._execution_authority is not None and binding is not None:
+            cap_profile_id = None
+            cap_digest = None
+            if self._capability_registry is not None:
+                profile_id = f"profile-{tool_id}"
+                if self._capability_registry.exists(profile_id):
+                    caps = self._capability_registry.resolve_profile(profile_id)
+                    cap_profile_id = caps.capability_profile_id
+                    cap_digest = caps.compute_digest()
+
             authorization = self._execution_authority.issue(
                 binding,
                 final_decision,
                 agent_id=agent_id,
                 expected_epoch=context_epoch,
+                capability_profile_id=cap_profile_id,
+                capability_digest=cap_digest,
             )
             if authorization is None and final_decision == Decision.ALLOW:
                 final_decision = Decision.DENY

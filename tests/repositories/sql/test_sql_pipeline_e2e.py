@@ -19,7 +19,9 @@ from app.auth.authorization_service import AuthorizationService
 from app.models.agent import Agent, AgentStatus, RiskTier
 from app.models.audit_event import Decision
 from app.models.execution_binding import ExecutionBinding
+from app.models.execution_capability import ExecutionCapabilities, FilesystemCapability
 from app.models.execution_grant import ExecutionGrant, GrantState
+from app.models.sandbox_execution_result import SandboxExecutionResult
 from app.models.session_event import SessionEvent
 from app.models.tool import Tool
 from app.models.tool_capability import ToolCapability
@@ -35,6 +37,7 @@ from app.repositories.sql.base import Base
 from app.repositories.sql.engine import create_sql_engine, dispose_sql_engine
 from app.repositories.sql.models.agent import AgentModel
 from app.repositories.sql.models.tool import ToolModel
+from app.runtime.capability_registry import InMemoryCapabilityProfileRegistry
 from app.runtime.execution_authority import (
     ExecutionAuthority,
     ExecutionBindingError,
@@ -158,7 +161,25 @@ def sql_pipeline_setup():
         instance=test_tool,
     )
 
-    executor = DefaultToolExecutor(authority=execution_authority)
+    caps = ExecutionCapabilities(
+        capability_profile_id="e2e-profile",
+        filesystem=FilesystemCapability(workspace_root="/tmp", read_only=True),
+    )
+    cap_registry = InMemoryCapabilityProfileRegistry({"e2e-profile": caps})
+
+    class _E2eSandbox:
+        def execute(self, *, tool, parameters, capabilities, context):
+            tool.executions += 1
+            return SandboxExecutionResult(
+                success=True,
+                output={"status": "success", "params": dict(parameters)},
+            )
+
+    executor = DefaultToolExecutor(
+        authority=execution_authority,
+        sandbox=_E2eSandbox(),
+        capability_registry=cap_registry,
+    )
 
     yield {
         "engine": engine,
@@ -170,6 +191,7 @@ def sql_pipeline_setup():
         "executor": executor,
         "descriptor": descriptor,
         "test_tool": test_tool,
+        "caps": caps,
     }
 
     dispose_sql_engine(engine)
@@ -212,6 +234,8 @@ def test_e2e_case_1_allow_path_exactly_once_execution(sql_pipeline_setup) -> Non
         auth_result.decision,
         agent_id=agent_id,
         expected_epoch=0,
+        capability_profile_id=env["caps"].capability_profile_id,
+        capability_digest=env["caps"].compute_digest(),
     )
     assert grant is not None
 
@@ -310,6 +334,8 @@ def test_e2e_case_4_stale_issued_grant_rejected_after_containment(sql_pipeline_s
         Decision.ALLOW,
         agent_id=agent_id,
         expected_epoch=0,
+        capability_profile_id=env["caps"].capability_profile_id,
+        capability_digest=env["caps"].compute_digest(),
     )
     assert grant is not None
 

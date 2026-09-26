@@ -12,6 +12,7 @@ from app.models.runtime_result import RuntimeResult
 from app.providers.provider_factory import ProviderFactory
 from app.registry.tool_registry import ToolRegistry
 from app.runtime.execution_authority import ExecutionAuthority
+from app.runtime.sandbox.process_sandbox import ProcessToolExecutionSandbox
 from app.runtime.tool_executor import DefaultToolExecutor
 from app.tools.directory_list_tool import DirectoryListTool
 from app.tools.file_read_tool import FileReadTool
@@ -84,7 +85,13 @@ class AgentRuntimeService:
         authority = execution_authority or getattr(
             self._runtime_service, "execution_authority", None
         )
-        self._executor = executor or DefaultToolExecutor(authority=authority)
+        capability_registry = getattr(self._runtime_service, "capability_registry", None)
+        sandbox = getattr(self._runtime_service, "sandbox", None) or ProcessToolExecutionSandbox()
+        self._executor = executor or DefaultToolExecutor(
+            authority=authority,
+            sandbox=sandbox,
+            capability_registry=capability_registry,
+        )
 
     @property
     def agent(self) -> EnterpriseAgent:

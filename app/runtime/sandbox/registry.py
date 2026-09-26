@@ -58,6 +58,10 @@ def _run_directory_list(parameters: Mapping[str, Any], context: Mapping[str, Any
 
 
 # Built-in test execution handlers for sandbox isolation verification
+def _run_test_getpid(_parameters: Mapping[str, Any], _context: Mapping[str, Any]) -> Any:
+    return {"pid": os.getpid()}
+
+
 def _run_test_echo(parameters: Mapping[str, Any], _context: Mapping[str, Any]) -> Any:
     return parameters.get("message", "echo")
 
@@ -249,6 +253,7 @@ def create_default_execution_registry() -> SandboxExecutionRegistry:
     reg.register("file_read_v1", _run_file_read)
     reg.register("directory_list_v1", _run_directory_list)
     # Test harnesses
+    reg.register("test_getpid", _run_test_getpid)
     reg.register("test_echo", _run_test_echo)
     reg.register("test_sleep", _run_test_sleep)
     reg.register("test_env_dump", _run_test_env_dump)

@@ -25,7 +25,7 @@ import time
 from collections.abc import Callable
 from enum import Enum
 from threading import RLock
-from typing import NamedTuple
+from typing import Any, NamedTuple
 from uuid import uuid4
 
 from app.models.audit_event import Decision
@@ -130,6 +130,8 @@ class ExecutionAuthority:
         *,
         agent_id: str,
         expected_epoch: int | None = None,
+        capability_profile_id: str | None = None,
+        capability_digest: str | None = None,
     ) -> RuntimeExecutionGrant | None:
         """Issue a grant for ``binding`` if and only if it may be authorized.
 
@@ -159,7 +161,12 @@ class ExecutionAuthority:
                         if current_epoch != expected_epoch:
                             return None
 
-                        return self._create_grant(binding, agent_id)
+                        return self._create_grant(
+                            binding,
+                            agent_id,
+                            capability_profile_id=capability_profile_id,
+                            capability_digest=capability_digest,
+                        )
                 else:
                     persisted_state = self._enforcement_repository.get_state(agent_id)
                     current_epoch = (
@@ -168,12 +175,19 @@ class ExecutionAuthority:
                     if current_epoch != expected_epoch:
                         return None
 
-            return self._create_grant(binding, agent_id)
+            return self._create_grant(
+                binding,
+                agent_id,
+                capability_profile_id=capability_profile_id,
+                capability_digest=capability_digest,
+            )
 
     def _create_grant(
         self,
         binding: ExecutionBinding,
         agent_id: str,
+        capability_profile_id: str | None = None,
+        capability_digest: str | None = None,
     ) -> RuntimeExecutionGrant:
         now = self._clock()
         self._prune(now)
@@ -186,6 +200,8 @@ class ExecutionAuthority:
             binding,
             now,
             expires_at,
+            capability_profile_id=capability_profile_id,
+            capability_digest=capability_digest,
         )
         self._outstanding[grant_id] = _OutstandingGrant(expires_at, agent_id)
 
@@ -196,18 +212,20 @@ class ExecutionAuthority:
             issued_at=now,
             expires_at=expires_at,
             signature=signature,
+            capability_profile_id=capability_profile_id,
+            capability_digest=capability_digest,
         )
 
-    def verify_and_consume(
+    def verify_grant(
         self,
         grant: object,
         requested: ExecutionBinding,
     ) -> None:
-        """Verify that ``grant`` authorizes exactly ``requested``, then consume it.
+        """Verify that ``grant`` authorizes exactly ``requested`` without consuming it.
 
         Raises:
             ExecutionBindingError: for any reason the grant cannot authorize the
-                requested operation. A refused attempt does not consume the grant.
+                requested operation.
         """
         tool_id = requested.tool_id
 
@@ -237,6 +255,8 @@ class ExecutionAuthority:
             grant.binding,
             grant.issued_at,
             grant.expires_at,
+            capability_profile_id=getattr(grant, "capability_profile_id", None),
+            capability_digest=getattr(grant, "capability_digest", None),
         )
         if not hmac.compare_digest(
             expected_signature.encode("utf-8"),
@@ -271,7 +291,27 @@ class ExecutionAuthority:
                 )
 
             self._require_exact_match(grant.binding, requested)
-            del self._outstanding[grant.grant_id]
+
+    def consume_grant(self, grant: RuntimeExecutionGrant) -> None:
+        """Atomically consume an outstanding grant."""
+        with self._lock:
+            if grant.grant_id in self._outstanding:
+                del self._outstanding[grant.grant_id]
+
+    def verify_and_consume(
+        self,
+        grant: object,
+        requested: ExecutionBinding,
+    ) -> None:
+        """Verify that ``grant`` authorizes exactly ``requested``, then consume it.
+
+        Raises:
+            ExecutionBindingError: for any reason the grant cannot authorize the
+                requested operation. A refused attempt does not consume the grant.
+        """
+        self.verify_grant(grant, requested)
+        assert isinstance(grant, RuntimeExecutionGrant)
+        self.consume_grant(grant)
 
     def suspend_issuance(self, agent_id: str) -> int:
         """Close grant issuance for an agent and revoke its outstanding grants.
@@ -343,15 +383,23 @@ class ExecutionAuthority:
         binding: ExecutionBinding,
         issued_at: float,
         expires_at: float,
+        capability_profile_id: str | None = None,
+        capability_digest: str | None = None,
     ) -> str:
+        payload_dict: dict[str, Any] = {
+            "authority_id": authority_id,
+            "binding": binding.canonical_json(),
+            "expires_at": expires_at,
+            "grant_id": grant_id,
+            "issued_at": issued_at,
+        }
+        if capability_profile_id is not None:
+            payload_dict["capability_profile_id"] = capability_profile_id
+        if capability_digest is not None:
+            payload_dict["capability_digest"] = capability_digest
+
         payload = json.dumps(
-            {
-                "authority_id": authority_id,
-                "binding": binding.canonical_json(),
-                "expires_at": expires_at,
-                "grant_id": grant_id,
-                "issued_at": issued_at,
-            },
+            payload_dict,
             sort_keys=True,
             separators=(",", ":"),
             ensure_ascii=False,
