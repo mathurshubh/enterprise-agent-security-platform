@@ -29,6 +29,7 @@ class ToolExecutionDescriptor(BaseModel):
     request_id: str | None = None
     filesystem: Mapping[str, Any] | None = None
     scratch_dir: str | None = None
+    network: Mapping[str, Any] | None = None
 
     @field_validator("parameters", mode="after")
     @classmethod
@@ -46,6 +47,15 @@ class ToolExecutionDescriptor(BaseModel):
             return MappingProxyType(dict(v))
         raise ValueError(f"filesystem must be a mapping, got: {type(v)}")
 
+    @field_validator("network", mode="after")
+    @classmethod
+    def _freeze_network(cls, v: Any) -> Mapping[str, Any] | None:
+        if v is None:
+            return None
+        if isinstance(v, Mapping):
+            return MappingProxyType(dict(v))
+        raise ValueError(f"network must be a mapping, got: {type(v)}")
+
     def to_json(self) -> str:
         """Serialize descriptor to canonical JSON string."""
         data = {
@@ -58,6 +68,7 @@ class ToolExecutionDescriptor(BaseModel):
             "request_id": self.request_id,
             "filesystem": dict(self.filesystem) if self.filesystem is not None else None,
             "scratch_dir": self.scratch_dir,
+            "network": dict(self.network) if self.network is not None else None,
         }
         return json.dumps(data, sort_keys=True, separators=(",", ":"))
 
@@ -75,4 +86,5 @@ class ToolExecutionDescriptor(BaseModel):
             request_id=raw.get("request_id"),
             filesystem=raw.get("filesystem"),
             scratch_dir=raw.get("scratch_dir"),
+            network=raw.get("network"),
         )

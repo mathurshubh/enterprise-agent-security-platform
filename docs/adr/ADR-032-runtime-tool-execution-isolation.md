@@ -233,9 +233,15 @@ The sandbox enforces four independent isolation dimensions:
 - **Explicit Injection:** Only variables explicitly defined in `ExecutionCapabilities.environment_variables` are injected into the tool execution environment.
 
 ### 3. Network Boundary & Egress Policy
-- **Default-Deny:** In the default `DISABLED` mode, outbound network socket creation is blocked.
-- **Explicit Allowlist:** When `ALLOWLIST` is configured, connections are restricted strictly to declared `(host, port)` tuples.
-- **No Socket Inheritance:** Open sockets and database connection handles belonging to the parent gateway process are closed before tool execution.
+- **Three-Level Security Hierarchy:** Level 1 (Policy Authorization via `PolicyEngine`), Level 2 (Process-Level Enforcement via `NetworkSandboxGuard`), and Level 3 (Strong OS/Kernel Isolation via Container/MicroVM).
+- **Default-Deny:** In the default `DISABLED` mode, outbound network socket creation and datagram transmissions (`connect`, `sendto`) are blocked.
+- **Authoritative Enforcement Point:** Destination authorization is enforced at `socket.connect()` and `socket.sendto()` time using the actual resolved sockaddr. `getaddrinfo()` provides resolution observation but does not grant authorization.
+- **Internal & Metadata Protection:** Loopback (`127.0.0.0/8`, `::1`), link-local (`169.254.0.0/16`, `fe80::/10`), and cloud metadata (`169.254.169.254`) are unconditionally denied by the process backend.
+- **AF_UNIX Separation:** Unix-domain sockets are governed independently from filesystem capabilities and denied by default.
+- **Listener / Exposure Restriction:** `socket.bind()` is treated as listener creation and denied by default.
+- **Proxy Scrubbing & No Socket Inheritance:** Proxy environment variables (`HTTP_PROXY`, `HTTPS_PROXY`, etc.) are stripped by default, and `close_fds=True` guarantees no parent sockets leak into the child process.
+- **Explicit Allowlist:** In `ALLOWLIST` mode, connections are restricted strictly to declared `(host, port)` tuples using connection-time canonicalized IP checks, eliminating DNS rebinding and HTTP redirect SSRF bypasses.
+- **Process-Level Boundary:** Enforces the declared network capability at supported Python networking boundaries (`urllib`, `requests`, `httpx`, `socket`, `asyncio`), reducing SSRF and unauthorized socket egress paths for standard Python tools without claiming kernel-level packet isolation.
 
 ### 4. Process & Resource Limits
 - **CPU Limits:** Hard limits on total CPU execution time.

@@ -128,6 +128,7 @@ class ProcessToolExecutionSandbox:
             request_id=context.request_id,
             filesystem=capabilities.filesystem.model_dump(),
             scratch_dir=scratch_path,
+            network=capabilities.network.model_dump(),
         )
         payload_bytes = descriptor.to_json().encode("utf-8")
 
@@ -137,8 +138,11 @@ class ProcessToolExecutionSandbox:
             "PYTHONUNBUFFERED": "1",
             "PYTHONPATH": str(self._platform_root),
         }
+        # Block proxy environment variables from being inherited or injected
+        blocked_proxy = {"http_proxy", "https_proxy", "all_proxy", "no_proxy"}
         for k, v in capabilities.environment_variables.items():
-            env[k] = v
+            if k.lower() not in blocked_proxy:
+                env[k] = v
 
         # OS resource limits preexec helper (best-effort)
         def _apply_rlimits() -> None:
@@ -152,7 +156,7 @@ class ProcessToolExecutionSandbox:
             except (ImportError, ValueError, OSError):
                 pass
 
-        # Launch isolated subprocess with CWD pinned to workspace_root
+        # Launch isolated subprocess with CWD pinned to workspace_root and closed FDs
         try:
             proc = subprocess.Popen(
                 [sys.executable, "-m", "app.runtime.sandbox.runner"],
@@ -161,6 +165,7 @@ class ProcessToolExecutionSandbox:
                 stderr=subprocess.PIPE,
                 env=env,
                 cwd=str(workspace_path),
+                close_fds=True,
                 start_new_session=True,
                 preexec_fn=_apply_rlimits if os.name == "posix" else None,
             )

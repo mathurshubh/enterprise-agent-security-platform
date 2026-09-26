@@ -195,6 +195,54 @@ def _run_test_file_op(parameters: Mapping[str, Any], context: Mapping[str, Any])
     raise ValueError(f"Unknown test file op: {op}")
 
 
+def _run_test_network_op(parameters: Mapping[str, Any], _context: Mapping[str, Any]) -> Any:
+    """Execute specific network operations to verify sandbox network access enforcement."""
+    import socket
+    import urllib.request
+
+    op = parameters.get("op", "tcp_connect")
+    host = parameters.get("host")
+    port = int(parameters.get("port", 80))
+    timeout = float(parameters.get("timeout", 2.0))
+
+    if op == "tcp_connect":
+        with socket.create_connection((str(host), port), timeout=timeout):
+            return "connected"
+
+    if op == "udp_send":
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            data = parameters.get("data", "hello").encode("utf-8")
+            s.sendto(data, (str(host), port))
+            return "sent"
+        finally:
+            s.close()
+
+    if op == "http_get":
+        url = str(parameters.get("url", f"http://{host}:{port}/"))
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            return resp.read().decode("utf-8", errors="replace")
+
+    if op == "unix_connect":
+        path = str(parameters.get("path", "/var/run/test.sock"))
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            s.connect(path)
+            return "unix_connected"
+        finally:
+            s.close()
+
+    if op == "bind_listener":
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            s.bind((str(host), port))
+            return "bound"
+        finally:
+            s.close()
+
+    raise ValueError(f"Unknown test network op: {op}")
+
+
 def create_default_execution_registry() -> SandboxExecutionRegistry:
     """Create and populate the default execution registry."""
     reg = SandboxExecutionRegistry()
@@ -208,6 +256,7 @@ def create_default_execution_registry() -> SandboxExecutionRegistry:
     reg.register("test_fork_and_persist", _run_test_fork_and_persist)
     reg.register("test_raise_error", _run_test_raise_error)
     reg.register("test_file_op", _run_test_file_op)
+    reg.register("test_network_op", _run_test_network_op)
     return reg
 
 

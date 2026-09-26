@@ -81,21 +81,30 @@ def run_headless() -> int:
         "scratch_dir": descriptor.scratch_dir,
     }
 
-    guard = None
+    fs_guard = None
     if descriptor.filesystem is not None:
         from app.runtime.sandbox.filesystem import FilesystemSandboxGuard
 
-        guard = FilesystemSandboxGuard.from_dict(
+        fs_guard = FilesystemSandboxGuard.from_dict(
             descriptor.filesystem,
             scratch_dir=descriptor.scratch_dir,
         )
-        guard.install()
+        fs_guard.install()
+
+    net_guard = None
+    if descriptor.network is not None:
+        from app.runtime.sandbox.network import NetworkSandboxGuard
+
+        net_guard = NetworkSandboxGuard.from_dict(descriptor.network)
+        net_guard.install()
+
+    from contextlib import nullcontext
+
+    fs_ctx = fs_guard if fs_guard is not None else nullcontext()
+    net_ctx = net_guard if net_guard is not None else nullcontext()
 
     try:
-        if guard is not None:
-            with guard:
-                result = fn(descriptor.parameters, context)
-        else:
+        with fs_ctx, net_ctx:
             result = fn(descriptor.parameters, context)
 
         success_payload = {
