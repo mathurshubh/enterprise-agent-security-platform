@@ -320,7 +320,7 @@ The platform threat model incorporates 14 critical threat domains identified in 
 - **Latest Repository Tag:** `v0.15.0`
 - **Current Development Cycle:** `v0.16.0` — Unreleased
 - **Architecture Baseline:** Jan–Aug 2026 AI Security Architecture Review (`4abf2b6`)
-- **Automated Test Count:** **851 passed, 7 xfailed** (`.venv/bin/python -m pytest`)
+- **Automated Test Count:** **1,212 passed, 4 skipped, 7 xfailed** against live PostgreSQL 16; **1,205 passed, 11 skipped, 7 xfailed** under hermetic SQLite (`.venv/bin/python -m pytest`)
 - **Operational Capabilities:**
   - Zero Trust Security Pipeline (`RuntimeService`)
   - Pluggable LLM Providers (Ollama, Gemini) as untrusted intent parsers
@@ -331,10 +331,12 @@ The platform threat model incorporates 14 critical threat domains identified in 
   - Agent Enforcement State & Baseline Isolation (`AgentService`, ADR-024)
   - Execution Grants & Single-Use Tokens (`DefaultToolExecutor`, ADR-023)
   - Role-Gated Plane Authorization (`PlaneAuthorizationMiddleware`, ADR-025)
-  - Read-Only Management REST APIs and Enterprise Findings Console UI.
+  - Read-Only Management REST APIs and Enterprise Findings Console UI
+  - **Durable SQL State Architecture (Plane 3, ADR-030):** Relational persistence adapters (SQLAlchemy 2.0+, Alembic) providing foreign-key enforced data integrity, dual monotonic sequence counters (`sequence_number`, `agent_sequence`), temporal detection-horizon windows with watermark isolation, and CAS monotonic epoch progression (`SqlSessionRepository`, `SqlEnforcementStateRepository`)
+  - **Execution Grant & Approval Control Plane (ADR-031):** Durable `ExecutionGrant` lifecycle (`SqlApprovalGrantRepository`) with atomic exactly-once claim resumption (`PENDING -> APPROVED -> CONSUMED`) and live PostgreSQL multi-worker concurrency verification.
 
 ## 17. Architectural Decision Summary
-The platform architecture is built upon the following immutable design choices (formally recorded in ADR-000 through ADR-028):
+The platform architecture is built upon the following immutable design choices (formally recorded in ADR-000 through ADR-031):
 1. LLMs are untrusted intent parsers.
 2. Security decisions must remain deterministic and explainable outside the AI model.
 3. Component communication is isolated behind provider-agnostic boundaries.
@@ -343,6 +345,10 @@ The platform architecture is built upon the following immutable design choices (
 6. Execution authority is granted via single-use, tightly bound execution grants.
 7. Runtime containment is one-way: recovery requires authorized administrative intervention.
 8. Release authority and version model: Git tags are the authoritative release marker (`v0.15.0`); the root `VERSION` file is the sole machine-readable authority for the checked-out application identity (`0.15.0`). Neither backend nor frontend inspects `.git` at runtime. The public `GET /version` endpoint exposes canonical platform metadata, while `GET /health` exclusively owns operational health status. CI enforces that release tags and `VERSION` strictly agree.
+9. Domain services interact strictly with repository protocols in `app/repositories/interfaces/`; ORM models and database connection pools never leak into domain logic.
+10. Parent-row serialization anchors: concurrent creation of child/counter rows (`agent_enforcement_state`, `agent_sequence_counters`) is serialized through the authoritative parent row (`agents` locked `FOR UPDATE`).
+11. Multi-adapter backend roles: In-memory provides process-local semantics for fast unit tests; SQLite provides single-node and functional contract testing; PostgreSQL is the concurrency authority for the production SQL adapter and the authoritative environment for multi-worker MVCC concurrency verification.
+12. Redis remains strictly excluded from the v0.16 critical security state path.
 
 ## 18. Scenario Library & Validation Framework Architecture
 

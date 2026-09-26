@@ -2,7 +2,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.13-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.116+-009688)
-![Tests](https://img.shields.io/badge/Tests-851_Passing-success)
+![Tests](https://img.shields.io/badge/Tests-1224_Passing-success)
 ![GitHub Release](https://img.shields.io/badge/GitHub_Release-v0.15-blue)
 ![Git Tag](https://img.shields.io/badge/Git_Tag-v0.15.0-blue)
 ![Development Cycle](https://img.shields.io/badge/Development-v0.16.0--dev-orange)
@@ -35,6 +35,8 @@ Instead, it provides deterministic security controls around AI agents, including
 - Dynamic Risk Assessment & Risk Level Calculation
 - Automated Response Actions
 - Immutable Audit Logging
+- **Durable SQL Security State Architecture (Plane 3, ADR-030):** Relational persistence (SQLAlchemy 2.0+, Alembic) providing foreign-key enforced integrity, dual monotonic sequence counters (`sequence_number`, `agent_sequence`), temporal detection-horizon windows with watermark isolation, and CAS monotonic enforcement epoch progression
+- **Execution Grant & Approval Control Plane (ADR-031):** Durable human-in-the-loop approval lifecycle with atomic exactly-once claim resumption (`PENDING -> APPROVED -> CONSUMED`)
 - Management API & Enterprise Findings Console
 
 ---
@@ -88,9 +90,9 @@ Identity → Authority → Policy → Capability → Runtime → Resource → Te
 - **Latest Repository Tag:** `v0.15.0`
 - **Current Development Cycle:** `v0.16.0` — Unreleased
 - **Strategic Architecture Baseline:** Jan–Aug 2026 AI Security Architecture Baseline Review (`4abf2b6`)
-- **Automated Test Coverage:** **851 passed, 7 xfailed backend pytest tests** (`.venv/bin/python -m pytest`)
+- **Automated Test Coverage:** **1,224 passed, 4 skipped, 7 xfailed** against live PostgreSQL 16; **1,217 passed, 11 skipped, 7 xfailed** under hermetic SQLite (`.venv/bin/python -m pytest`)
 - **Frontend Build Status:** Passing (`npm run build` & `npm run lint`)
-- **Architecture Reference Range:** ADR-000 through ADR-028
+- **Architecture Reference Range:** ADR-000 through ADR-031
 
 ---
 
@@ -98,14 +100,14 @@ Identity → Authority → Policy → Capability → Runtime → Resource → Te
 
 | Metric | Value |
 |----------|---------|
-| Automated Tests | 851 Passing (7 xfailed) |
+| Automated Tests | 1,224 Passing (7 xfailed, PostgreSQL) / 1,217 Passing (7 xfailed, SQLite) |
 | Latest Published GitHub Release | v0.15 |
 | Latest Repository Tag | v0.15.0 |
 | Current Development Cycle | v0.16.0 (Unreleased) |
 | Architecture Baseline Commit | 4abf2b6134d894d15bad76a0ec45db6adecb6262 |
 | Detection Rules | 4 (`PROMPT_INJECTION`, `SENSITIVE_FILE_ACCESS`, `DATA_EXFILTRATION`, `EXCESSIVE_DENIALS`) |
 | Security Framework Mappings | 3 (OWASP LLM Top 10, MITRE ATLAS, MITRE ATT&CK) |
-| Core Services | 10+ (`AgentService`, `ToolService`, `SessionService`, `FindingsService`, `RiskService`, `ResponseService`, `AuditService`, `RuntimeService`, `CapabilityService`, `ScenarioRunnerService`) |
+| Core Services | 10+ (`AgentService`, `ToolService`, `SessionService`, `FindingsService`, `RiskService`, `ResponseService`, `AuditService`, `RuntimeService`, `CapabilityService`, `ScenarioRunnerService`, `ExecutionAuthority`) |
 | Python Version | 3.13+ |
 | Security Model | Zero Trust (Deterministic Security Pipeline) |
 
@@ -175,6 +177,16 @@ The `RuntimeService` executes a deterministic security pipeline for every incomi
 - **Risk Assessment Scope Isolation:** Derived posture indexed by composite `(session_id, agent_id)` keys with `400 Bad Request` ambiguity protection.
 - Response Actions & Zero Trust Overrides (`MONITOR`, `ALERT`, `REQUIRE_APPROVAL`, `SUSPEND_AGENT`)
 
+### Durable SQL State & Control-Plane Resumption (Plane 3)
+- **Relational Persistence Architecture (ADR-030):** Modern SQLAlchemy 2.0+ and Alembic migration infrastructure with strict foreign-key referential integrity (`ON DELETE RESTRICT`).
+- **Dual Monotonic Sequencing:** Session-local monotonic sequence (`1..N`) and agent-scoped monotonic sequence across sessions.
+- **Behavioral Detection Horizon:** Sliding-window aggregation $[T_{\text{eval}} - W, T_{\text{eval}}]$ with watermark baseline isolation.
+- **Monotonic Enforcement Epochs & Atomic CAS:** Concurrent transitions advance epochs monotonically with state and transition ledger committed in a single atomic transaction.
+- **Parent-Row Serialization Anchors:** Pristine state and counter creation serialized via parent `agents` row locks (`FOR UPDATE`).
+- **Execution Grant & Approval Control Plane (ADR-031):** Durable `ExecutionGrant` state machine (`PENDING -> APPROVED / REJECTED / EXPIRED -> CONSUMED`) with atomic exactly-once claim resumption.
+- **Production PostgreSQL Concurrency Authority:** Validated against 7 multi-worker MVCC race conditions on PostgreSQL 16.
+- **SQL-Backed End-to-End Security Path:** Full pipeline authorization, horizon event recording, authority grant issuance, and executor verification.
+
 ### Management API & Enterprise Security Console
 - Read-only Management API endpoints (`/v1/agents`, `/v1/tools`, `/v1/sessions`, `/v1/audit/events`, `/v1/findings`, `/v1/risk-assessments`)
 - Enterprise Security Console UI (`/agents`, `/tools`, `/sessions`, `/rules`, `/findings`)
@@ -196,11 +208,11 @@ Detection rules are mapped to industry security frameworks:
 
 ## Tech Stack
 
-- **Backend:** Python 3.13+, FastAPI, Pydantic
+- **Backend:** Python 3.13+, FastAPI, Pydantic, SQLAlchemy 2.0+, Alembic, PostgreSQL / psycopg v3
 - **Frontend:** React, TypeScript, TanStack Query, Vite, Tailwind CSS
 - **AI & LLM Integration:** Ollama (Llama 3.2), Google Gemini
 - **Security & Authentication:** PyJWT
-- **Testing & Quality:** Pytest, ESLint, Vite Build
+- **Testing & Quality:** Pytest, Ruff, ESLint, Vite Build
 
 ---
 
