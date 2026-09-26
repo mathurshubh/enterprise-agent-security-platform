@@ -1,7 +1,6 @@
 """Tests for ProcessToolExecutionSandbox subprocess isolation and cleanup (ADR-032)."""
 
 import os
-import tempfile
 import time
 from typing import Any
 
@@ -196,32 +195,24 @@ class TestProcessSandboxExecution:
         context = _make_runtime_context()
         caps = _make_test_capabilities(timeout_seconds=2.0)
 
-        with tempfile.NamedTemporaryFile(delete=False) as tmp_f:
-            pid_file = tmp_f.name
+        result = sandbox.execute(
+            tool=tool,
+            parameters={},
+            capabilities=caps,
+            context=context,
+        )
 
-        try:
-            result = sandbox.execute(
-                tool=tool,
-                parameters={"pid_file": pid_file},
-                capabilities=caps,
-                context=context,
-            )
+        assert result.success is True
+        child_pid = result.output.get("child_pid")
+        assert child_pid is not None
 
-            assert result.success is True
-            child_pid = result.output.get("child_pid")
-            assert child_pid is not None
+        # Small grace period to allow OS to deliver signals and reap
+        time.sleep(0.2)
 
-            # Small grace period to allow OS to deliver signals and reap
-            time.sleep(0.2)
-
-            # Invariant: A sandbox execution must not return while its process group remains alive.
-            # os.kill(pid, 0) checks if process is alive. If dead, raises ProcessLookupError.
-            with pytest.raises(ProcessLookupError):
-                os.kill(child_pid, 0)
-
-        finally:
-            if os.path.exists(pid_file):
-                os.unlink(pid_file)
+        # Invariant: A sandbox execution must not return while its process group remains alive.
+        # os.kill(pid, 0) checks if process is alive. If dead, raises ProcessLookupError.
+        with pytest.raises(ProcessLookupError):
+            os.kill(child_pid, 0)
 
     def test_sanitized_error_handling_does_not_leak_paths_or_secrets(self) -> None:
         sandbox = ProcessToolExecutionSandbox()

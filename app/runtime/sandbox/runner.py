@@ -75,10 +75,29 @@ def run_headless() -> int:
         "session_id": descriptor.session_id,
         "agent_id": descriptor.agent_id,
         "request_id": descriptor.request_id,
+        "workspace_root": (
+            descriptor.filesystem.get("workspace_root") if descriptor.filesystem else None
+        ),
+        "scratch_dir": descriptor.scratch_dir,
     }
 
+    guard = None
+    if descriptor.filesystem is not None:
+        from app.runtime.sandbox.filesystem import FilesystemSandboxGuard
+
+        guard = FilesystemSandboxGuard.from_dict(
+            descriptor.filesystem,
+            scratch_dir=descriptor.scratch_dir,
+        )
+        guard.install()
+
     try:
-        result = fn(descriptor.parameters, context)
+        if guard is not None:
+            with guard:
+                result = fn(descriptor.parameters, context)
+        else:
+            result = fn(descriptor.parameters, context)
+
         success_payload = {
             "success": True,
             "output": result,

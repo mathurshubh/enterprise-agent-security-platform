@@ -4,13 +4,15 @@ import hashlib
 import json
 import os
 import select
+import shutil
 import signal
+import stat
 import subprocess
 import sys
+import tempfile
 import time
-from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from app.models.execution_capability import ExecutionCapabilities
 from app.models.runtime_context import RuntimeContext
@@ -47,6 +49,7 @@ class ProcessToolExecutionSandbox:
     4. Bounded Output Collection: Output size capped during collection, killing process on breach.
     5. Hard Wall-Clock Timeout: Monotonic deadline enforced via process-group termination.
     6. Guaranteed Cleanup: No sandbox execution returns while its process group remains alive.
+    7. Filesystem Confinement: Working directory pinned to workspace_root; ephemeral scratch cleaned up.
     """
 
     def __init__(self, platform_root: Path | None = None) -> None:
@@ -71,7 +74,48 @@ class ProcessToolExecutionSandbox:
         if not implementation_id:
             implementation_id = f"{tool.tool_id}_v1"
 
-        # 2. Build ToolExecutionDescriptor payload
+        # 2. Validate workspace root existence
+        workspace_path = Path(capabilities.filesystem.workspace_root).resolve()
+        if not workspace_path.exists():
+            raise SandboxUnavailableError(
+                f"Workspace root directory does not exist: '{workspace_path}'",
+                tool_id=tool.tool_id,
+            )
+
+        # 3. Create isolated ephemeral scratch directory if allowed
+        scratch_path: str | None = None
+        if capabilities.filesystem.allow_temp_writes:
+            scratch_path = tempfile.mkdtemp(prefix="sandbox_scratch_")
+            os.chmod(scratch_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
+
+        try:
+            return self._execute_process(
+                tool=tool,
+                parameters=parameters,
+                capabilities=capabilities,
+                context=context,
+                implementation_id=implementation_id,
+                workspace_path=workspace_path,
+                scratch_path=scratch_path,
+                start_monotonic=start_monotonic,
+            )
+        finally:
+            if scratch_path:
+                shutil.rmtree(scratch_path, ignore_errors=True)
+
+    def _execute_process(
+        self,
+        *,
+        tool: BaseTool,
+        parameters: Mapping[str, Any],
+        capabilities: ExecutionCapabilities,
+        context: RuntimeContext,
+        implementation_id: str,
+        workspace_path: Path,
+        scratch_path: str | None,
+        start_monotonic: float,
+    ) -> SandboxExecutionResult:
+        # Build ToolExecutionDescriptor payload
         from app.runtime.sandbox.descriptor import ToolExecutionDescriptor
 
         descriptor = ToolExecutionDescriptor(
@@ -82,20 +126,21 @@ class ProcessToolExecutionSandbox:
             session_id=context.session_id,
             agent_id=context.authenticated_agent,
             request_id=context.request_id,
+            filesystem=capabilities.filesystem.model_dump(),
+            scratch_dir=scratch_path,
         )
         payload_bytes = descriptor.to_json().encode("utf-8")
 
-        # 3. Construct clean-room environment
+        # Construct clean-room environment
         env: dict[str, str] = {
             "PATH": os.environ.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin"),
             "PYTHONUNBUFFERED": "1",
             "PYTHONPATH": str(self._platform_root),
         }
-        # Add explicitly allowed environment variables
         for k, v in capabilities.environment_variables.items():
             env[k] = v
 
-        # 4. OS resource limits preexec helper (best-effort)
+        # OS resource limits preexec helper (best-effort)
         def _apply_rlimits() -> None:
             try:
                 import resource
@@ -107,7 +152,7 @@ class ProcessToolExecutionSandbox:
             except (ImportError, ValueError, OSError):
                 pass
 
-        # 5. Launch isolated subprocess
+        # Launch isolated subprocess with CWD pinned to workspace_root
         try:
             proc = subprocess.Popen(
                 [sys.executable, "-m", "app.runtime.sandbox.runner"],
@@ -115,6 +160,7 @@ class ProcessToolExecutionSandbox:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 env=env,
+                cwd=str(workspace_path),
                 start_new_session=True,
                 preexec_fn=_apply_rlimits if os.name == "posix" else None,
             )

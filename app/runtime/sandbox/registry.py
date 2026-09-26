@@ -122,6 +122,79 @@ def _run_test_raise_error(parameters: Mapping[str, Any], _context: Mapping[str, 
     raise ValueError(msg)
 
 
+def _run_test_file_op(parameters: Mapping[str, Any], context: Mapping[str, Any]) -> Any:
+    """Execute specific filesystem operations to verify sandbox filesystem enforcement."""
+    op = parameters.get("op", "open_read")
+    path = parameters.get("path")
+    mode = parameters.get("mode", "r")
+    content = parameters.get("content", "test content")
+
+    if op == "open_read":
+        with open(str(path), mode) as f:
+            return f.read()
+
+    if op == "open_write":
+        write_mode = parameters.get("mode", "w")
+        with open(str(path), write_mode) as f:
+            f.write(content)
+            return len(content)
+
+    if op == "open_append":
+        with open(str(path), "a") as f:
+            f.write(content)
+            return len(content)
+
+    if op == "mkdir":
+        os.mkdir(str(path))
+        return "created"
+
+    if op == "makedirs":
+        os.makedirs(str(path), exist_ok=parameters.get("exist_ok", False))
+        return "created_dirs"
+
+    if op == "remove":
+        os.remove(str(path))
+        return "removed"
+
+    if op == "rmdir":
+        os.rmdir(str(path))
+        return "removed_dir"
+
+    if op == "rename":
+        os.rename(str(parameters["src"]), str(parameters["dst"]))
+        return "renamed"
+
+    if op == "replace":
+        os.replace(str(parameters["src"]), str(parameters["dst"]))
+        return "replaced"
+
+    if op == "symlink":
+        os.symlink(str(parameters["src"]), str(parameters["dst"]))
+        return "symlinked"
+
+    if op == "chmod":
+        os.chmod(str(path), int(parameters.get("mode_int", 0o644)))
+        return "chmodded"
+
+    if op == "listdir":
+        return os.listdir(str(path))
+
+    if op == "scandir":
+        with os.scandir(str(path)) as it:
+            return [entry.name for entry in it]
+
+    if op == "scratch_write":
+        scratch_dir = context.get("scratch_dir")
+        if not scratch_dir:
+            raise ValueError("No scratch_dir in context")
+        target = os.path.join(scratch_dir, parameters.get("filename", "scratch.txt"))
+        with open(target, "w") as f:
+            f.write(content)
+        return {"target": target, "exists": os.path.exists(target)}
+
+    raise ValueError(f"Unknown test file op: {op}")
+
+
 def create_default_execution_registry() -> SandboxExecutionRegistry:
     """Create and populate the default execution registry."""
     reg = SandboxExecutionRegistry()
@@ -134,6 +207,7 @@ def create_default_execution_registry() -> SandboxExecutionRegistry:
     reg.register("test_output_flood", _run_test_output_flood)
     reg.register("test_fork_and_persist", _run_test_fork_and_persist)
     reg.register("test_raise_error", _run_test_raise_error)
+    reg.register("test_file_op", _run_test_file_op)
     return reg
 
 
