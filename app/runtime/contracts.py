@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import Any, Protocol, runtime_checkable
 
+from app.models.execution_capability import ExecutionCapabilities
 from app.models.execution_receipt import (
     ExecutionReceipt,
     ExecutionStatus,
@@ -11,9 +12,40 @@ from app.models.execution_receipt import (
 )
 from app.models.runtime_context import RuntimeContext
 from app.models.runtime_execution_grant import RuntimeExecutionGrant
+from app.models.sandbox_execution_result import SandboxExecutionResult
 from app.models.tool_descriptor import ToolDescriptor
 from app.models.tool_metadata import ToolMetadata
 from app.tools.base_tool import BaseTool
+
+
+@runtime_checkable
+class ToolExecutionSandboxProtocol(Protocol):
+    """Protocol governing physical tool execution isolation (ADR-032)."""
+
+    def execute(
+        self,
+        *,
+        tool: BaseTool,
+        parameters: Mapping[str, Any],
+        capabilities: ExecutionCapabilities,
+        context: RuntimeContext,
+    ) -> SandboxExecutionResult:
+        """Execute an authorized tool within the isolated sandbox environment."""
+        ...
+
+
+@runtime_checkable
+class CapabilityProfileRegistryProtocol(Protocol):
+    """Protocol governing resolution of immutable ExecutionCapabilities profiles (ADR-032)."""
+
+    def resolve_profile(self, profile_id: str) -> ExecutionCapabilities:
+        """Resolve an ExecutionCapabilities profile by profile_id."""
+        ...
+
+    def register_profile(self, capabilities: ExecutionCapabilities) -> None:
+        """Register an immutable ExecutionCapabilities profile."""
+        ...
+
 
 
 @runtime_checkable
