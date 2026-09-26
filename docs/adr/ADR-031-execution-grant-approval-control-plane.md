@@ -94,7 +94,7 @@ class ExecutionGrant(BaseModel):
     created_at: datetime
     expires_at: datetime
     approved_by: str | None = None
-    claimed_at: datetime | None = None
+    consumed_at: datetime | None = None
 ```
 
 ## 2. The Grant Binding Invariant
@@ -108,15 +108,25 @@ When `REQUIRE_APPROVAL` is triggered, the runtime pipeline freezes:
 
 Approval by a human operator does **not** re-evaluate authorization or re-invoke the policy engine. The human operator decides exclusively whether to permit the execution of this exact, frozen authority context.
 
-## 3. Lifecycle State Machine & Transitions
+## 3. Lifecycle State Machine & Canonical Terminology
 
 The grant lifecycle progresses through well-defined, auditable states:
 
+```text
+PENDING
+   ├── APPROVED
+   │      └── CONSUMED  (Atomic claim for execution attempt)
+   ├── REJECTED         (Operator denial)
+   └── EXPIRED          (TTL timeout)
+```
+
 1. **`PENDING`:** Created automatically by the runtime pipeline when `REQUIRE_APPROVAL` is returned. Awaiting human operator review.
-2. **`APPROVED`:** An authorized human operator reviewed the frozen context and granted permission to execute.
+2. **`APPROVED`:** An authorized human operator reviewed the frozen context and granted permission to execute. Populates `approved_by`.
 3. **`REJECTED`:** An authorized human operator reviewed the context and denied permission. The grant terminates; no execution occurs.
 4. **`EXPIRED`:** The grant reached its TTL (`now() >= expires_at`) while in `PENDING` status. Transitions automatically to `EXPIRED` and fails closed.
-5. **`CONSUMED`:** The runtime execution engine claimed the grant for an execution attempt. This is a terminal state.
+5. **`CONSUMED`:** The runtime execution engine claimed the grant for an execution attempt. This is a terminal state; populates `consumed_at`.
+
+> **Terminology Note:** The domain model and persistence repository use `CONSUMED` as the terminal execution state. The action of claiming the grant performs the atomic CAS transition `APPROVED -> CONSUMED`. The repository rejects informal transitions or undefined states (such as `CLAIMED` or `REVOKED`) with `InvalidGrantTransitionError`.
 
 ## 4. Atomic Claim & Execution Semantics
 
@@ -129,14 +139,14 @@ To resolve this, the platform establishes the following invariant:
 > **Execution Boundary Invariant:** `CONSUMED` means that the platform has irrevocably authorized this grant for its single execution attempt. It does NOT mean the tool execution definitely succeeded.
 
 ### The Atomic Transition
-Resumption follows an atomic compare-and-set claim pattern:
+Resumption follows an atomic compare-and-set claim pattern under row-level locking (`SELECT ... FOR UPDATE`):
 
-```text
-transition_grant(
+```python
+repo.transition_grant(
     grant_id=grant_id,
     from_state=GrantState.APPROVED,
     to_state=GrantState.CONSUMED,
-    claimed_at=now()
+    consumed_at=now(),
 ) -> bool
 ```
 

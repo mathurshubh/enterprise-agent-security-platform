@@ -1,6 +1,4 @@
-"""InMemorySessionRepository — In-memory adapter for session lifecycle, tombstones, and detection horizon (ADR-027, ADR-030)."""
-
-from datetime import datetime
+from datetime import datetime, timedelta
 from threading import RLock
 
 from app.models.audit_event import Decision
@@ -12,7 +10,11 @@ from app.models.session import (
     SessionTerminalError,
     TerminalSessionTombstone,
 )
-from app.models.session_event import SessionEvent
+from app.models.session_event import (
+    AggregationScope,
+    HorizonQuery,
+    SessionEvent,
+)
 from app.repositories.interfaces.session_repository import SessionRepository
 
 
@@ -21,25 +23,19 @@ class InMemorySessionRepository(SessionRepository):
 
     Invariants:
     - Object Isolation: Stored and returned entities are defensive deep copies.
-    - Atomic Terminalization: terminalize_session atomically removes the active session
+    - Atomic Terminalization: terminalize_session atomically transitions the session to terminal
       and records a terminal tombstone under one lock.
-      A successful terminalization never leaves the session simultaneously in both _sessions and _tombstones.
-      A failed terminalization modifies neither collection.
     - Atomic Establishment: bind_or_create_session atomically creates or touches an active session,
       failing closed on tombstone or ownership mismatch.
-    - Strictly Increasing Sequence Allocation: record_event atomically allocates the next
-      per-session sequence number (1 < 2 < 3 ...). Callers cannot supply non-zero sequence numbers.
-    - Sequence Continuity: Implementations of SessionRepository must preserve sequence continuity across
-      their persistence lifecycle. The in-memory adapter guarantees continuity for its own lifetime;
-      durable adapters must additionally guarantee restart recovery.
-    - Session Event Existence Bound: record_event requires an active session owned by the caller;
-      orphaned events for nonexistent sessions are rejected.
-    - Single-Transition Final Decision Finalization: update_event_final_decision() may modify only the
-      previously-unset (None) final_decision field of the uniquely identified event. Historical fields
-      (timestamp, agent_id, session_id, decision, sequence_number) remain immutable security evidence.
-      Transitions from an already-finalized value are rejected.
-    - No Arbitrary Deletion: No delete_session method exists.
-    - Deterministic Ordering: list_events sorts by (timestamp, sequence_number).
+    - Strictly Increasing Dual Sequence Allocation: record_event atomically allocates both the next
+      per-session sequence_number and the next per-agent agent_sequence. Callers cannot supply non-zero values.
+    - Monotonic Ordering: agent_sequence is strictly monotonic per agent; numerical gaplessness is not required.
+    - Atomic Last Activity Touch: record_event touches active session's last_activity_at = event.timestamp.
+    - Horizon Eligibility: list_eligible_events filters by scope (SESSION vs AGENT), temporal window,
+      and monotonic baseline sequence watermark (agent_sequence > query.baseline_agent_sequence).
+    - Deterministic Ordering:
+        scope == AGENT queries order by agent_sequence ASC.
+        scope == SESSION queries order by sequence_number ASC.
     - Sequence Retention Independence: Event pruning never renumbers surviving events or resets sequence counters.
     - Thread-Safe: Synchronized via threading.RLock.
     """
@@ -50,6 +46,7 @@ class InMemorySessionRepository(SessionRepository):
         self._tombstones: dict[str, TerminalSessionTombstone] = {}
         self._events: list[SessionEvent] = []
         self._session_sequences: dict[str, int] = {}
+        self._agent_sequences: dict[str, int] = {}
 
     def get_session(self, session_id: str) -> Session | None:
         with self._lock:
@@ -120,10 +117,6 @@ class InMemorySessionRepository(SessionRepository):
                 return None
             return tombstone.model_copy(deep=True)
 
-    def save_tombstone(self, tombstone: TerminalSessionTombstone) -> None:
-        with self._lock:
-            self._tombstones[tombstone.session_id] = tombstone.model_copy(deep=True)
-
     def terminalize_session(
         self,
         session_id: str,
@@ -168,20 +161,62 @@ class InMemorySessionRepository(SessionRepository):
                     f"sequence allocation is strictly repository-owned."
                 )
 
+            if event.agent_sequence != 0:
+                raise ValueError(
+                    f"Cannot record event with caller-supplied agent_sequence={event.agent_sequence}; "
+                    f"sequence allocation is strictly repository-owned."
+                )
+
             next_seq = self._session_sequences.get(event.session_id, 0) + 1
             self._session_sequences[event.session_id] = next_seq
 
+            next_agent_seq = self._agent_sequences.get(event.agent_id, 0) + 1
+            self._agent_sequences[event.agent_id] = next_agent_seq
+
+            active.last_activity_at = event.timestamp
+
             persisted = event.model_copy(
-                update={"sequence_number": next_seq},
+                update={
+                    "sequence_number": next_seq,
+                    "agent_sequence": next_agent_seq,
+                },
                 deep=True,
             )
             self._events.append(persisted.model_copy(deep=True))
             return persisted.model_copy(deep=True)
 
+    def list_eligible_events(self, query: HorizonQuery) -> list[SessionEvent]:
+        with self._lock:
+            cutoff = query.evaluation_time - timedelta(seconds=query.window_seconds)
+
+            matching: list[SessionEvent] = []
+            for ev in self._events:
+                if ev.agent_id != query.agent_id:
+                    continue
+                if (
+                    query.scope == AggregationScope.SESSION
+                    and ev.session_id != query.session_id
+                ):
+                    continue
+                if ev.agent_sequence <= query.baseline_agent_sequence:
+                    continue
+                if ev.timestamp < cutoff or ev.timestamp > query.evaluation_time:
+                    continue
+                matching.append(ev)
+
+            # Deterministic primary ordering:
+            # - scope == AGENT: ORDER BY agent_sequence ASC
+            # - scope == SESSION: ORDER BY sequence_number ASC
+            if query.scope == AggregationScope.AGENT:
+                ordered = sorted(matching, key=lambda e: e.agent_sequence)
+            else:
+                ordered = sorted(matching, key=lambda e: e.sequence_number)
+
+            return [e.model_copy(deep=True) for e in ordered]
+
     def list_events(self, session_id: str) -> list[SessionEvent]:
         with self._lock:
             matching = [e for e in self._events if e.session_id == session_id]
-            # Deterministic ordering: primary key timestamp, secondary key sequence_number
             ordered = sorted(
                 matching,
                 key=lambda e: (
@@ -195,7 +230,6 @@ class InMemorySessionRepository(SessionRepository):
         with self._lock:
             initial = len(self._events)
             self._events = [e for e in self._events if e.timestamp >= cutoff]
-            # Invariant: self._session_sequences is untouched by pruning
             return initial - len(self._events)
 
     def update_event_final_decision(

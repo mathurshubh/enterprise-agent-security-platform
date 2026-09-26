@@ -43,7 +43,7 @@ from app.models.session import (
     TerminalReason,
     TerminalSessionTombstone,
 )
-from app.models.session_event import SessionEvent
+from app.models.session_event import HorizonQuery, SessionEvent
 from app.repositories.interfaces.session_repository import SessionRepository
 
 __all__ = [
@@ -238,6 +238,13 @@ class SessionService:
     ) -> list[SessionEvent]:
         """Return the session's events in canonical (timestamp, sequence_number) order."""
         return self._session_repository.list_events(session_id)
+
+    def list_eligible_events(
+        self,
+        query: HorizonQuery,
+    ) -> list[SessionEvent]:
+        """Return defensive copies of events eligible for behavioral detection under the query specification."""
+        return self._session_repository.list_eligible_events(query)
 
     def update_event_final_decision(
         self,

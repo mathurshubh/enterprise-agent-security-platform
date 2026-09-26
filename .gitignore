@@ -36,3 +36,7 @@ htmlcov/
 
 # Environment
 .env
+
+# SQLite databases
+*.db
+*.sqlite

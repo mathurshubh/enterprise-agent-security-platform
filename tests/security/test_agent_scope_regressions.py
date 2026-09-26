@@ -138,18 +138,18 @@ class TestDenialAggregationIsScopedByAgent:
 
     @pytest.mark.security_regression
     def test_session_remains_part_of_the_partition(self) -> None:
-        """Agent scope is being pinned here, not substituted for session scope.
+        """Plane 2 / ADR-017: EXCESSIVE_DENIALS is AGENT-scoped to prevent session boundary evasion.
 
-        One agent's denials spread across two sessions must not combine either —
-        that is the M2a accounting control, and a partition keyed on agent alone
-        would break it while satisfying every test above.
+        Denials for the same agent across multiple sessions aggregate into the agent's horizon.
         """
         service = DetectionService()
         events = [denial("session-1", "agent-a") for _ in range(2)] + [
             denial("session-2", "agent-a") for _ in range(2)
         ]
 
-        assert service.detect_excessive_denials(events, evaluation_time=evaluated_now()) == []
+        findings = service.detect_excessive_denials(events, evaluation_time=evaluated_now())
+        assert len(findings) == 1
+        assert findings[0].agent_id == "agent-a"
 
 
 class TestRiskReconstructionIsScopedByAgent:

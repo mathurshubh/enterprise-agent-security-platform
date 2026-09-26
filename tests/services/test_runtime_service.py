@@ -9,6 +9,8 @@ from app.models.agent import Agent, AgentStatus, RiskTier
 from app.models.audit_event import Decision
 from app.models.response_action import ResponseType
 from app.models.risk_assessment import RiskLevel
+from app.models.session import SessionRepositoryError
+from app.models.session_event import AggregationScope, HorizonQuery
 from app.models.tool import Tool
 from app.models.tool_capability import ToolCapability
 from app.models.tool_governance import ToolGovernance
@@ -16,6 +18,7 @@ from app.models.tool_identity import ToolIdentity
 from app.models.tool_metadata import ToolMetadata
 from app.models.tool_operational import ToolOperational
 from app.models.tool_risk_level import ToolRiskLevel
+from app.models.watermark import BaselineWatermark
 from app.policy.policy_engine import PolicyEngine
 from app.services.detection_service import DetectionService
 from app.services.findings_service import FindingsService
@@ -154,19 +157,20 @@ def test_execute_authorized_request():
 
 
 def test_create_default_preserves_default_authorization():
-    service = RuntimeService.create_default()
+    agent_id = "create-default-agent"
+    service = RuntimeService.create_default(agent_id=agent_id)
 
-    # Sessions are owned by one agent (M2b), and this test shares the application
-    # singletons, so it uses identifiers no other module claims.
+    # In Plane 2, detection horizon is agent-scoped, and this test shares the application
+    # singletons, so it uses a dedicated agent identifier no other module claims.
     allowed_result = service.execute(
         session_id="create-default-allowed",
-        agent_id="agent-1",
+        agent_id=agent_id,
         tool_id="file_read",
         resource="notes.txt",
     )
     denied_result = service.execute(
         session_id="create-default-denied",
-        agent_id="agent-1",
+        agent_id=agent_id,
         tool_id="file_read",
         resource="secrets.txt",
     )
@@ -428,3 +432,192 @@ def test_h1_cumulative_risk_posture_maintained_across_benign_executions():
     assert result2.risk_assessment.risk_level == RiskLevel.HIGH
     assert result2.risk_assessment.risk_score == 50
     assert result2.risk_assessment.finding_count == 1
+
+
+def test_cross_session_excessive_denials_detection():
+    """Verify that denials across separate sessions aggregate into an AGENT-scoped threshold crossing."""
+    service, session_service = create_runtime_service(["file_read"])
+
+    # Session 1: 2 denials
+    res1 = service.execute(
+        session_id="sess-cross-1",
+        agent_id="agent-1",
+        tool_id="unapproved_tool",
+    )
+    assert res1.event.decision == Decision.DENY
+    assert len(res1.findings) == 0
+
+    res2 = service.execute(
+        session_id="sess-cross-1",
+        agent_id="agent-1",
+        tool_id="unapproved_tool",
+    )
+    assert res2.event.decision == Decision.DENY
+    assert len(res2.findings) == 0
+
+    # Verify session-scoped horizon has 2 denials (no threshold crossing)
+    now = res2.event.timestamp
+    s1_query = HorizonQuery(
+        agent_id="agent-1",
+        scope=AggregationScope.SESSION,
+        session_id="sess-cross-1",
+        window_seconds=1800.0,
+        evaluation_time=now,
+        baseline_agent_sequence=0,
+    )
+    assert len(session_service.list_eligible_events(s1_query)) == 2
+
+    # Session 2: 1 denial for same agent
+    res3 = service.execute(
+        session_id="sess-cross-2",
+        agent_id="agent-1",
+        tool_id="unapproved_tool",
+    )
+    assert res3.event.decision == Decision.DENY
+
+    # Verify agent-scoped horizon aggregates all 3 denials across sessions
+    agent_query = HorizonQuery(
+        agent_id="agent-1",
+        scope=AggregationScope.AGENT,
+        window_seconds=1800.0,
+        evaluation_time=res3.event.timestamp,
+        baseline_agent_sequence=0,
+    )
+    eligible = session_service.list_eligible_events(agent_query)
+    assert len(eligible) == 3
+    assert [e.agent_sequence for e in eligible] == [1, 2, 3]
+
+    # Verify EXCESSIVE_DENIALS finding was generated across sessions
+    assert len(res3.findings) == 1
+    assert res3.findings[0].rule_name == "EXCESSIVE_DENIALS"
+    assert res3.findings[0].evidence_event_sequences == (1, 2, 3)
+    assert res3.findings[0].session_id == "sess-cross-2"
+
+
+def test_reinstatement_baseline_excludes_prior_denials():
+    """Verify that pre-reinstatement denials are excluded from the horizon by baseline watermark."""
+    service, session_service = create_runtime_service(["file_read"])
+
+    # 2 denials in session 1
+    service.execute(
+        session_id="sess-rein-1",
+        agent_id="agent-1",
+        tool_id="unapproved_tool",
+    )
+    service.execute(
+        session_id="sess-rein-1",
+        agent_id="agent-1",
+        tool_id="unapproved_tool",
+    )
+
+    # Reinstatement establishes baseline_agent_sequence = 2
+    agent_service = service._agent_service
+    agent_service.suspend_agent("agent-1", reason="Pre-reinstatement suspension")
+    agent_service.reinstate_agent(
+        "agent-1",
+        actor="admin",
+        reason="Test reinstatement",
+        watermark=BaselineWatermark(agent_id="agent-1", baseline_sequence=2),
+    )
+
+    # Subsequent denial in session 2 (agent_sequence = 3)
+    res = service.execute(
+        session_id="sess-rein-2",
+        agent_id="agent-1",
+        tool_id="unapproved_tool",
+    )
+
+    # Only 1 denial is eligible after the reinstatement watermark; no threshold crossing
+    assert len(res.findings) == 0
+
+    # Direct horizon query proves isolation
+    agent_query = HorizonQuery(
+        agent_id="agent-1",
+        scope=AggregationScope.AGENT,
+        window_seconds=1800.0,
+        evaluation_time=res.event.timestamp,
+        baseline_agent_sequence=2,
+    )
+    eligible = session_service.list_eligible_events(agent_query)
+    assert len(eligible) == 1
+    assert eligible[0].agent_sequence == 3
+
+
+def test_horizon_unavailable_fails_closed_without_grant():
+    """Verify that horizon repository failure aborts execution fail closed without grant."""
+    service, session_service = create_runtime_service(["file_read"])
+
+    session_service.list_eligible_events = MagicMock(
+        side_effect=SessionRepositoryError("Horizon storage partition")
+    )
+
+    result = service.execute(
+        session_id="sess-unavail",
+        agent_id="agent-1",
+        tool_id="file_read",
+    )
+
+    assert result.refusal_reason == "HORIZON_UNAVAILABLE"
+    assert result.authorization is None
+    assert result.event.decision == Decision.DENY
+
+    audit_events = service._audit_service.list_events()
+    assert any(
+        e.decision == Decision.DENY and e.session_id == "sess-unavail"
+        for e in audit_events
+    )
+
+
+def test_stale_enforcement_epoch_rejects_grant_issuance():
+    """Verify that concurrent epoch advancement fails closed at the ExecutionAuthority boundary."""
+    from datetime import datetime, timezone
+    from uuid import uuid4
+
+    from app.models.agent import AgentStatus
+    from app.models.agent_enforcement import EnforcementAction, EnforcementTransition
+    from app.runtime.execution_authority import ExecutionAuthority
+
+    service, _ = create_runtime_service(["file_read"])
+    agent_service = service._agent_service
+    enforcement_repo = agent_service.enforcement_repository
+    agent_id = "agent-1"
+
+    service._execution_authority = ExecutionAuthority(
+        enforcement_repository=enforcement_repo
+    )
+
+    initial_state = agent_service.get_enforcement_state(agent_id)
+    current_epoch = initial_state.epoch
+
+    real_record_event = service._session_service.record_event
+
+    def racing_record_event(event):
+        res = real_record_event(event)
+        # Advance epoch concurrently in the repository
+        new_state = initial_state.model_copy(update={"epoch": current_epoch + 1})
+        trans = EnforcementTransition(
+            transition_id=f"trans-{uuid4()}",
+            agent_id=agent_id,
+            action=EnforcementAction.REINSTATE,
+            actor="admin",
+            reason="Concurrent reinstatement race",
+            previous_status=AgentStatus.SUSPENDED,
+            new_status=AgentStatus.ACTIVE,
+            occurred_at=datetime.now(timezone.utc),
+        )
+        enforcement_repo.record_transition(
+            trans, new_state, expected_epoch=current_epoch
+        )
+        return res
+
+    service._session_service.record_event = racing_record_event
+
+    result = service.execute(
+        session_id="sess-stale-epoch",
+        agent_id=agent_id,
+        tool_id="file_read",
+    )
+
+    # Authority refused issuance due to CAS epoch mismatch; fail closed
+    assert result.authorization is None
+    assert result.event.final_decision == Decision.DENY

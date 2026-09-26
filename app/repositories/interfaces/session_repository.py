@@ -1,4 +1,4 @@
-"""SessionRepository — Domain persistence protocol unifying session lifecycle, tombstones, and detection horizon (ADR-027, ADR-030)."""
+"""SessionRepository — Domain persistence protocols for session lifecycle and detection horizon (ADR-027, ADR-030)."""
 
 from datetime import datetime
 from typing import Protocol
@@ -8,33 +8,34 @@ from app.models.session import (
     Session,
     TerminalSessionTombstone,
 )
-from app.models.session_event import SessionEvent
+from app.models.session_event import (
+    AggregationScope,
+    HorizonQuery,
+    SessionEvent,
+)
+
+__all__ = [
+    "AggregationScope",
+    "HorizonQuery",
+    "SessionEventHorizonRepository",
+    "SessionLifecycleRepository",
+    "SessionRepository",
+]
 
 
-class SessionRepository(Protocol):
-    """Repository protocol unifying session lifecycle, terminal tombstones, and detection horizon (ADR-027, ADR-030).
+class SessionLifecycleRepository(Protocol):
+    """Repository protocol governing session identity, ownership, and terminal lifecycle (M4-S).
 
     Invariants:
-    - No Arbitrary Deletion: Active sessions cannot be deleted out-of-band; they must
-      transition via terminalize_session() to preserve ownership finality (M4-S-1).
-    - Atomic Terminalization: Active session removal and tombstone persistence occur
+    - Ownership Finality: Once established, an active session cannot bind to another agent (M4-S-1).
+    - Atomic Terminalization: Active session state transition and tombstone creation occur
       atomically under a single synchronization boundary (M4-S-2).
+    - Preserved Identity: Terminalization transitions lifecycle state to TERMINAL; it does not
+      physically destroy the session identity, preserving foreign-key referential integrity.
     - Permanent Tombstones: Tombstones are retained permanently and never evicted under capacity pressure (M4-S-6).
     - Atomic Establishment: bind_or_create_session() atomically creates or touches an active session,
       failing closed on tombstone or ownership mismatch.
-    - Repository Sequence Allocation: record_event() atomically allocates the next strictly increasing
-      per-session sequence number (M4-EVENT-8). Callers cannot supply non-zero sequence numbers.
-    - Sequence Continuity: Implementations of SessionRepository must preserve sequence continuity across
-      their persistence lifecycle. The in-memory adapter guarantees continuity for its own lifetime;
-      durable adapters must additionally guarantee restart recovery.
-    - Session Event Existence Bound: record_event() strictly requires an existing, active session owned
-      by the calling agent; orphaned events are rejected.
-    - Single-Transition Final Decision Finalization: update_event_final_decision() may modify only the
-      previously-unset (None) final_decision field of the uniquely identified event. Historical fields
-      (timestamp, agent_id, session_id, decision, sequence_number) remain immutable security evidence.
-      Transitions from an already-finalized value are rejected.
-    - Rolling Horizon: Detection events maintain sliding window retention with canonical deterministic ordering.
-      Pruning never resets the per-session sequence counter or renumbers survivors.
+    - No Arbitrary Deletion: Active sessions cannot be deleted out-of-band.
     """
 
     def get_session(self, session_id: str) -> Session | None:
@@ -77,30 +78,65 @@ class SessionRepository(Protocol):
         """Retrieve a terminal session tombstone if it exists."""
         ...
 
-    def save_tombstone(self, tombstone: TerminalSessionTombstone) -> None:
-        """Persist a terminal session tombstone directly."""
-        ...
-
     def terminalize_session(
         self,
         session_id: str,
         tombstone: TerminalSessionTombstone,
     ) -> bool:
-        """Atomically remove an active session and persist its terminal tombstone.
+        """Atomically transition an active session to terminal and persist its tombstone.
 
         Returns True if the session was active and terminalized, or False if the session
         was not found or was already terminal.
         """
         ...
 
+
+class SessionEventHorizonRepository(Protocol):
+    """Repository protocol governing behavioral event sequencing, horizon queries, and pruning (M4-EVENT).
+
+    Invariants:
+    - Atomic Event Recording Boundary: record_event() executes as a single atomic transition:
+        1. Resolves active session.
+        2. Verifies agent ownership (session.agent_id == event.agent_id).
+        3. Verifies non-terminal state (fails closed if tombstone exists).
+        4. Validates event carries unassigned sequences (sequence_number == 0 and agent_sequence == 0).
+        5. Atomically allocates next monotonic session sequence_number.
+        6. Atomically allocates next monotonic agent_sequence (strictly increasing; gaplessness not required).
+        7. Touches active session's last_activity_at = event.timestamp.
+        8. Persists the event.
+      Failure at any step aborts the operation and mutates neither session nor event state.
+    - Sequence Continuity: Pruning never resets sequence counters or renumbers surviving events.
+    - Horizon Eligibility: list_eligible_events() applies scope (SESSION vs AGENT), monotonic baseline
+      sequence watermark (event.agent_sequence > query.baseline_agent_sequence), and snapshot temporal
+      bounds (query.evaluation_time - window <= event.timestamp <= query.evaluation_time).
+      A detection invocation evaluates the horizon as of the triggering event's timestamp (evaluation_time),
+      guaranteeing deterministic snapshot replay semantics. Future-dated events (> evaluation_time) are excluded.
+    - Authoritative Ordering vs Temporal Eligibility: agent_sequence establishes authoritative behavioral
+      ordering; timestamp establishes temporal-window eligibility.
+    - Deterministic Ordering:
+        scope == AGENT queries order by event.agent_sequence ASC.
+        scope == SESSION queries order by event.sequence_number ASC.
+    - Decision Finalization Immutability: update_event_final_decision() allows None -> Decision,
+      and permits idempotent updates to the same decision, but strictly rejects mutations from an
+      already-finalized decision to a different decision.
+    """
+
     def record_event(self, event: SessionEvent) -> SessionEvent:
-        """Atomically allocate the next strictly increasing per-session sequence and persist the event.
+        """Atomically validate session state, allocate both sequence positions, and persist the event.
 
         Raises:
             SessionTerminalError: if session reached terminal state.
             SessionNotFoundError: if active session does not exist.
             SessionBindingError: if active session belongs to a different agent.
-            ValueError: if event carries a non-zero caller-supplied sequence_number.
+            ValueError: if event carries non-zero caller-supplied sequence numbers.
+        """
+        ...
+
+    def list_eligible_events(self, query: HorizonQuery) -> list[SessionEvent]:
+        """Return defensive copies of events eligible for behavioral detection under the query specification.
+
+        Raises:
+            SessionRepositoryError: if persistence is unavailable or queries fail.
         """
         ...
 
@@ -120,10 +156,6 @@ class SessionRepository(Protocol):
     ) -> None:
         """Atomically finalize the final_decision on an existing recorded session event.
 
-        May modify only the previously-unset (final_decision is None) field of the uniquely
-        identified event. Preserves all other historical fields (timestamp, agent_id, session_id,
-        decision, sequence_number) as immutable security evidence.
-
         Raises:
             SessionTerminalError: if session reached terminal state.
             SessionNotFoundError: if active session does not exist.
@@ -131,3 +163,7 @@ class SessionRepository(Protocol):
                 or if the event's final_decision has already been finalized to a different value.
         """
         ...
+
+
+class SessionRepository(SessionLifecycleRepository, SessionEventHorizonRepository, Protocol):
+    """Unified repository protocol unifying session lifecycle and detection horizon (ADR-027, ADR-030)."""

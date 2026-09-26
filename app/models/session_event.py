@@ -1,44 +1,55 @@
 from datetime import datetime, timezone
+from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models.audit_event import Decision
 
 UNASSIGNED_SEQUENCE: int = 0
 
 
+class AggregationScope(str, Enum):
+    """Scope of behavioral evidence aggregation for detection rules."""
+
+    SESSION = "session"
+    AGENT = "agent"
+
+
+class HorizonQuery(BaseModel):
+    """Immutable query specification for selecting eligible detection horizon events."""
+
+    model_config = ConfigDict(frozen=True)
+
+    agent_id: str
+    scope: AggregationScope
+    session_id: str | None = None
+    window_seconds: float = Field(gt=0, description="Temporal window size in seconds.")
+    evaluation_time: datetime = Field(description="Deterministic evaluation moment.")
+    baseline_agent_sequence: int = Field(
+        default=0,
+        ge=0,
+        description="Reinstatement watermark sequence; events at or before this position are excluded.",
+    )
+
+    @model_validator(mode="after")
+    def validate_scope_parameters(self) -> "HorizonQuery":
+        if self.scope == AggregationScope.SESSION:
+            if not self.session_id:
+                raise ValueError("session_id is required when scope is SESSION")
+        elif self.scope == AggregationScope.AGENT:
+            if self.session_id is not None:
+                raise ValueError("session_id must be None when scope is AGENT")
+        return self
+
+
 class SessionEvent(BaseModel):
     """One recorded step in a session.
 
-    ``(timestamp, sequence_number)`` is the canonical deterministic ordering key
-    for a session's history. ``sequence_number`` is the **immutable per-session
-    tie-breaker**: it does not replace chronological ordering, it decides the order
-    of events chronology cannot separate.
-
-    It is assigned once by ``SessionService`` when the event is recorded and never
-    changed afterwards. It exists because two events in one session can share a
-    timestamp, and ordering them by timestamp alone left the result dependent on
-    internal heap layout rather than on the history itself. Anything that must read
-    a session's events in a stable order depends on this field, so it is persisted
-    with the event rather than recomputed by each reader.
-
-    It is not derived from the timestamp and is not random. ``0`` means the event
-    has not been recorded yet.
-
-    Two decisions, deliberately separate. ``decision`` is what authorization and policy
-    concluded, and is what detection evaluates; ``final_decision`` is what the pipeline
-    concluded once the response action was applied. One field served both until the
-    runtime rewrote it after detection had already run, which made live and replayed
-    detection disagree about the same history: live saw the value detection was given,
-    a later reader saw the value the response left behind.
-
-    The final decision is causally downstream of detection -- detection produces the
-    findings that produce the posture that produces the response -- so it cannot be
-    detection's input for the same request. ``decision`` therefore stays as written.
-
-    ``final_decision`` is ``None`` only when a request did not reach the point where the
-    final decision is established. It is not a synonym for refusal: a refusal is an
-    established outcome and records ``DENY``.
+    Dual sequencing:
+    - ``sequence_number``: Monotonic 1-based position within the session (session-scoped ordering).
+    - ``agent_sequence``: Monotonic position within the agent across sessions (agent-scoped ordering and watermark).
+      Monotonicity is required; numerical gaplessness is not required.
+    Both positions are allocated exclusively by the repository on record.
     """
 
     session_id: str
@@ -51,7 +62,16 @@ class SessionEvent(BaseModel):
         ge=0,
         description=(
             "Monotonic 1-based position within the session, assigned exclusively "
-            "by SessionService on record. 0 indicates an unrecorded event."
+            "by the repository on record. 0 indicates an unrecorded event."
+        ),
+    )
+
+    agent_sequence: int = Field(
+        default=UNASSIGNED_SEQUENCE,
+        ge=0,
+        description=(
+            "Monotonic position within the agent across sessions, assigned exclusively "
+            "by the repository on record. 0 indicates an unrecorded event."
         ),
     )
 
