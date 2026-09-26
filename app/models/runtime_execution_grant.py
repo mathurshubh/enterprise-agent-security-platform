@@ -34,3 +34,5 @@ class RuntimeExecutionGrant(BaseModel):
     issued_at: float
     expires_at: float
     signature: str = Field(min_length=1)
+    capability_profile_id: str | None = None
+    capability_digest: str | None = None
