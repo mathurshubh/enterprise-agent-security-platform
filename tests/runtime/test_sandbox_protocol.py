@@ -235,3 +235,35 @@ class TestCapabilityBindingVerification:
 
         with pytest.raises(CapabilityProfileNotFoundError, match="no capability profile"):
             verify_capability_binding(grant, caps, tool_id="file_read")
+
+    def test_grant_with_a_profile_but_no_digest_fails_closed(self) -> None:
+        """The digest half of the same fail-open (v0.17.2 Step 1).
+
+        The digest comparison was conditional on the grant presenting a digest, so a
+        profile-bound grant carrying none was admitted with its binding never verified.
+        Symmetric with the profile check above: a binding that cannot be compared is
+        not a verified binding.
+        """
+        caps = _make_sample_capabilities("profile-alpha")
+
+        from datetime import datetime, timezone
+
+        grant = ExecutionGrant(
+            grant_id="grant-no-digest",
+            session_id="session-1",
+            agent_id="agent-1",
+            tool_id="file_read",
+            execution_parameters={},
+            originating_audit_event_id="audit-1",
+            risk_score=0,
+            required_response="ALLOW",
+            enforcement_epoch=1,
+            state=GrantState.APPROVED,
+            created_at=datetime.now(timezone.utc),
+            expires_at=datetime.now(timezone.utc),
+            capability_profile_id="profile-alpha",
+            # capability_digest deliberately absent
+        )
+
+        with pytest.raises(CapabilityDigestMismatchError, match="no capability digest"):
+            verify_capability_binding(grant, caps, tool_id="file_read")

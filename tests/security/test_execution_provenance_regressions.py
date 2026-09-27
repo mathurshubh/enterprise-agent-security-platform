@@ -134,16 +134,21 @@ def _harness():
     return authority, store, sandbox, executor
 
 
+_OMITTED = object()
+
+
 def _grant(authority: ExecutionAuthority, tool_id: str, params: dict[str, str], *,
-           agent_id: str = "agent-1", session_id: str = "session-1"):
+           agent_id: str = "agent-1", session_id: str = "session-1",
+           capability_digest: object = _OMITTED):
     caps = _capabilities()
+    digest = caps.compute_digest() if capability_digest is _OMITTED else capability_digest
     return authority.issue(
         ExecutionBinding.from_operation(tool_id, params),
         Decision.ALLOW,
         agent_id=agent_id,
         session_id=session_id,
         capability_profile_id=PROFILE_ID,
-        capability_digest=caps.compute_digest(),
+        capability_digest=digest,
     )
 
 
@@ -520,3 +525,97 @@ def test_the_capability_registry_contract_covers_existence_checks() -> None:
     assert hasattr(CapabilityProfileRegistryProtocol, "exists")
     assert registry.exists(PROFILE_ID) is True
     assert registry.exists("profile-absent") is False
+
+
+# ---------------------------------------------------------------------------
+# v0.17.2 Step 1 — the receipt correlation chain, and the digest gate that
+# guarantees it (residual half of F-008)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.security_invariant
+def test_invariant_a_profile_bound_grant_without_a_digest_cannot_execute() -> None:
+    """The residual half of the unbound-grant fail-open.
+
+    ``verify_capability_binding`` compared the digest only when the grant presented
+    one, so a grant carrying a capability profile but no digest was admitted with its
+    binding never verified. The profile half was closed in v0.17.1; this is the digest
+    half, which surfaced when the receipt's ``capability_digest`` became required —
+    a required evidence field whose guarantee rested on a gate that did not enforce it.
+    """
+    from app.runtime.exceptions import CapabilityDigestMismatchError
+
+    authority, store, sandbox, executor = _harness()
+    tool = _Tool()
+    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    grant = _grant(authority, tool.tool_id, {}, capability_digest=None)
+
+    assert grant.capability_profile_id == PROFILE_ID, "the profile half is bound"
+    assert grant.capability_digest is None, "the digest half is not"
+
+    with pytest.raises(CapabilityDigestMismatchError, match="no capability digest"):
+        executor.execute_descriptor(descriptor, {}, grant=grant)
+
+    assert sandbox.provenance == [], "nothing may execute on an unverifiable binding"
+    assert store.get_by_grant(grant.grant_id) is None, "and no receipt is created"
+
+
+@pytest.mark.security_invariant
+def test_invariant_the_receipt_records_the_capability_that_governed_the_execution() -> None:
+    """A receipt that cannot identify the capability set governing an execution is not
+    evidence of what was permitted to happen."""
+    authority, store, _, executor = _harness()
+    tool = _Tool()
+    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    grant = _grant(authority, tool.tool_id, {})
+
+    assert grant.capability_profile_id is not None
+    assert grant.capability_digest is not None
+
+    executor.execute_descriptor(descriptor, {}, grant=grant)
+
+    receipt = store.get_by_grant(grant.grant_id)
+    assert receipt.capability_profile_id == grant.capability_profile_id
+    assert receipt.capability_digest == grant.capability_digest
+
+
+@pytest.mark.security_invariant
+def test_invariant_the_receipt_records_the_timeout_governing_this_execution() -> None:
+    """Reconciliation derives its deadline from this value rather than a global SLA, so
+    an execution running inside its declared limit is never reconciled as timed out."""
+    authority, store, _, executor = _harness()
+    tool = _Tool()
+    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    grant = _grant(authority, tool.tool_id, {})
+
+    executor.execute_descriptor(descriptor, {}, grant=grant)
+
+    receipt = store.get_by_grant(grant.grant_id)
+    assert (
+        receipt.declared_timeout_seconds
+        == _capabilities().resources.wall_clock_timeout_seconds
+    )
+
+
+@pytest.mark.security_regression
+def test_the_receipt_carries_the_request_id_as_correlation_not_authority() -> None:
+    """``request_id`` identifies the ingress; ``grant_id`` remains the authoritative
+    bridge between authorization and execution. They must not be the same value."""
+    authority, store, _, executor = _harness()
+    tool = _Tool()
+    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    grant = _grant(authority, tool.tool_id, {})
+    context = RuntimeContext(
+        session_id="session-1",
+        request_id="req-correlation",
+        user_id="u",
+        principal="p",
+        authenticated_agent="agent-1",
+    )
+
+    executor.execute_descriptor(descriptor, {}, context, grant=grant)
+
+    receipt = store.get_by_grant(grant.grant_id)
+    assert receipt.request_id == "req-correlation"
+    assert receipt.grant_id == grant.grant_id
+    assert receipt.request_id != receipt.grant_id

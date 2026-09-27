@@ -30,8 +30,12 @@ def test_create_started_receipt():
         grant_id="grant-1",
         session_id="session-1",
         agent_id="agent-1",
+        request_id="req-1",
         tool_id="file_read",
         binding_hash="hash-123",
+        capability_profile_id="profile-file_read",
+        capability_digest="d" * 64,
+        declared_timeout_seconds=10.0,
         started_at=now,
         monotonic_start=100.5,
     )
@@ -55,8 +59,12 @@ def test_duplicate_receipt_id_rejected():
         grant_id="grant-1",
         session_id="session-1",
         agent_id="agent-1",
+        request_id="req-1",
         tool_id="file_read",
         binding_hash="hash-123",
+        capability_profile_id="profile-file_read",
+        capability_digest="d" * 64,
+        declared_timeout_seconds=10.0,
         started_at=now,
     )
 
@@ -66,8 +74,12 @@ def test_duplicate_receipt_id_rejected():
             grant_id="grant-2",
             session_id="session-1",
             agent_id="agent-1",
+            request_id="req-1",
             tool_id="file_read",
             binding_hash="hash-123",
+            capability_profile_id="profile-file_read",
+            capability_digest="d" * 64,
+            declared_timeout_seconds=10.0,
             started_at=now,
         )
 
@@ -82,8 +94,12 @@ def test_duplicate_grant_id_rejected_n3_9():
         grant_id="grant-1",
         session_id="session-1",
         agent_id="agent-1",
+        request_id="req-1",
         tool_id="file_read",
         binding_hash="hash-123",
+        capability_profile_id="profile-file_read",
+        capability_digest="d" * 64,
+        declared_timeout_seconds=10.0,
         started_at=now,
     )
 
@@ -95,8 +111,12 @@ def test_duplicate_grant_id_rejected_n3_9():
             grant_id="grant-1",
             session_id="session-1",
             agent_id="agent-1",
+            request_id="req-1",
             tool_id="file_read",
             binding_hash="hash-123",
+            capability_profile_id="profile-file_read",
+            capability_digest="d" * 64,
+            declared_timeout_seconds=10.0,
             started_at=now,
         )
 
@@ -119,8 +139,12 @@ def test_valid_terminal_transitions(terminal_status: ExecutionStatus):
         grant_id="grant-term",
         session_id="session-1",
         agent_id="agent-1",
+        request_id="req-1",
         tool_id="file_read",
         binding_hash="hash-123",
+        capability_profile_id="profile-file_read",
+        capability_digest="d" * 64,
+        declared_timeout_seconds=10.0,
         started_at=now,
         monotonic_start=50.0,
     )
@@ -159,8 +183,12 @@ def test_invalid_terminal_status_rejected():
         grant_id="grant-inv",
         session_id="session-1",
         agent_id="agent-1",
+        request_id="req-1",
         tool_id="file_read",
         binding_hash="hash-123",
+        capability_profile_id="profile-file_read",
+        capability_digest="d" * 64,
+        declared_timeout_seconds=10.0,
         started_at=now,
     )
 
@@ -185,8 +213,12 @@ def test_terminal_immutability_n3_4():
         grant_id="grant-freeze",
         session_id="session-1",
         agent_id="agent-1",
+        request_id="req-1",
         tool_id="file_read",
         binding_hash="hash-123",
+        capability_profile_id="profile-file_read",
+        capability_digest="d" * 64,
+        declared_timeout_seconds=10.0,
         started_at=now,
     )
 
@@ -219,8 +251,12 @@ def test_reconciliation_to_unknown_n3_5():
         grant_id="grant-recon",
         session_id="session-1",
         agent_id="agent-1",
+        request_id="req-1",
         tool_id="file_read",
         binding_hash="hash-123",
+        capability_profile_id="profile-file_read",
+        capability_digest="d" * 64,
+        declared_timeout_seconds=10.0,
         started_at=now,
     )
 
@@ -246,8 +282,12 @@ def test_non_started_reconciliation_rejected():
         grant_id="grant-done",
         session_id="session-1",
         agent_id="agent-1",
+        request_id="req-1",
         tool_id="file_read",
         binding_hash="hash-123",
+        capability_profile_id="profile-file_read",
+        capability_digest="d" * 64,
+        declared_timeout_seconds=10.0,
         started_at=now,
     )
 
@@ -278,8 +318,12 @@ def test_receipt_filtering():
         grant_id="g1",
         session_id="s1",
         agent_id="agent-A",
+        request_id="req-1",
         tool_id="file_read",
         binding_hash="h1",
+        capability_profile_id="profile-file_read",
+        capability_digest="d" * 64,
+        declared_timeout_seconds=10.0,
         started_at=now,
     )
     service.record_started(
@@ -287,8 +331,12 @@ def test_receipt_filtering():
         grant_id="g2",
         session_id="s2",
         agent_id="agent-A",
+        request_id="req-1",
         tool_id="file_read",
         binding_hash="h2",
+        capability_profile_id="profile-file_read",
+        capability_digest="d" * 64,
+        declared_timeout_seconds=10.0,
         started_at=now,
     )
     service.record_started(
@@ -296,8 +344,12 @@ def test_receipt_filtering():
         grant_id="g3",
         session_id="s1",
         agent_id="agent-B",
+        request_id="req-1",
         tool_id="file_read",
         binding_hash="h3",
+        capability_profile_id="profile-file_read",
+        capability_digest="d" * 64,
+        declared_timeout_seconds=10.0,
         started_at=now,
     )
 
@@ -341,8 +393,12 @@ def test_thread_safe_access():
             grant_id=g_id,
             session_id=f"sess-{idx % 3}",
             agent_id=f"agent-{idx % 2}",
+            request_id="req-1",
             tool_id="file_read",
             binding_hash=f"hash-{idx}",
+            capability_profile_id="profile-file_read",
+            capability_digest="d" * 64,
+            declared_timeout_seconds=10.0,
             started_at=now,
         )
         service.record_terminal(
@@ -357,3 +413,79 @@ def test_thread_safe_access():
 
     assert len(service.list_receipts()) == count
     assert len(service.list_open()) == 0
+
+
+def test_lifecycle_transitions_preserve_the_correlation_chain():
+    """Terminalisation rebuilds the receipt, so every correlation field must be carried
+    forward. Dropping one would leave an execution whose evidence cannot be joined back
+    to the grant, request or capability that governed it — silently, and only on the
+    terminal record rather than the STARTED one.
+    """
+    service = ExecutionEvidenceService()
+    now = _utc_now()
+
+    started = service.record_started(
+        receipt_id="rcpt-chain",
+        grant_id="grant-chain",
+        session_id="session-9",
+        agent_id="agent-9",
+        request_id="req-9",
+        tool_id="file_read",
+        binding_hash="hash-9",
+        capability_profile_id="profile-file_read",
+        capability_digest="e" * 64,
+        declared_timeout_seconds=42.0,
+        started_at=now,
+        monotonic_start=10.0,
+    )
+
+    chain = {
+        "grant_id": "grant-chain",
+        "session_id": "session-9",
+        "agent_id": "agent-9",
+        "request_id": "req-9",
+        "capability_profile_id": "profile-file_read",
+        "capability_digest": "e" * 64,
+        "declared_timeout_seconds": 42.0,
+    }
+    for field, expected in chain.items():
+        assert getattr(started, field) == expected, field
+
+    terminal = service.record_terminal(
+        receipt_id="rcpt-chain",
+        status=ExecutionStatus.SUCCEEDED,
+        completed_at=_utc_now(),
+        duration_ms=5,
+    )
+    for field, expected in chain.items():
+        assert getattr(terminal, field) == expected, f"terminal dropped {field}"
+
+
+def test_reconciliation_preserves_the_correlation_chain():
+    service = ExecutionEvidenceService()
+
+    service.record_started(
+        receipt_id="rcpt-rec",
+        grant_id="grant-rec",
+        session_id="session-r",
+        agent_id="agent-r",
+        request_id="req-r",
+        tool_id="file_read",
+        binding_hash="hash-r",
+        capability_profile_id="profile-file_read",
+        capability_digest="f" * 64,
+        declared_timeout_seconds=7.5,
+        started_at=_utc_now(),
+    )
+
+    reconciled = service.record_reconciled(
+        receipt_id="rcpt-rec",
+        reconciled_at=_utc_now(),
+        reason=ReconciliationReason.PROCESS_RESTART,
+    )
+
+    assert reconciled.status == ExecutionStatus.UNKNOWN
+    assert reconciled.request_id == "req-r"
+    assert reconciled.capability_profile_id == "profile-file_read"
+    assert reconciled.capability_digest == "f" * 64
+    assert reconciled.declared_timeout_seconds == 7.5

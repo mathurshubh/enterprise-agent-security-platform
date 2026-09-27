@@ -22,9 +22,12 @@ def verify_capability_binding(
     1. A grant must carry a capability_profile_id. An unbound grant is refused: a
        capability binding verification that accepts "no binding" verifies nothing.
     2. capability_profile_id must match capabilities.capability_profile_id.
-    3. If grant specifies capability_digest, the actual computed SHA-256 digest of
-       capabilities must match grant.capability_digest exactly.
-    4. Any mismatch fails closed.
+    3. A grant must carry a capability_digest. Comparing the digest only when one was
+       presented meant a profile-bound grant with no digest was admitted with its
+       binding never verified — the residual half of the unbound-grant fail-open.
+    4. The computed SHA-256 digest of capabilities must match grant.capability_digest
+       exactly.
+    5. Any mismatch fails closed.
 
     The executor refuses a profile-less grant before reaching here, so this is defense
     in depth for any other caller. Note for ADR-031 approval resumption: a persisted
@@ -53,16 +56,24 @@ def verify_capability_binding(
         )
 
     expected_digest = getattr(grant, "capability_digest", None)
-    if expected_digest is not None:
-        actual_digest = capabilities.compute_digest()
-        if actual_digest != expected_digest:
-            raise CapabilityDigestMismatchError(
-                f"Capability digest mismatch for profile '{capabilities.capability_profile_id}': "
-                f"expected digest '{expected_digest}', actual computed digest is '{actual_digest}'",
-                expected_digest=expected_digest,
-                actual_digest=actual_digest,
-                tool_id=tool_id,
-            )
+    if expected_digest is None:
+        raise CapabilityDigestMismatchError(
+            f"Grant bound to capability profile '{grant_profile_id}' carries no "
+            "capability digest, so its capability binding cannot be verified",
+            expected_digest=None,
+            actual_digest=capabilities.compute_digest(),
+            tool_id=tool_id,
+        )
+
+    actual_digest = capabilities.compute_digest()
+    if actual_digest != expected_digest:
+        raise CapabilityDigestMismatchError(
+            f"Capability digest mismatch for profile '{capabilities.capability_profile_id}': "
+            f"expected digest '{expected_digest}', actual computed digest is '{actual_digest}'",
+            expected_digest=expected_digest,
+            actual_digest=actual_digest,
+            tool_id=tool_id,
+        )
 
 
 class InMemoryCapabilityProfileRegistry:

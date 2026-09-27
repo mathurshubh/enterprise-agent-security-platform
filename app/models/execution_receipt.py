@@ -80,9 +80,38 @@ class ExecutionReceipt(BaseModel):
     agent_id: str = Field(
         min_length=1, description="Agent identity bound to the execution grant."
     )
+    request_id: str = Field(
+        min_length=1,
+        description=(
+            "Correlation identifier for the originating request. Ingress correlation "
+            "only: never an authority identifier, and never a source of execution "
+            "identity. grant_id is the authoritative bridge to the authorization."
+        ),
+    )
     tool_id: str = Field(min_length=1, description="Target tool identifier.")
     binding_hash: str = Field(
         min_length=1, description="Canonical SHA-256 digest of the execution binding."
+    )
+    capability_profile_id: str = Field(
+        min_length=1,
+        description="Capability profile that governed this execution.",
+    )
+    capability_digest: str = Field(
+        min_length=1,
+        description=(
+            "Digest of the verified capability binding under which this execution ran. "
+            "Required: a receipt that cannot identify the capability set governing an "
+            "execution is not evidence of what was permitted to happen."
+        ),
+    )
+    declared_timeout_seconds: float = Field(
+        gt=0,
+        description=(
+            "Wall-clock timeout declared by the governing capability, captured at "
+            "execution start. Reconciliation derives its deadline from this value "
+            "rather than a global SLA, so an execution running within its declared "
+            "limit is never reconciled as timed out."
+        ),
     )
     status: ExecutionStatus = Field(description="Observed execution lifecycle status.")
 

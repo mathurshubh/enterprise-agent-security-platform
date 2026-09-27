@@ -368,13 +368,21 @@ class DefaultToolExecutor:
 
         if self._evidence_store is not None:
             # N3-3: Record STARTED before invoking sandbox. If store fails, fail closed (sandbox is NOT executed).
+            # Every identity value comes from the verified grant; request_id is
+            # correlation only. declared_timeout_seconds is the limit governing THIS
+            # execution, so reconciliation can derive its deadline from the capability
+            # that applied rather than from a global SLA.
             self._evidence_store.record_started(
                 receipt_id=receipt_id,
                 grant_id=grant.grant_id,
                 session_id=session_id,
                 agent_id=agent_id,
+                request_id=trace_id,
                 tool_id=tool.tool_id,
                 binding_hash=binding_hash,
+                capability_profile_id=grant.capability_profile_id,
+                capability_digest=grant.capability_digest,
+                declared_timeout_seconds=capabilities.resources.wall_clock_timeout_seconds,
                 started_at=start_utc,
                 monotonic_start=start_monotonic,
             )

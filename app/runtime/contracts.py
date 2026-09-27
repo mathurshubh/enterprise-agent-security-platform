@@ -181,8 +181,12 @@ class ExecutionEvidenceStoreProtocol(Protocol):
         grant_id: str,
         session_id: str,
         agent_id: str,
+        request_id: str,
         tool_id: str,
         binding_hash: str,
+        capability_profile_id: str,
+        capability_digest: str,
+        declared_timeout_seconds: float,
         started_at: datetime,
         monotonic_start: float | None = None,
     ) -> ExecutionReceipt:
