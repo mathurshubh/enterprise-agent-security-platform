@@ -2,10 +2,10 @@
 
 ![Python](https://img.shields.io/badge/Python-3.13-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.116+-009688)
-![Tests](https://img.shields.io/badge/Tests-1224_Passing-success)
+![Tests](https://img.shields.io/badge/Tests-1337_Passing-success)
 ![GitHub Release](https://img.shields.io/badge/GitHub_Release-v0.15-blue)
 ![Git Tag](https://img.shields.io/badge/Git_Tag-v0.15.0-blue)
-![Development Cycle](https://img.shields.io/badge/Development-v0.16.0--dev-orange)
+![Development Cycle](https://img.shields.io/badge/Development-v0.17.0--completed-orange)
 ![Providers](https://img.shields.io/badge/Providers-Ollama_|_Gemini-orange)
 ![Security](https://img.shields.io/badge/Security-Zero_Trust-red)
 ![License](https://img.shields.io/badge/License-MIT-green)
@@ -37,6 +37,7 @@ Instead, it provides deterministic security controls around AI agents, including
 - Immutable Audit Logging
 - **Durable SQL Security State Architecture (Plane 3, ADR-030):** Relational persistence (SQLAlchemy 2.0+, Alembic) providing foreign-key enforced integrity, dual monotonic sequence counters (`sequence_number`, `agent_sequence`), temporal detection-horizon windows with watermark isolation, and CAS monotonic enforcement epoch progression
 - **Execution Grant & Approval Control Plane (ADR-031):** Durable human-in-the-loop approval lifecycle with atomic exactly-once claim resumption (`PENDING -> APPROVED -> CONSUMED`)
+- **Runtime Tool Execution Isolation (v0.17, ADR-032):** Process-level execution containment (`ProcessToolExecutionSandbox`), immutable capability bindings, process-level filesystem and network guards, and zero in-process fallback
 - Management API & Enterprise Findings Console
 
 ---
@@ -88,11 +89,11 @@ Identity → Authority → Policy → Capability → Runtime → Resource → Te
 
 - **Latest Published GitHub Release:** `v0.15`
 - **Latest Repository Tag:** `v0.15.0`
-- **Current Development Cycle:** `v0.16.0` — Unreleased
+- **Current Development Cycle:** `v0.17.0` — Completed (Ready for Merge)
 - **Strategic Architecture Baseline:** Jan–Aug 2026 AI Security Architecture Baseline Review (`4abf2b6`)
-- **Automated Test Coverage:** **1,224 passed, 4 skipped, 7 xfailed** against live PostgreSQL 16; **1,217 passed, 11 skipped, 7 xfailed** under hermetic SQLite (`.venv/bin/python -m pytest`)
+- **Automated Test Coverage:** **1,337 passed, 11 skipped, 7 xfailed** (`.venv/bin/python -m pytest`)
 - **Frontend Build Status:** Passing (`npm run build` & `npm run lint`)
-- **Architecture Reference Range:** ADR-000 through ADR-031
+- **Architecture Reference Range:** ADR-000 through ADR-032
 
 ---
 
@@ -100,10 +101,10 @@ Identity → Authority → Policy → Capability → Runtime → Resource → Te
 
 | Metric | Value |
 |----------|---------|
-| Automated Tests | 1,224 Passing (7 xfailed, PostgreSQL) / 1,217 Passing (7 xfailed, SQLite) |
+| Automated Tests | 1,337 Passing (11 skipped, 7 xfailed) |
 | Latest Published GitHub Release | v0.15 |
 | Latest Repository Tag | v0.15.0 |
-| Current Development Cycle | v0.16.0 (Unreleased) |
+| Current Development Cycle | v0.17.0 (Completed) |
 | Architecture Baseline Commit | 4abf2b6134d894d15bad76a0ec45db6adecb6262 |
 | Detection Rules | 4 (`PROMPT_INJECTION`, `SENSITIVE_FILE_ACCESS`, `DATA_EXFILTRATION`, `EXCESSIVE_DENIALS`) |
 | Security Framework Mappings | 3 (OWASP LLM Top 10, MITRE ATLAS, MITRE ATT&CK) |
@@ -186,6 +187,18 @@ The `RuntimeService` executes a deterministic security pipeline for every incomi
 - **Execution Grant & Approval Control Plane (ADR-031):** Durable `ExecutionGrant` state machine (`PENDING -> APPROVED / REJECTED / EXPIRED -> CONSUMED`) with atomic exactly-once claim resumption.
 - **Production PostgreSQL Concurrency Authority:** Validated against 7 multi-worker MVCC race conditions on PostgreSQL 16.
 - **SQL-Backed End-to-End Security Path:** Full pipeline authorization, horizon event recording, authority grant issuance, and executor verification.
+
+### Runtime Tool Execution Isolation (v0.17, ADR-032)
+- **Process-Level Isolation Sandbox (`ProcessToolExecutionSandbox`):** Dedicated worker subprocess execution across a clean, structured JSON-only IPC boundary.
+- **Zero In-Process Fallback Guarantee:** Gateway process completely eliminates `tool.execute()` calls; missing sandbox or execution failure fails closed (verified by AST analysis and runtime canaries).
+- **Cryptographic Capability Bindings:** Grants carry HMAC-signed `capability_profile_id` and SHA-256 `capability_digest` verified prior to grant consumption.
+- **Process-Level Filesystem Guard (`FilesystemSandboxGuard`):** Enforces CWD confinement, workspace path anchoring, symlink escape detection, and isolated scratch directories.
+- **Process-Level Network Guard (`NetworkSandboxGuard`):** Standard Python socket-level hooks restricting outbound egress to declared CIDRs/ports, with default denial of loopback, link-local, cloud metadata, and Unix domain sockets.
+- **Dedicated Process-Group Lifecycle:** Full process-tree cleanup (`SIGTERM` followed by `SIGKILL`) preventing orphaned daemon persistence.
+- **Granular Execution Receipts:** Differentiates `TIMEOUT`, `RESOURCE_EXHAUSTED`, `ISOLATION_FAILURE`, and `TOOL_EXECUTION_ERROR` in evidence store and telemetry.
+
+#### Process Sandbox Security Boundary
+The v0.17 process sandbox provides process-level capability enforcement for standard Python execution. It is not a kernel-level hostile-code sandbox. Native extensions, raw syscalls, privileged operations, and kernel-level escape techniques are outside this boundary. Strong isolation of hostile or arbitrary native code requires a future container or microVM backend.
 
 ### Management API & Enterprise Security Console
 - Read-only Management API endpoints (`/v1/agents`, `/v1/tools`, `/v1/sessions`, `/v1/audit/events`, `/v1/findings`, `/v1/risk-assessments`)

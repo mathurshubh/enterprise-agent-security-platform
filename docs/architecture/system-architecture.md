@@ -47,23 +47,37 @@ flowchart TD
     end
 
     subgraph SecureExecutionZone ["Secure Zone (Trusted Execution)"]
-        Registry["Tool Registry (Service Boundary)"]
-        Execution["Secure Tool Execution"]
+        Registry["Tool Registry (Metadata & Resolution)"]
+        Authority["Execution Authority (Signed Grants & Capability Bindings)"]
+        Executor["DefaultToolExecutor (Boundary & Verification)"]
         Audit["Immutable Audit Log (SIEM)"]
+    end
+
+    subgraph IsolatedRuntimeZone ["Isolated Execution Zone (Level 2 Sandbox)"]
+        Sandbox["ProcessToolExecutionSandbox (JSON-only IPC)"]
+        FSGuard["FilesystemSandboxGuard (Workspace Jail)"]
+        NetGuard["NetworkSandboxGuard (Socket Hooks)"]
+        ToolCode["Concrete Tool Routine"]
     end
 
     Prompt -->|Natural Language| LLM
     LLM -->|Model Output Payload| Validation
     Validation --> Pipeline
     Pipeline --> FinalDecision
-    FinalDecision -->|ALLOW| Registry
-    Registry --> Execution
+    FinalDecision -->|ALLOW| Authority
+    Authority -->|ExecutionGrant| Executor
+    Executor -->|JSON IPC| Sandbox
+    Sandbox --> FSGuard
+    Sandbox --> NetGuard
+    FSGuard --> ToolCode
+    NetGuard --> ToolCode
     FinalDecision --> Audit
 ```
 
 * **Untrusted Zone:** Houses the user prompt (susceptible to indirect/direct injection) and the LLM (susceptible to instruction overrides and hallucinations). All outputs crossing this boundary are treated as untrusted payloads.
 * **Deterministic Platform Zone:** Intercepts and parses incoming requests. Evaluates access permissions, checks compliance against enterprise policies, runs threat rules, records authoritative findings, and computes cumulative risk posture. Security decisions are finalized here.
-* **Secure Execution Zone (Trusted):** Contains the registries and execution routines. Executable tool instances reside securely behind this boundary. Tool execution is triggered only upon receiving an explicit `ALLOW` decision.
+* **Secure Execution Zone (Trusted):** Contains the registries, execution authority, and tool executor boundary. Single-use `ExecutionGrant` tokens are issued and verified here, binding execution to immutable capability profiles.
+* **Isolated Execution Zone (Level 2 Process Sandbox):** Physical tool execution occurs exclusively in child processes managed by `ProcessToolExecutionSandbox`. Tools do not inherit gateway process memory, secrets, or ambient capabilities.
 
 ## 5. Target Reference Architecture
 The target architecture introduces an API Gateway and an Agent Gateway, serving as centralized ingress points for multiple agents, supported by an Enterprise Security Console for policy configuration, findings triage, dynamic risk visibility, and human-in-the-loop approvals:
@@ -282,7 +296,7 @@ The architecture follows a strict three-tier roadmap separating operational capa
 ### Tier 2: Next Architectural Phase
 *   **Agent Identity Model:** Explicit agent identity lifecycles and cryptographic workload credentials.
 *   **Delegated Authorization:** Formal representation of human-to-agent and service-account delegation chains (`Human → Delegation → Agent → Tool`).
-*   **Secure Execution & Runtime Enforcement:** Host-level process sandboxing, egress network filtering, and filesystem restrictions below the tool layer.
+*   **Secure Execution & Runtime Enforcement (COMPLETED in v0.17):** Host-level process sandboxing (`ProcessToolExecutionSandbox`), egress network filtering (`NetworkSandboxGuard`), filesystem restrictions (`FilesystemSandboxGuard`), and capability digest bindings ([ADR-032](../adr/ADR-032-runtime-tool-execution-isolation.md)).
 *   **Tool / Skill / MCP Registry Security:** Verification of tool provenance, publisher identity, version integrity, and capability declarations for Model Context Protocol servers.
 *   **Agent Security Observability:** Distributed tracing across agent reasoning and tool boundaries (OpenTelemetry, Prometheus, Jaeger).
 *   **Advanced Prompt & Indirect Injection Detection:** Semantic and context-aware detection for indirect injection in retrieved content.
@@ -318,9 +332,9 @@ The platform threat model incorporates 14 critical threat domains identified in 
 ## 16. Implementation Status
 - **Latest Published GitHub Release:** `v0.15`
 - **Latest Repository Tag:** `v0.15.0`
-- **Current Development Cycle:** `v0.16.0` — Unreleased
+- **Current Development Cycle:** `v0.17.0` — Completed (Ready for Merge)
 - **Architecture Baseline:** Jan–Aug 2026 AI Security Architecture Review (`4abf2b6`)
-- **Automated Test Count:** **1,212 passed, 4 skipped, 7 xfailed** against live PostgreSQL 16; **1,205 passed, 11 skipped, 7 xfailed** under hermetic SQLite (`.venv/bin/python -m pytest`)
+- **Automated Test Count:** **1,337 passed, 11 skipped, 7 xfailed** (`.venv/bin/python -m pytest`)
 - **Operational Capabilities:**
   - Zero Trust Security Pipeline (`RuntimeService`)
   - Pluggable LLM Providers (Ollama, Gemini) as untrusted intent parsers
@@ -334,9 +348,10 @@ The platform threat model incorporates 14 critical threat domains identified in 
   - Read-Only Management REST APIs and Enterprise Findings Console UI
   - **Durable SQL State Architecture (Plane 3, ADR-030):** Relational persistence adapters (SQLAlchemy 2.0+, Alembic) providing foreign-key enforced data integrity, dual monotonic sequence counters (`sequence_number`, `agent_sequence`), temporal detection-horizon windows with watermark isolation, and CAS monotonic epoch progression (`SqlSessionRepository`, `SqlEnforcementStateRepository`)
   - **Execution Grant & Approval Control Plane (ADR-031):** Durable `ExecutionGrant` lifecycle (`SqlApprovalGrantRepository`) with atomic exactly-once claim resumption (`PENDING -> APPROVED -> CONSUMED`) and live PostgreSQL multi-worker concurrency verification.
+  - **Runtime Tool Execution Isolation (v0.17, ADR-032):** Process-level execution sandbox (`ProcessToolExecutionSandbox`), zero in-process fallback guarantee, cryptographic capability snapshot bindings (`capability_profile_id`, `capability_digest`), process-level filesystem guard (`FilesystemSandboxGuard`), process-level network egress guard (`NetworkSandboxGuard`), dedicated process-group lifecycle cleanup, and distinct failure categorization (`TIMEOUT`, `RESOURCE_EXHAUSTED`, `ISOLATION_FAILURE`, `TOOL_EXECUTION_ERROR`).
 
 ## 17. Architectural Decision Summary
-The platform architecture is built upon the following immutable design choices (formally recorded in ADR-000 through ADR-031):
+The platform architecture is built upon the following immutable design choices (formally recorded in ADR-000 through ADR-032):
 1. LLMs are untrusted intent parsers.
 2. Security decisions must remain deterministic and explainable outside the AI model.
 3. Component communication is isolated behind provider-agnostic boundaries.
@@ -348,7 +363,8 @@ The platform architecture is built upon the following immutable design choices (
 9. Domain services interact strictly with repository protocols in `app/repositories/interfaces/`; ORM models and database connection pools never leak into domain logic.
 10. Parent-row serialization anchors: concurrent creation of child/counter rows (`agent_enforcement_state`, `agent_sequence_counters`) is serialized through the authoritative parent row (`agents` locked `FOR UPDATE`).
 11. Multi-adapter backend roles: In-memory provides process-local semantics for fast unit tests; SQLite provides single-node and functional contract testing; PostgreSQL is the concurrency authority for the production SQL adapter and the authoritative environment for multi-worker MVCC concurrency verification.
-12. Redis remains strictly excluded from the v0.16 critical security state path.
+12. Redis remains strictly excluded from the critical security state path.
+13. **Runtime Tool Execution Isolation Boundary (ADR-032):** The security gateway process never executes tools in-process. All tool execution is isolated within dedicated child processes across a JSON-only IPC boundary, bound to immutable capability profiles, with fail-closed behavior on sandbox absence or error.
 
 ## 18. Scenario Library & Validation Framework Architecture
 

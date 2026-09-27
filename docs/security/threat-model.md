@@ -74,7 +74,8 @@ flowchart TD
         RiskResp --> FinalDec{Final Decision}
     end
 
-    FinalDec -->|ALLOW| AuthTool["Boundary 4: Tool Registry (Secure Tool Execution)"]
+    FinalDec -->|ALLOW| ExecAuth["Boundary 4: Execution Authority & Grants"]
+    ExecAuth --> Sandbox["Boundary 6: Process Sandbox Execution Boundary (Level 2)"]
     FinalDec --> Audit["Boundary 5: Audit Service Logging (Immutable Audit)"]
 ```
 
@@ -83,8 +84,13 @@ flowchart TD
 1. **User Prompt (Untrusted):** The entry point for natural language requests. User input is treated as untrusted and is scanned for malicious overrides (e.g. Prompt Injection).
 2. **LLM Output (Untrusted):** The raw response returned by the foundation model. Treated as untrusted and parsed into a validated `ToolInvocation` object.
 3. **Runtime Security Pipeline (Deterministic Boundary):** The core entry point where security enforcement happens. Every request must pass through this boundary before executing tools.
-4. **Tool Registry & Secure Tool Execution Boundary (Secure Zone):** The trust boundary for resolving registered executable tools. Tool resolution and execution occur only after the Runtime Security Pipeline returns an `ALLOW` decision.
+4. **Execution Authority & Tool Registry Boundary (Secure Zone):** The trust boundary for resolving registered tools and issuing single-use, cryptographically signed `ExecutionGrant` tokens bound to immutable capability profiles.
 5. **Audit Boundary (Immutable):** The audit logging point. Event recording happens immediately after the final calculated decision, preserving the integrity of compliance logs.
+6. **Process Sandbox Execution Boundary (Level 2 Boundary):** Authorized tool execution occurs exclusively in an isolated child process managed by `ProcessToolExecutionSandbox`. Tools do not inherit gateway process memory, secrets, or ambient filesystem/network capabilities. The gateway never executes tools in-process, failing closed on sandbox absence or error.
+
+### Process Sandbox Security Boundary
+
+The v0.17 process sandbox provides process-level capability enforcement for standard Python execution. It is not a kernel-level hostile-code sandbox. Native extensions, raw syscalls, privileged operations, and kernel-level escape techniques are outside this boundary. Strong isolation of hostile or arbitrary native code requires a future container or microVM backend.
 
 ---
 
@@ -103,6 +109,9 @@ The platform maintains the following immutable architectural guarantees:
 10. **A session is security-owned by exactly one agent:** a request from any other agent is refused before any session state is read or written, so no agent can contribute evidence to another agent's enforcement posture.
 11. **Execution identity and administrative identity are not implicitly interchangeable:** an `AGENT` principal executes only as itself, and no operator principal executes as an agent at all. Authority to manage an agent is not authority to act as one ([ADR-025](../adr/ADR-025-management-plane-authorization.md)).
 12. **Every published route belongs to a plane with a declared role set:** authorization is applied at the router mount, evaluated before any resource lookup, and a route may narrow its plane but never widen it.
+13. **Tool execution never runs in-process within the security gateway:** Authorized tool invocations execute strictly across the process sandbox boundary via structured JSON IPC. No exception or fallback path executes code within the platform host process ([ADR-032](../adr/ADR-032-runtime-tool-execution-isolation.md)).
+14. **Capability bindings are immutable and signed:** Execution grants carry an explicit `capability_profile_id` and SHA-256 `capability_digest` signed by the ExecutionAuthority. Tampered or modified profiles fail closed.
+15. **Execution evidence preconditions:** STARTED evidence is a mandatory precondition for execution. Terminal evidence records post-execution outcomes (SUCCEEDED, TIMEOUT, RESOURCE_EXHAUSTED, ISOLATION_FAILURE, TOOL_EXECUTION_ERROR) and SHA-256 output digests for deterministic integrity evidence linking results to receipts.
 
 ---
 
@@ -272,6 +281,9 @@ The platform maps threat detections to industry security frameworks through rule
 ## Residual Risks
 
 - **Heuristic Detection Limits:** Detections rely on deterministic rules; complex semantic evasion requires future vector-based classification.
+- **Process-Level Tool Confinement (Level 2):** Resolved in v0.17 ([ADR-032](../adr/ADR-032-runtime-tool-execution-isolation.md)). Gateway memory, platform secrets, and host filesystem are isolated from executing tools via `ProcessToolExecutionSandbox` and process guards. The gateway process has zero in-process tool execution paths.
+- **Hostile Native Code Isolation (Level 3 Boundary):** Process-level audit hooks and Python runtime guards govern standard Python code. Malicious native extensions, direct syscalls, or kernel-level escapes remain outside the Level 2 security boundary and require future container (`ContainerToolExecutionSandbox`) or microVM (`MicroVMToolExecutionSandbox`) backends.
+- **DNS & Network Egress Abuse:** Standard Python socket-based DNS and network egress paths are subject to the process-level network guard. Native resolver behavior, native extensions, or raw syscalls remain outside the Level 2 security boundary and require Level 3 isolation.
 - **Durable State Persistence (Plane 3):** Resolved. Relational persistence models and SQL repository adapters ([ADR-030](../adr/ADR-030-durable-state-repository-architecture.md)) provide durable storage across restarts for session lifecycle, detection horizon events, monotonic enforcement epochs, and execution resumption grants.
 - **Session Registration Boundary:** resolved. Sessions are established and owned on first use, and a request from a non-owner is refused before any session state changes ([ADR-024](../adr/ADR-024-agent-enforcement-state.md)).
 - **Containment Durability:** Resolved for SQL-backed deployments via `SqlEnforcementStateRepository` (ADR-030), guaranteeing that suspensions, monotonic epochs, and enforcement transitions persist across process restarts.
