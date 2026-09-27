@@ -137,7 +137,7 @@ class StubRuntimeService(RuntimeExecutor):
         self.calls: list[dict[str, object]] = []
 
         class _StubExecutionSandbox:
-            def execute(self, *, tool, parameters, capabilities, context):
+            def execute(self, *, tool, parameters, capabilities, provenance):
                 return SandboxExecutionResult(
                     success=True,
                     output=tool.execute(dict(parameters)),

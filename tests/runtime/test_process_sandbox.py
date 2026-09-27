@@ -12,7 +12,7 @@ from app.models.execution_capability import (
     NetworkCapability,
     ResourceLimits,
 )
-from app.models.runtime_context import RuntimeContext
+from app.models.execution_provenance import ExecutionProvenance
 from app.models.sandbox_execution_result import SandboxExecutionResult
 from app.runtime.contracts import ToolExecutionSandboxProtocol
 from app.runtime.exceptions import (
@@ -69,19 +69,17 @@ def _make_test_capabilities(
     )
 
 
-def _make_runtime_context(
+def _make_provenance(
     session_id: str = "sess-1",
     agent_id: str = "agent-1",
     request_id: str = "req-1",
-    user_id: str = "user-1",
-    principal: str = "principal-1",
-) -> RuntimeContext:
-    return RuntimeContext(
+    grant_id: str = "grant-1",
+) -> ExecutionProvenance:
+    return ExecutionProvenance(
+        grant_id=grant_id,
+        agent_id=agent_id,
         session_id=session_id,
-        authenticated_agent=agent_id,
         request_id=request_id,
-        user_id=user_id,
-        principal=principal,
     )
 
 
@@ -99,14 +97,14 @@ class TestProcessSandboxExecution:
     def test_successful_tool_execution(self) -> None:
         sandbox = ProcessToolExecutionSandbox()
         tool = MockTool(tool_id="test_echo", implementation_id="test_echo")
-        context = _make_runtime_context()
+        provenance = _make_provenance()
         caps = _make_test_capabilities()
 
         result = sandbox.execute(
             tool=tool,
             parameters={"message": "hello sandbox"},
             capabilities=caps,
-            context=context,
+            provenance=provenance,
         )
 
         assert isinstance(result, SandboxExecutionResult)
@@ -116,6 +114,49 @@ class TestProcessSandboxExecution:
         assert result.output_digest is not None
         assert result.duration_ms >= 0
 
+    def test_descriptor_carries_the_authoritative_grant_id(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The descriptor built for the child must carry the real grant id.
+
+        It previously carried ``context.request_id`` under the name ``grant_id``, so the
+        evidence store and the child payload disagreed about which grant authorized the
+        execution. Asserted on the constructed descriptor rather than on the provenance
+        handed in, because the defect was in this construction step.
+        """
+        import app.runtime.sandbox.descriptor as descriptor_module
+
+        captured: dict[str, object] = {}
+        real = descriptor_module.ToolExecutionDescriptor
+
+        def _capturing(**kwargs: object):
+            captured.update(kwargs)
+            return real(**kwargs)
+
+        monkeypatch.setattr(descriptor_module, "ToolExecutionDescriptor", _capturing)
+
+        sandbox = ProcessToolExecutionSandbox()
+        tool = MockTool(tool_id="test_echo", implementation_id="test_echo")
+        provenance = _make_provenance(
+            grant_id="grant-authoritative",
+            request_id="req-correlation",
+            agent_id="agent-9",
+            session_id="sess-9",
+        )
+
+        sandbox.execute(
+            tool=tool,
+            parameters={"message": "hi"},
+            capabilities=_make_test_capabilities(),
+            provenance=provenance,
+        )
+
+        assert captured["grant_id"] == "grant-authoritative"
+        assert captured["request_id"] == "req-correlation"
+        assert captured["grant_id"] != captured["request_id"]
+        assert captured["agent_id"] == "agent-9"
+        assert captured["session_id"] == "sess-9"
+
     def test_clean_room_environment_strips_platform_secrets(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # Set dummy platform secrets in parent environment
         monkeypatch.setenv("POSTGRES_URL", "postgresql://admin:supersecret@db:5432/platform")
@@ -124,7 +165,7 @@ class TestProcessSandboxExecution:
 
         sandbox = ProcessToolExecutionSandbox()
         tool = MockTool(tool_id="test_env_dump", implementation_id="test_env_dump")
-        context = _make_runtime_context()
+        provenance = _make_provenance()
 
         # Allow only EXPLICIT_ALLOWED_VAR
         caps = _make_test_capabilities(env={"EXPLICIT_ALLOWED_VAR": "safe_value"})
@@ -133,7 +174,7 @@ class TestProcessSandboxExecution:
             tool=tool,
             parameters={"keys": ["POSTGRES_URL", "JWT_SECRET_KEY", "SOME_RANDOM_PARENT_VAR", "EXPLICIT_ALLOWED_VAR"]},
             capabilities=caps,
-            context=context,
+            provenance=provenance,
         )
 
         assert result.success is True
@@ -149,7 +190,7 @@ class TestProcessSandboxExecution:
     def test_hard_wall_clock_timeout_enforced(self) -> None:
         sandbox = ProcessToolExecutionSandbox()
         tool = MockTool(tool_id="test_sleep", implementation_id="test_sleep")
-        context = _make_runtime_context()
+        provenance = _make_provenance()
 
         # Tool attempts to sleep for 5.0 seconds, but timeout is 0.25 seconds
         caps = _make_test_capabilities(timeout_seconds=0.25)
@@ -160,7 +201,7 @@ class TestProcessSandboxExecution:
                 tool=tool,
                 parameters={"seconds": 5.0},
                 capabilities=caps,
-                context=context,
+                provenance=provenance,
             )
         elapsed = time.monotonic() - start
 
@@ -173,7 +214,7 @@ class TestProcessSandboxExecution:
     def test_bounded_output_collection_kills_process_on_limit_breach(self) -> None:
         sandbox = ProcessToolExecutionSandbox()
         tool = MockTool(tool_id="test_output_flood", implementation_id="test_output_flood")
-        context = _make_runtime_context()
+        provenance = _make_provenance()
 
         # Tool attempts to emit 50 KB, but max_output_bytes is 512 bytes
         caps = _make_test_capabilities(max_output_bytes=512)
@@ -183,7 +224,7 @@ class TestProcessSandboxExecution:
                 tool=tool,
                 parameters={"count": 50, "chunk": "A" * 1024},
                 capabilities=caps,
-                context=context,
+                provenance=provenance,
             )
 
         assert "exceeded output size limit" in str(exc_info.value)
@@ -192,14 +233,14 @@ class TestProcessSandboxExecution:
     def test_process_group_cleanup_invariant_kills_child_and_grandchild(self) -> None:
         sandbox = ProcessToolExecutionSandbox()
         tool = MockTool(tool_id="test_fork_and_persist", implementation_id="test_fork_and_persist")
-        context = _make_runtime_context()
+        provenance = _make_provenance()
         caps = _make_test_capabilities(timeout_seconds=2.0)
 
         result = sandbox.execute(
             tool=tool,
             parameters={},
             capabilities=caps,
-            context=context,
+            provenance=provenance,
         )
 
         assert result.success is True
@@ -217,7 +258,7 @@ class TestProcessSandboxExecution:
     def test_sanitized_error_handling_does_not_leak_paths_or_secrets(self) -> None:
         sandbox = ProcessToolExecutionSandbox()
         tool = MockTool(tool_id="test_raise_error", implementation_id="test_raise_error")
-        context = _make_runtime_context()
+        provenance = _make_provenance()
         caps = _make_test_capabilities()
 
         # Simulate exception containing absolute file paths and secrets
@@ -228,7 +269,7 @@ class TestProcessSandboxExecution:
             tool=tool,
             parameters={"message": raw_error_message, "error_type": "ValueError"},
             capabilities=caps,
-            context=context,
+            provenance=provenance,
         )
 
         assert result.success is False
@@ -244,14 +285,14 @@ class TestProcessSandboxExecution:
     def test_unknown_implementation_id_returns_clean_error(self) -> None:
         sandbox = ProcessToolExecutionSandbox()
         tool = MockTool(tool_id="unregistered_tool", implementation_id="unregistered_tool_v99")
-        context = _make_runtime_context()
+        provenance = _make_provenance()
         caps = _make_test_capabilities()
 
         result = sandbox.execute(
             tool=tool,
             parameters={},
             capabilities=caps,
-            context=context,
+            provenance=provenance,
         )
 
         assert result.success is False

@@ -168,7 +168,7 @@ def sql_pipeline_setup():
     cap_registry = InMemoryCapabilityProfileRegistry({"e2e-profile": caps})
 
     class _E2eSandbox:
-        def execute(self, *, tool, parameters, capabilities, context):
+        def execute(self, *, tool, parameters, capabilities, provenance):
             tool.executions += 1
             return SandboxExecutionResult(
                 success=True,

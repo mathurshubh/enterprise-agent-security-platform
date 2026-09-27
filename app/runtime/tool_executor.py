@@ -45,6 +45,7 @@ from app.models.execution_binding import (
     ExecutionBindingValidationError,
 )
 from app.models.execution_capability import ExecutionCapabilities
+from app.models.execution_provenance import ExecutionProvenance
 from app.models.execution_receipt import (
     ExecutionStatus,
     compute_output_digest,
@@ -342,13 +343,10 @@ class DefaultToolExecutor:
         agent_id = grant.agent_id
         trace_id = context.request_id if context is not None else f"req-{uuid4()}"
 
-        effective_context = context or RuntimeContext(
-            session_id=session_id,
-            request_id=trace_id,
-            user_id="system",
-            principal="system",
-            authenticated_agent=agent_id,
-        )
+        # Everything crossing the isolation boundary is derived from the verified grant.
+        # The sandbox receives no caller-supplied context, so there is no fabricated
+        # identity left to construct.
+        provenance = ExecutionProvenance.from_grant(grant, trace_id)
 
         binding_hash = hashlib.sha256(
             grant.binding.canonical_json().encode("utf-8")
@@ -383,7 +381,7 @@ class DefaultToolExecutor:
                 tool=tool,
                 parameters=parameters,
                 capabilities=capabilities,
-                context=effective_context,
+                provenance=provenance,
             )
         except Exception as exc:
             duration_ms = int((self._monotonic_clock() - start_monotonic) * 1000)

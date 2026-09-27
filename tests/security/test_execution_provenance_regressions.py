@@ -36,6 +36,7 @@ containment are unchanged and covered elsewhere.
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 from app.models.audit_event import Decision
 from app.models.execution_binding import ExecutionBinding
@@ -45,6 +46,7 @@ from app.models.execution_capability import (
     NetworkCapability,
     ResourceLimits,
 )
+from app.models.execution_provenance import ExecutionProvenance
 from app.models.runtime_context import RuntimeContext
 from app.models.sandbox_execution_result import SandboxExecutionResult
 from app.models.tool_capability import ToolCapability
@@ -91,10 +93,10 @@ class _Tool(BaseTool):
 
 
 class _RecordingSandbox:
-    """Records what the executor handed it, so provenance can be observed."""
+    """Records the provenance the executor handed it, so it can be observed."""
 
     def __init__(self) -> None:
-        self.contexts: list[RuntimeContext] = []
+        self.provenance: list[ExecutionProvenance] = []
 
     def execute(
         self,
@@ -102,9 +104,9 @@ class _RecordingSandbox:
         tool: BaseTool,
         parameters: dict[str, Any],
         capabilities: ExecutionCapabilities,
-        context: RuntimeContext,
+        provenance: ExecutionProvenance,
     ) -> SandboxExecutionResult:
-        self.contexts.append(context)
+        self.provenance.append(provenance)
         return SandboxExecutionResult(success=True, output={"ok": True})
 
 
@@ -207,7 +209,7 @@ def test_invariant_a_contradicting_context_cannot_reattribute_an_execution() -> 
         executor.execute_descriptor(descriptor, {}, impersonating, grant=grant)
 
     assert exc_info.value.reason is ExecutionRefusalReason.IDENTITY_MISMATCH
-    assert sandbox.contexts == [], "nothing may execute after an identity refusal"
+    assert sandbox.provenance == [], "nothing may execute after an identity refusal"
     assert store.get_by_grant(grant.grant_id) is None, "no evidence for a refused attempt"
 
 
@@ -229,7 +231,7 @@ def test_invariant_a_contradicting_session_is_refused() -> None:
         executor.execute_descriptor(descriptor, {}, rotated, grant=grant)
 
     assert exc_info.value.reason is ExecutionRefusalReason.IDENTITY_MISMATCH
-    assert sandbox.contexts == []
+    assert sandbox.provenance == []
 
 
 @pytest.mark.security_invariant
@@ -268,9 +270,9 @@ def test_the_sandbox_receives_the_grants_identity_not_a_placeholder() -> None:
 
     executor.execute_descriptor(descriptor, {}, grant=grant)
 
-    assert len(sandbox.contexts) == 1
-    assert sandbox.contexts[0].authenticated_agent == "agent-sb"
-    assert sandbox.contexts[0].session_id == "session-sb"
+    assert len(sandbox.provenance) == 1
+    assert sandbox.provenance[0].agent_id == "agent-sb"
+    assert sandbox.provenance[0].session_id == "session-sb"
 
 
 @pytest.mark.security_regression
@@ -338,3 +340,90 @@ def test_the_executor_module_contains_no_placeholder_identity_fallback() -> None
 
     source = Path(module.__file__).read_text(encoding="utf-8")
     assert '"unspecified"' not in source
+
+
+@pytest.mark.security_invariant
+def test_invariant_the_authoritative_grant_id_reaches_the_isolation_boundary() -> None:
+    """The F-003 regression: the descriptor's ``grant_id`` was the request id.
+
+    ``grant_id=context.request_id`` meant the evidence store recorded one identifier
+    while the child payload carried a different one under the same name, breaking the
+    execution-to-grant join an investigator follows.
+    """
+    authority, store, sandbox, executor = _harness()
+    tool = _Tool()
+    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    grant = _grant(authority, tool.tool_id, {})
+
+    executor.execute_descriptor(descriptor, {}, grant=grant)
+
+    assert len(sandbox.provenance) == 1
+    assert sandbox.provenance[0].grant_id == grant.grant_id
+    assert store.get_by_grant(grant.grant_id).grant_id == grant.grant_id
+
+
+@pytest.mark.security_invariant
+def test_invariant_the_request_id_stays_distinct_from_the_grant_id() -> None:
+    """Two different concepts with different lifetimes and different trust. They were
+    the same value, so neither could be used to distinguish the other."""
+    authority, _, sandbox, executor = _harness()
+    tool = _Tool()
+    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    grant = _grant(authority, tool.tool_id, {})
+    context = RuntimeContext(
+        session_id="session-1",
+        request_id="req-distinct",
+        user_id="u",
+        principal="p",
+        authenticated_agent="agent-1",
+    )
+
+    executor.execute_descriptor(descriptor, {}, context, grant=grant)
+
+    carried = sandbox.provenance[0]
+    assert carried.request_id == "req-distinct"
+    assert carried.grant_id == grant.grant_id
+    assert carried.request_id != carried.grant_id
+
+
+@pytest.mark.security_invariant
+def test_invariant_no_authority_material_crosses_the_isolation_boundary() -> None:
+    """The sandbox enforces a physical boundary and makes no security decision, so it
+    has no use for the grant signature and must not be in a position to serialize it."""
+    fields = set(ExecutionProvenance.model_fields)
+
+    assert fields == {"grant_id", "agent_id", "session_id", "request_id"}
+    assert "signature" not in fields
+    assert "authority_id" not in fields
+
+
+@pytest.mark.security_regression
+def test_provenance_takes_every_identity_field_from_the_grant() -> None:
+    """``from_grant`` accepts only ``request_id`` from the caller, so no code path
+    turns a caller's claim into provenance."""
+    authority = ExecutionAuthority()
+    grant = _grant(
+        authority, "provenance_tool", {}, agent_id="agent-z", session_id="session-z"
+    )
+
+    provenance = ExecutionProvenance.from_grant(grant, "req-7")
+
+    assert provenance.grant_id == grant.grant_id
+    assert provenance.agent_id == grant.agent_id
+    assert provenance.session_id == grant.session_id
+    assert provenance.request_id == "req-7"
+
+
+@pytest.mark.security_regression
+def test_provenance_is_immutable_and_rejects_unknown_fields() -> None:
+    provenance = ExecutionProvenance(
+        grant_id="g", agent_id="a", session_id="s", request_id="r"
+    )
+
+    with pytest.raises(ValidationError):
+        provenance.agent_id = "other"
+
+    with pytest.raises(ValidationError):
+        ExecutionProvenance(
+            grant_id="g", agent_id="a", session_id="s", request_id="r", signature="x"
+        )

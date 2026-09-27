@@ -31,7 +31,7 @@ from app.models.execution_capability import (
     NetworkCapability,
     ResourceLimits,
 )
-from app.models.runtime_context import RuntimeContext
+from app.models.execution_provenance import ExecutionProvenance
 from app.runtime.exceptions import (
     SandboxTimeoutError,
     SandboxUnavailableError,
@@ -64,13 +64,12 @@ class MockTool(BaseTool):
         raise NotImplementedError("Sandbox must execute child runner, not in-process method")
 
 
-def _make_context() -> RuntimeContext:
-    return RuntimeContext(
-        session_id="sess-fs-test",
-        authenticated_agent="agent-fs-test",
-        request_id="req-fs-test",
-        user_id="user-fs-test",
-        principal="principal-fs-test",
+def _make_provenance() -> ExecutionProvenance:
+    return ExecutionProvenance(
+        grant_id="grant-1",
+        agent_id="agent-1",
+        session_id="sess-1",
+        request_id="req-1",
     )
 
 
@@ -193,14 +192,14 @@ class TestProcessSandboxFilesystemEnforcement:
 
         sandbox = ProcessToolExecutionSandbox()
         tool = MockTool(tool_id="test_file_op", implementation_id="test_file_op")
-        context = _make_context()
+        provenance = _make_provenance()
         caps = _make_caps(workspace_root=str(tmp_path), read_only=True)
 
         result = sandbox.execute(
             tool=tool,
             parameters={"op": "open_read", "path": "relative_target.txt"},
             capabilities=caps,
-            context=context,
+            provenance=provenance,
         )
 
         assert result.success is True
@@ -209,14 +208,14 @@ class TestProcessSandboxFilesystemEnforcement:
     def test_absolute_system_file_read_is_rejected(self, tmp_path: Path) -> None:
         sandbox = ProcessToolExecutionSandbox()
         tool = MockTool(tool_id="test_file_op", implementation_id="test_file_op")
-        context = _make_context()
+        provenance = _make_provenance()
         caps = _make_caps(workspace_root=str(tmp_path), read_only=True)
 
         result = sandbox.execute(
             tool=tool,
             parameters={"op": "open_read", "path": "/etc/passwd"},
             capabilities=caps,
-            context=context,
+            provenance=provenance,
         )
 
         assert result.success is False
@@ -227,14 +226,14 @@ class TestProcessSandboxFilesystemEnforcement:
     def test_path_traversal_escaping_workspace_is_rejected(self, tmp_path: Path) -> None:
         sandbox = ProcessToolExecutionSandbox()
         tool = MockTool(tool_id="test_file_op", implementation_id="test_file_op")
-        context = _make_context()
+        provenance = _make_provenance()
         caps = _make_caps(workspace_root=str(tmp_path), read_only=True)
 
         result = sandbox.execute(
             tool=tool,
             parameters={"op": "open_read", "path": "../../etc/hosts"},
             capabilities=caps,
-            context=context,
+            provenance=provenance,
         )
 
         assert result.success is False
@@ -251,14 +250,14 @@ class TestProcessSandboxFilesystemEnforcement:
 
         sandbox = ProcessToolExecutionSandbox()
         tool = MockTool(tool_id="test_file_op", implementation_id="test_file_op")
-        context = _make_context()
+        provenance = _make_provenance()
         caps = _make_caps(workspace_root=str(tmp_path), read_only=True)
 
         result = sandbox.execute(
             tool=tool,
             parameters={"op": "open_read", "path": "sym_hosts"},
             capabilities=caps,
-            context=context,
+            provenance=provenance,
         )
 
         assert result.success is False
@@ -276,7 +275,7 @@ class TestProcessSandboxFilesystemEnforcement:
 
         sandbox = ProcessToolExecutionSandbox()
         tool = MockTool(tool_id="test_file_op", implementation_id="test_file_op")
-        context = _make_context()
+        provenance = _make_provenance()
         caps = _make_caps(
             workspace_root=str(tmp_path),
             read_only=True,
@@ -288,7 +287,7 @@ class TestProcessSandboxFilesystemEnforcement:
             tool=tool,
             parameters={"op": "open_read", "path": str(allowed_file)},
             capabilities=caps,
-            context=context,
+            provenance=provenance,
         )
         assert res_allowed.success is True
         assert res_allowed.output == "allowed info"
@@ -298,7 +297,7 @@ class TestProcessSandboxFilesystemEnforcement:
             tool=tool,
             parameters={"op": "open_read", "path": str(disallowed_file)},
             capabilities=caps,
-            context=context,
+            provenance=provenance,
         )
         assert res_denied.success is False
         assert res_denied.error_type == "PermissionError"
@@ -328,7 +327,7 @@ class TestProcessSandboxFilesystemEnforcement:
 
         sandbox = ProcessToolExecutionSandbox()
         tool = MockTool(tool_id="test_file_op", implementation_id="test_file_op")
-        context = _make_context()
+        provenance = _make_provenance()
         caps = _make_caps(workspace_root=str(tmp_path), read_only=True)
 
         full_params = {"op": op, **params}
@@ -336,7 +335,7 @@ class TestProcessSandboxFilesystemEnforcement:
             tool=tool,
             parameters=full_params,
             capabilities=caps,
-            context=context,
+            provenance=provenance,
         )
 
         assert result.success is False
@@ -346,7 +345,7 @@ class TestProcessSandboxFilesystemEnforcement:
     def test_scratch_writes_are_isolated_and_ephemeral(self, tmp_path: Path) -> None:
         sandbox = ProcessToolExecutionSandbox()
         tool = MockTool(tool_id="test_file_op", implementation_id="test_file_op")
-        context = _make_context()
+        provenance = _make_provenance()
         caps = _make_caps(
             workspace_root=str(tmp_path),
             read_only=True,
@@ -357,7 +356,7 @@ class TestProcessSandboxFilesystemEnforcement:
             tool=tool,
             parameters={"op": "scratch_write", "filename": "ephemeral_data.txt", "content": "ephemeral"},
             capabilities=caps,
-            context=context,
+            provenance=provenance,
         )
 
         assert result.success is True
@@ -370,7 +369,7 @@ class TestProcessSandboxFilesystemEnforcement:
     def test_scratch_cleaned_up_on_tool_failure(self, tmp_path: Path) -> None:
         sandbox = ProcessToolExecutionSandbox()
         tool = MockTool(tool_id="test_raise_error", implementation_id="test_raise_error")
-        context = _make_context()
+        provenance = _make_provenance()
         caps = _make_caps(
             workspace_root=str(tmp_path),
             read_only=True,
@@ -381,7 +380,7 @@ class TestProcessSandboxFilesystemEnforcement:
             tool=tool,
             parameters={"message": "fail", "error_type": "ValueError"},
             capabilities=caps,
-            context=context,
+            provenance=provenance,
         )
         assert result.success is False
 
@@ -397,7 +396,7 @@ class TestProcessSandboxFilesystemEnforcement:
     def test_scratch_cleaned_up_on_timeout(self, tmp_path: Path) -> None:
         sandbox = ProcessToolExecutionSandbox()
         tool = MockTool(tool_id="test_sleep", implementation_id="test_sleep")
-        context = _make_context()
+        provenance = _make_provenance()
         caps = _make_caps(
             workspace_root=str(tmp_path),
             read_only=True,
@@ -410,7 +409,7 @@ class TestProcessSandboxFilesystemEnforcement:
                 tool=tool,
                 parameters={"seconds": 5.0},
                 capabilities=caps,
-                context=context,
+                provenance=provenance,
             )
 
         temp_dir = tempfile.gettempdir()
@@ -423,7 +422,7 @@ class TestProcessSandboxFilesystemEnforcement:
     def test_missing_workspace_root_fails_closed(self) -> None:
         sandbox = ProcessToolExecutionSandbox()
         tool = MockTool(tool_id="test_echo", implementation_id="test_echo")
-        context = _make_context()
+        provenance = _make_provenance()
         caps = _make_caps(
             workspace_root="/non_existent_workspace_path_12345",
             read_only=True,
@@ -434,6 +433,6 @@ class TestProcessSandboxFilesystemEnforcement:
                 tool=tool,
                 parameters={"message": "hi"},
                 capabilities=caps,
-                context=context,
+                provenance=provenance,
             )
         assert "Workspace root directory does not exist" in str(exc_info.value)

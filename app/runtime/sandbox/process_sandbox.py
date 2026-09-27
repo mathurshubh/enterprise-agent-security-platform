@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from app.models.execution_capability import ExecutionCapabilities
-from app.models.runtime_context import RuntimeContext
+from app.models.execution_provenance import ExecutionProvenance
 from app.models.sandbox_execution_result import SandboxExecutionResult
 from app.runtime.exceptions import (
     SandboxResourceExhaustedError,
@@ -64,7 +64,7 @@ class ProcessToolExecutionSandbox:
         tool: BaseTool,
         parameters: Mapping[str, Any],
         capabilities: ExecutionCapabilities,
-        context: RuntimeContext,
+        provenance: ExecutionProvenance,
     ) -> SandboxExecutionResult:
         """Execute an authorized tool within the isolated subprocess sandbox."""
         start_monotonic = time.monotonic()
@@ -93,7 +93,7 @@ class ProcessToolExecutionSandbox:
                 tool=tool,
                 parameters=parameters,
                 capabilities=capabilities,
-                context=context,
+                provenance=provenance,
                 implementation_id=implementation_id,
                 workspace_path=workspace_path,
                 scratch_path=scratch_path,
@@ -109,7 +109,7 @@ class ProcessToolExecutionSandbox:
         tool: BaseTool,
         parameters: Mapping[str, Any],
         capabilities: ExecutionCapabilities,
-        context: RuntimeContext,
+        provenance: ExecutionProvenance,
         implementation_id: str,
         workspace_path: Path,
         scratch_path: str | None,
@@ -122,10 +122,10 @@ class ProcessToolExecutionSandbox:
             tool_id=tool.tool_id,
             implementation_id=implementation_id,
             parameters=parameters,
-            grant_id=context.request_id,
-            session_id=context.session_id,
-            agent_id=context.authenticated_agent,
-            request_id=context.request_id,
+            grant_id=provenance.grant_id,
+            session_id=provenance.session_id,
+            agent_id=provenance.agent_id,
+            request_id=provenance.request_id,
             filesystem=capabilities.filesystem.model_dump(),
             scratch_dir=scratch_path,
             network=capabilities.network.model_dump(),

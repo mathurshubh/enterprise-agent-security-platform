@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any, Protocol, runtime_checkable
 
 from app.models.execution_capability import ExecutionCapabilities
+from app.models.execution_provenance import ExecutionProvenance
 from app.models.execution_receipt import (
     ExecutionReceipt,
     ExecutionStatus,
@@ -28,9 +29,14 @@ class ToolExecutionSandboxProtocol(Protocol):
         tool: BaseTool,
         parameters: Mapping[str, Any],
         capabilities: ExecutionCapabilities,
-        context: RuntimeContext,
+        provenance: ExecutionProvenance,
     ) -> SandboxExecutionResult:
-        """Execute an authorized tool within the isolated sandbox environment."""
+        """Execute an authorized tool within the isolated sandbox environment.
+
+        ``provenance`` is derived from the verified grant. The sandbox receives no
+        caller-supplied ``RuntimeContext``: it needs identity only to label the child
+        payload, and unsigned identity has no place at an enforcement boundary.
+        """
         ...
 
 

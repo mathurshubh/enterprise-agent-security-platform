@@ -14,6 +14,7 @@ from app.models.execution_capability import (
     NetworkCapability,
     ResourceLimits,
 )
+from app.models.execution_provenance import ExecutionProvenance
 from app.models.execution_receipt import ExecutionStatus
 from app.models.runtime_context import RuntimeContext
 from app.models.sandbox_execution_result import SandboxExecutionResult
@@ -121,7 +122,7 @@ class StubSandbox:
         tool: BaseTool,
         parameters: dict[str, Any],
         capabilities: ExecutionCapabilities,
-        context: RuntimeContext,
+        provenance: ExecutionProvenance,
     ) -> SandboxExecutionResult:
         self.executions += 1
         self.last_capabilities = capabilities

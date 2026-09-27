@@ -12,7 +12,7 @@ from app.models.execution_capability import (
     ResourceLimits,
 )
 from app.models.execution_grant import ExecutionGrant, GrantState
-from app.models.runtime_context import RuntimeContext
+from app.models.execution_provenance import ExecutionProvenance
 from app.models.sandbox_execution_result import SandboxExecutionResult
 from app.runtime.capability_registry import (
     InMemoryCapabilityProfileRegistry,
@@ -56,7 +56,7 @@ class StubValidSandbox:
         tool: BaseTool,
         parameters: Mapping[str, Any],
         capabilities: ExecutionCapabilities,
-        context: RuntimeContext,
+        provenance: ExecutionProvenance,
     ) -> SandboxExecutionResult:
         return SandboxExecutionResult(
             success=True,

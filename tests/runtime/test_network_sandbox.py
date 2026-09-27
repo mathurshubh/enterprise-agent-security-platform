@@ -40,7 +40,7 @@ from app.models.execution_capability import (
     NetworkEgressMode,
     ResourceLimits,
 )
-from app.models.runtime_context import RuntimeContext
+from app.models.execution_provenance import ExecutionProvenance
 from app.runtime.sandbox.network import NetworkSandboxGuard
 from app.runtime.sandbox.process_sandbox import ProcessToolExecutionSandbox
 from app.tools.base_tool import BaseTool
@@ -69,13 +69,12 @@ class MockTool(BaseTool):
         raise NotImplementedError("Sandbox must execute child runner, not in-process method")
 
 
-def _make_context() -> RuntimeContext:
-    return RuntimeContext(
-        session_id="sess-net-test",
-        authenticated_agent="agent-net-test",
-        request_id="req-net-test",
-        user_id="user-net-test",
-        principal="principal-net-test",
+def _make_provenance() -> ExecutionProvenance:
+    return ExecutionProvenance(
+        grant_id="grant-1",
+        agent_id="agent-1",
+        session_id="sess-1",
+        request_id="req-1",
     )
 
 
@@ -185,14 +184,14 @@ class TestProcessSandboxNetworkEnforcement:
     def test_disabled_mode_denies_tcp_connection(self) -> None:
         sandbox = ProcessToolExecutionSandbox()
         tool = MockTool(tool_id="test_network_op", implementation_id="test_network_op")
-        context = _make_context()
+        provenance = _make_provenance()
         caps = _make_caps(network_mode=NetworkEgressMode.DISABLED)
 
         result = sandbox.execute(
             tool=tool,
             parameters={"op": "tcp_connect", "host": "1.1.1.1", "port": 80},
             capabilities=caps,
-            context=context,
+            provenance=provenance,
         )
 
         assert result.success is False
@@ -202,14 +201,14 @@ class TestProcessSandboxNetworkEnforcement:
     def test_disabled_mode_denies_udp_sendto(self) -> None:
         sandbox = ProcessToolExecutionSandbox()
         tool = MockTool(tool_id="test_network_op", implementation_id="test_network_op")
-        context = _make_context()
+        provenance = _make_provenance()
         caps = _make_caps(network_mode=NetworkEgressMode.DISABLED)
 
         result = sandbox.execute(
             tool=tool,
             parameters={"op": "udp_send", "host": "1.1.1.1", "port": 53},
             capabilities=caps,
-            context=context,
+            provenance=provenance,
         )
 
         assert result.success is False
@@ -219,7 +218,7 @@ class TestProcessSandboxNetworkEnforcement:
     def test_loopback_destinations_denied_in_subprocess(self) -> None:
         sandbox = ProcessToolExecutionSandbox()
         tool = MockTool(tool_id="test_network_op", implementation_id="test_network_op")
-        context = _make_context()
+        provenance = _make_provenance()
         # Even if allowlist mistakenly contained loopback, process guard blocks it
         caps = _make_caps(
             network_mode=NetworkEgressMode.ALLOWLIST,
@@ -230,7 +229,7 @@ class TestProcessSandboxNetworkEnforcement:
             tool=tool,
             parameters={"op": "tcp_connect", "host": "127.0.0.1", "port": 8000},
             capabilities=caps,
-            context=context,
+            provenance=provenance,
         )
 
         assert result.success is False
@@ -241,7 +240,7 @@ class TestProcessSandboxNetworkEnforcement:
     def test_cloud_metadata_denied_in_subprocess(self) -> None:
         sandbox = ProcessToolExecutionSandbox()
         tool = MockTool(tool_id="test_network_op", implementation_id="test_network_op")
-        context = _make_context()
+        provenance = _make_provenance()
         caps = _make_caps(
             network_mode=NetworkEgressMode.ALLOWLIST,
             destinations=("169.254.169.254:80",),
@@ -251,7 +250,7 @@ class TestProcessSandboxNetworkEnforcement:
             tool=tool,
             parameters={"op": "tcp_connect", "host": "169.254.169.254", "port": 80},
             capabilities=caps,
-            context=context,
+            provenance=provenance,
         )
 
         assert result.success is False
@@ -262,7 +261,7 @@ class TestProcessSandboxNetworkEnforcement:
     def test_alternate_ip_representations_denied_in_subprocess(self) -> None:
         sandbox = ProcessToolExecutionSandbox()
         tool = MockTool(tool_id="test_network_op", implementation_id="test_network_op")
-        context = _make_context()
+        provenance = _make_provenance()
         caps = _make_caps(network_mode=NetworkEgressMode.ALLOWLIST, destinations=("2130706433:80",))
 
         # Dword integer representation for 127.0.0.1
@@ -270,7 +269,7 @@ class TestProcessSandboxNetworkEnforcement:
             tool=tool,
             parameters={"op": "tcp_connect", "host": "2130706433", "port": 80},
             capabilities=caps,
-            context=context,
+            provenance=provenance,
         )
 
         assert result.success is False
@@ -280,14 +279,14 @@ class TestProcessSandboxNetworkEnforcement:
     def test_unix_domain_sockets_denied_by_default_in_subprocess(self) -> None:
         sandbox = ProcessToolExecutionSandbox()
         tool = MockTool(tool_id="test_network_op", implementation_id="test_network_op")
-        context = _make_context()
+        provenance = _make_provenance()
         caps = _make_caps(network_mode=NetworkEgressMode.ALLOWLIST, destinations=("api.example.com:443",))
 
         result = sandbox.execute(
             tool=tool,
             parameters={"op": "unix_connect", "path": "/var/run/docker.sock"},
             capabilities=caps,
-            context=context,
+            provenance=provenance,
         )
 
         assert result.success is False
@@ -298,14 +297,14 @@ class TestProcessSandboxNetworkEnforcement:
     def test_listener_bind_denied_by_default_in_subprocess(self) -> None:
         sandbox = ProcessToolExecutionSandbox()
         tool = MockTool(tool_id="test_network_op", implementation_id="test_network_op")
-        context = _make_context()
+        provenance = _make_provenance()
         caps = _make_caps(network_mode=NetworkEgressMode.ALLOWLIST, destinations=("api.example.com:443",))
 
         result = sandbox.execute(
             tool=tool,
             parameters={"op": "bind_listener", "host": "0.0.0.0", "port": 8080},
             capabilities=caps,
-            context=context,
+            provenance=provenance,
         )
 
         assert result.success is False
@@ -333,7 +332,7 @@ class TestProcessSandboxNetworkEnforcement:
         try:
             sandbox = ProcessToolExecutionSandbox()
             tool = MockTool(tool_id="test_network_op", implementation_id="test_network_op")
-            context = _make_context()
+            provenance = _make_provenance()
             # Allow initial destination, but redirect to metadata must be blocked
             caps = _make_caps(
                 network_mode=NetworkEgressMode.ALLOWLIST,
@@ -348,7 +347,7 @@ class TestProcessSandboxNetworkEnforcement:
                     "timeout": 2.0,
                 },
                 capabilities=caps,
-                context=context,
+                provenance=provenance,
             )
 
             # Execution must fail closed because either connect to 127.0.0.1 or redirect to 169.254 is blocked
@@ -362,7 +361,7 @@ class TestProcessSandboxNetworkEnforcement:
     def test_proxy_environment_variables_scrubbed_from_child_environment(self) -> None:
         sandbox = ProcessToolExecutionSandbox()
         tool = MockTool(tool_id="test_env_dump", implementation_id="test_env_dump")
-        context = _make_context()
+        provenance = _make_provenance()
         # Attempt to inject proxy environment variables
         caps = _make_caps(
             network_mode=NetworkEgressMode.DISABLED,
@@ -377,7 +376,7 @@ class TestProcessSandboxNetworkEnforcement:
             tool=tool,
             parameters={"keys": ["HTTP_PROXY", "https_proxy", "NO_PROXY", "ALL_PROXY"]},
             capabilities=caps,
-            context=context,
+            provenance=provenance,
         )
 
         assert result.success is True
@@ -417,14 +416,14 @@ class TestProcessSandboxNetworkEnforcement:
         try:
             sandbox = ProcessToolExecutionSandbox()
             tool = MockTool(tool_id="test_echo", implementation_id="test_echo")
-            context = _make_context()
+            provenance = _make_provenance()
             caps = _make_caps(network_mode=NetworkEgressMode.DISABLED)
 
             result = sandbox.execute(
                 tool=tool,
                 parameters={"message": f"parent_fd_{parent_fd}"},
                 capabilities=caps,
-                context=context,
+                provenance=provenance,
             )
 
             assert result.success is True
