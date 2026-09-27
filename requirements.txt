@@ -44,11 +44,11 @@ h11==0.16.0
     #   uvicorn
 httpcore==1.0.9
     # via httpx
-httpcore2==2.13.0
+httpcore2==2.13.1
     # via httpx2
 httpx==0.28.1
     # via google-genai
-httpx2==2.13.0
+httpx2==2.13.1
     # via -r requirements.in
 idna==3.19
     # via
