@@ -107,8 +107,11 @@ def build_runtime(
             status=AgentStatus.ACTIVE,
         )
     )
-    tool_service = create_test_tool_service(tool_registry=ToolRegistry())
-    register_default_tools(tool_service)
+    tool_registry = ToolRegistry()
+    tool_service = create_test_tool_service(tool_registry=tool_registry)
+    # The registry is a separate argument: without it the executable tool instances are
+    # never registered, so no capability profiles are derived for them.
+    register_default_tools(tool_service, tool_registry)
 
     risk_service = RiskService()
     findings = findings_service or FindingsService()
@@ -128,6 +131,10 @@ def build_runtime(
         risk_service=risk_service,
         response_service=ResponseService(),
         audit_service=create_test_audit_service(),
+        # ADR-032: the registry is what capability profiles are derived from, so a
+        # runtime without it issues no executable grants. Production passes it
+        # (runtime_bootstrap), and this factory claims to wire one the same way.
+        tool_registry=tool_registry,
         execution_authority=ExecutionAuthority(),
         findings_service=findings,
         agent_service=agent_service,

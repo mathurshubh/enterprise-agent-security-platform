@@ -946,26 +946,40 @@ class RuntimeService:
         # transitions (recovery or suspension) fail closed without grant issuance.
         authorization = None
         if self._execution_authority is not None and binding is not None:
+            # ADR-032: an executable grant must carry an explicit capability binding.
+            # The executor refuses a profile-less grant, but by then the pipeline has
+            # already concluded ALLOW, leaving a decision that can never be enforced —
+            # "allowed, never executed". Capability binding is validated here so the
+            # decision and what is enforceable agree. The executor still verifies the
+            # binding independently; moving validation earlier adds a gate rather than
+            # replacing one.
             cap_profile_id = None
             cap_digest = None
-            if self._capability_registry is not None:
-                profile_id = f"profile-{tool_id}"
-                if self._capability_registry.exists(profile_id):
-                    caps = self._capability_registry.resolve_profile(profile_id)
-                    cap_profile_id = caps.capability_profile_id
-                    cap_digest = caps.compute_digest()
+            profile_id = f"profile-{tool_id}"
+            if self._capability_registry is not None and self._capability_registry.exists(
+                profile_id
+            ):
+                caps = self._capability_registry.resolve_profile(profile_id)
+                cap_profile_id = caps.capability_profile_id
+                cap_digest = caps.compute_digest()
 
-            authorization = self._execution_authority.issue(
-                binding,
-                final_decision,
-                agent_id=agent_id,
-                session_id=session_id,
-                expected_epoch=context_epoch,
-                capability_profile_id=cap_profile_id,
-                capability_digest=cap_digest,
-            )
-            if authorization is None and final_decision == Decision.ALLOW:
-                final_decision = Decision.DENY
+            if cap_profile_id is None:
+                # Fail closed without issuing: a tool with no capability profile has no
+                # containment to execute inside.
+                if final_decision == Decision.ALLOW:
+                    final_decision = Decision.DENY
+            else:
+                authorization = self._execution_authority.issue(
+                    binding,
+                    final_decision,
+                    agent_id=agent_id,
+                    session_id=session_id,
+                    expected_epoch=context_epoch,
+                    capability_profile_id=cap_profile_id,
+                    capability_digest=cap_digest,
+                )
+                if authorization is None and final_decision == Decision.ALLOW:
+                    final_decision = Decision.DENY
 
         recorded_event.final_decision = final_decision
         self._session_service.update_event_final_decision(

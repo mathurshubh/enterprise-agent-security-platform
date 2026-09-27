@@ -525,3 +525,113 @@ def test_http_decision_telemetry_carries_resource_and_parameter_hash(
     assert finalized[0].decision == Decision.DENY
     assert finalized[0].resource_target == PROTECTED_FILE
     assert finalized[0].parameter_hash == compute_parameter_hash(parameters)
+
+
+# ---------------------------------------------------------------------------
+# v0.17.1 — capability binding must agree with the decision (F-005, F-008)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.security_invariant
+def test_invariant_an_allow_is_not_issued_without_a_capability_binding(
+    build_runtime,
+) -> None:
+    """A decision that cannot be enforced must not be represented as ALLOW.
+
+    Capability profiles are derived from the tool registry when ``RuntimeService`` is
+    constructed, so a tool that is authorizable but has no profile produced an ALLOW
+    plus a grant carrying ``capability_profile_id=None``. The executor refused that
+    grant correctly, but the pipeline had already concluded ALLOW and issued authority,
+    leaving a request that reads as "allowed, never executed" — a decision the platform
+    could never enforce.
+
+    Reproduced through the real pipeline rather than by stubbing the registry: this is
+    the wiring in which the gap actually occurs.
+    """
+    env = build_runtime()  # no workspace: no tool instances, so no capability profiles
+    assert env.runtime.capability_registry.exists("profile-file_read") is False
+
+    result = env.runtime.execute(
+        session_id="session-no-profile",
+        agent_id=env.agent_id,
+        tool_id="file_read",
+        resource=BENIGN_FILE,
+        parameters={"path": BENIGN_FILE},
+    )
+
+    assert result.event.decision == Decision.ALLOW, (
+        "authorization itself still passes; the refusal is about containment"
+    )
+    assert result.event.final_decision == Decision.DENY
+    assert result.authorization is None, "no executable authority may be issued"
+
+
+@pytest.mark.security_invariant
+def test_invariant_no_grant_is_issued_when_containment_is_unavailable(
+    build_runtime,
+) -> None:
+    """The authority must not be asked to issue at all, so nothing outstanding exists
+    that a later code path could pick up."""
+    env = build_runtime()
+
+    env.runtime.execute(
+        session_id="session-no-profile",
+        agent_id=env.agent_id,
+        tool_id="file_read",
+        resource=BENIGN_FILE,
+        parameters={"path": BENIGN_FILE},
+    )
+
+    assert env.execution_authority.outstanding_grant_count == 0
+
+
+@pytest.mark.security_regression
+def test_a_tool_with_a_capability_profile_is_still_authorized(
+    build_runtime, security_workspace: Path
+) -> None:
+    """The fail-closed gate must not deny the ordinary case."""
+    env = build_runtime(workspace=security_workspace)
+    assert env.runtime.capability_registry.exists("profile-file_read") is True
+
+    result = env.runtime.execute(
+        session_id="session-ok",
+        agent_id=env.agent_id,
+        tool_id="file_read",
+        resource=BENIGN_FILE,
+        parameters={"path": BENIGN_FILE},
+    )
+
+    assert result.event.final_decision == Decision.ALLOW
+    assert result.authorization is not None
+    assert result.authorization.capability_profile_id == "profile-file_read"
+
+
+@pytest.mark.security_invariant
+def test_invariant_the_executor_still_verifies_the_capability_binding(
+    build_runtime, security_workspace: Path
+) -> None:
+    """Defense in depth: validating earlier adds a gate, it does not replace one.
+
+    A grant whose capability digest does not match the resolved profile is still
+    refused at the execution boundary, so the earlier check is not load-bearing alone.
+    """
+    from app.runtime.exceptions import CapabilityDigestMismatchError
+
+    env = build_runtime(workspace=security_workspace)
+    grant = env.execution_authority.issue(
+        ExecutionBinding.from_operation("file_read", {"path": BENIGN_FILE}),
+        Decision.ALLOW,
+        agent_id=env.agent_id,
+        session_id="session-tampered",
+        capability_profile_id="profile-file_read",
+        capability_digest="0" * 64,
+    )
+    executor = DefaultToolExecutor(
+        authority=env.execution_authority,
+        sandbox=_RegressionSandbox(),
+        capability_registry=env.runtime.capability_registry,
+    )
+    descriptor = env.tool_registry.resolve("file_read")
+
+    with pytest.raises(CapabilityDigestMismatchError):
+        executor.execute_descriptor(descriptor, {"path": BENIGN_FILE}, grant=grant)

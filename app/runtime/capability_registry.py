@@ -19,16 +19,31 @@ def verify_capability_binding(
     """Verify that a resolved ExecutionCapabilities instance matches the grant's bound capability contract.
 
     Invariants (ADR-032):
-    1. If grant specifies capability_profile_id, it must match capabilities.capability_profile_id.
-    2. If grant specifies capability_digest, the actual computed SHA-256 digest of
+    1. A grant must carry a capability_profile_id. An unbound grant is refused: a
+       capability binding verification that accepts "no binding" verifies nothing.
+    2. capability_profile_id must match capabilities.capability_profile_id.
+    3. If grant specifies capability_digest, the actual computed SHA-256 digest of
        capabilities must match grant.capability_digest exactly.
-    3. Any mismatch fails closed with CapabilityDigestMismatchError.
+    4. Any mismatch fails closed.
+
+    The executor refuses a profile-less grant before reaching here, so this is defense
+    in depth for any other caller. Note for ADR-031 approval resumption: a persisted
+    ExecutionGrant carrying no capability fields is not executable under this rule,
+    which is the intended outcome — it has no capability binding to enforce.
 
     Raises:
+        CapabilityProfileNotFoundError: If the grant carries no capability_profile_id.
         CapabilityDigestMismatchError: If profile_id or computed digest does not match.
     """
     grant_profile_id = getattr(grant, "capability_profile_id", None)
-    if grant_profile_id is not None and grant_profile_id != capabilities.capability_profile_id:
+    if grant_profile_id is None:
+        raise CapabilityProfileNotFoundError(
+            "Grant carries no capability profile binding, so its capabilities cannot "
+            "be verified",
+            tool_id=tool_id,
+        )
+
+    if grant_profile_id != capabilities.capability_profile_id:
         raise CapabilityDigestMismatchError(
             f"Capability profile mismatch: grant bound to '{grant_profile_id}', "
             f"but resolved profile is '{capabilities.capability_profile_id}'",

@@ -198,7 +198,21 @@ class TestCapabilityBindingVerification:
         assert exc_info.value.actual_digest == caps.compute_digest()
         assert exc_info.value.tool_id == "file_read"
 
-    def test_grant_without_capability_fields_passes_for_backwards_compatibility(self) -> None:
+    def test_grant_without_capability_fields_fails_closed(self) -> None:
+        """An unbound grant is refused rather than accepted (F-008, v0.17.1).
+
+        This previously passed deliberately, for backwards compatibility with grants
+        carrying no capability fields. But a capability binding verification that accepts
+        "no binding" verifies nothing: the profile comparison was conditional on the
+        grant specifying a profile, so the one grant that most needed checking was the
+        one that skipped the check.
+
+        The executor refuses a profile-less grant upstream, so this was unreachable in
+        production. It is fixed in the helper so any other caller inherits the same
+        fail-closed answer. ADR-031 note: a persisted ExecutionGrant with no capability
+        fields is consequently not executable, which is intended — it has no capability
+        binding to enforce.
+        """
         caps = _make_sample_capabilities("profile-alpha")
 
         from datetime import datetime, timezone
@@ -219,5 +233,5 @@ class TestCapabilityBindingVerification:
             # capability_profile_id and capability_digest are None
         )
 
-        # Must not raise
-        verify_capability_binding(grant, caps, tool_id="file_read")
+        with pytest.raises(CapabilityProfileNotFoundError, match="no capability profile"):
+            verify_capability_binding(grant, caps, tool_id="file_read")
