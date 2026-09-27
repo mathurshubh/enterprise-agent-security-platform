@@ -12,6 +12,10 @@ from app.models.execution_binding import (
     ExecutionBinding,
     ExecutionBindingValidationError,
 )
+from app.models.execution_capability import (
+    ExecutionCapabilities,
+    FilesystemCapability,
+)
 from app.models.response_action import (
     ResponseAction,
     ResponseType,
@@ -21,6 +25,7 @@ from app.models.risk_assessment import (
     RiskLevel,
 )
 from app.models.runtime_result import RuntimeResult
+from app.models.sandbox_execution_result import SandboxExecutionResult
 from app.models.session_event import SessionEvent
 from app.models.tool_capability import ToolCapability
 from app.models.tool_governance import ToolGovernance
@@ -35,6 +40,7 @@ from app.registry.tool_registry import (
     ToolNotRegisteredError,
     ToolRegistry,
 )
+from app.runtime.capability_registry import InMemoryCapabilityProfileRegistry
 from app.runtime.execution_authority import (
     ExecutionAuthority,
     ExecutionBindingError,
@@ -127,7 +133,17 @@ class StubRuntimeService(RuntimeExecutor):
         self._response_type = response_type
         self._issue_grants = issue_grants
         self.execution_authority = ExecutionAuthority()
+        self.capability_registry = InMemoryCapabilityProfileRegistry()
         self.calls: list[dict[str, object]] = []
+
+        class _StubExecutionSandbox:
+            def execute(self, *, tool, parameters, capabilities, provenance):
+                return SandboxExecutionResult(
+                    success=True,
+                    output=tool.execute(dict(parameters)),
+                )
+
+        self.sandbox = _StubExecutionSandbox()
 
     def execute(
         self,
@@ -164,10 +180,18 @@ class StubRuntimeService(RuntimeExecutor):
             except ExecutionBindingValidationError:
                 binding = None
             if binding is not None:
+                profile_id = f"profile-{tool_id}"
+                caps = ExecutionCapabilities(
+                    capability_profile_id=profile_id,
+                    filesystem=FilesystemCapability(workspace_root="/tmp", read_only=True),
+                )
+                self.capability_registry.register_profile(caps)
                 authorization = self.execution_authority.issue(
                     binding,
                     self._decision,
-                    agent_id=agent_id,
+                    agent_id=agent_id, session_id="session-1",
+                    capability_profile_id=profile_id,
+                    capability_digest=caps.compute_digest(),
                 )
 
         return RuntimeResult(

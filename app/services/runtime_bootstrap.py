@@ -18,6 +18,7 @@ from app.policy.policy_engine import PolicyEngine
 from app.registry.tool_registry import ToolRegistry
 from app.repositories.in_memory.tool_repository import InMemoryToolRepository
 from app.repositories.interfaces.tool_repository import ToolRepository
+from app.runtime.contracts import ExecutionEvidenceStoreProtocol
 from app.runtime.execution_authority import ExecutionAuthority
 from app.services.agent_lock_manager import AgentLockManager
 from app.services.agent_service import AgentNotFoundError, AgentService
@@ -150,6 +151,7 @@ def bootstrap_runtime_service(
     execution_authority: ExecutionAuthority | None = None,
     risk_aggregator: RiskAggregator | None = None,
     lock_manager: AgentLockManager | None = None,
+    evidence_store: ExecutionEvidenceStoreProtocol | None = None,
 ) -> RuntimeService:
     """Canonical bootstrapping implementation for RuntimeService and dependencies."""
     register_default_agent(agent_service, agent_id)
@@ -200,4 +202,5 @@ def bootstrap_runtime_service(
         # default rather than leaving the caller to produce an unusable runtime.
         risk_aggregator=risk_aggregator or RiskAggregator(),
         lock_manager=lock_manager,
+        evidence_store=evidence_store,
     )

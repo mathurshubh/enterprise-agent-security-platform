@@ -23,14 +23,24 @@ class RuntimeExecutionGrant(BaseModel):
     Timestamps come from the issuing authority's monotonic clock and are meaningful
     only inside the issuing process. That is intentional: grants are never
     persisted and never cross a process boundary.
+
+    ``agent_id`` and ``session_id`` are the authoritative execution identity. They are
+    fixed by the authority at issuance, covered by ``signature``, and are the only
+    source the executor uses to attribute execution evidence. A caller-supplied
+    ``RuntimeContext`` is unsigned and therefore correlation metadata, never identity:
+    this is the same parity the persisted ADR-031 ``ExecutionGrant`` already enforces.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     grant_id: str = Field(min_length=1)
     authority_id: str = Field(min_length=1)
+    agent_id: str = Field(min_length=1)
+    session_id: str = Field(min_length=1)
     decision: Literal[Decision.ALLOW] = Decision.ALLOW
     binding: ExecutionBinding
     issued_at: float
     expires_at: float
     signature: str = Field(min_length=1)
+    capability_profile_id: str | None = None
+    capability_digest: str | None = None

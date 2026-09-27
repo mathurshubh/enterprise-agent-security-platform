@@ -252,6 +252,10 @@ Production ToolExecutor
 
 **NEW-003 remains open** until execution evidence is wired into the production execution boundary and its lifecycle is verified end to end.
 
+> **Status update (v0.17.2): closed.** The condition above has since been met. See the
+> amendment at the end of this document; the paragraphs above are retained as the record
+> of the finding as it stood when this ADR was accepted.
+
 ---
 
 # Consequences
@@ -310,7 +314,7 @@ One limit is worth stating explicitly: **fixture parity is not production parity
 | Execution receipts | Implemented capability, not a production feature | Wire the production execution path |
 | Corpus / production fixture parity | Standing requirement | Done — retention parity closed (M5-B.4) |
 | M-4 | Remains open, decomposed store by store | Define per-store lifecycle semantics |
-| NEW-003 | Remains open | Production evidence wiring plus corpus verification |
+| NEW-003 | **Closed in v0.17.2** | Production evidence wiring plus corpus verification — see the amendment below |
 
 Each follow-on is an independently reviewable change. None is made by this ADR.
 
@@ -321,3 +325,54 @@ Each follow-on is an independently reviewable change. None is made by this ADR.
 This decision covers the materialized risk projection, posture lifecycle states, reconciliation authority, the enforcement epoch watermark, evidence sequencing, and the fail-closed dependency of authorization on projection health.
 
 It does not remove the legacy fallback, alter the B-5 guard, resolve M-4 or NEW-003, introduce persistence, or change detection, risk weights, response semantics, or the authorization model established in [ADR-025](ADR-025-management-plane-authorization.md). Each is recorded above as a decision or an open status to be actioned as its own change.
+
+---
+
+# Amendment: NEW-003 Closed (v0.17.2)
+
+**Status:** Accepted
+
+**Date:** 2026-09-28
+
+**Amends:** the NEW-003 open status recorded above.
+
+NEW-003 was the inconsistency where a request could be audited `ALLOW` and then obtain
+no grant, so the audit record claimed an execution that never happened — and, more
+broadly, that execution receipts were a mechanism no running code path invoked.
+
+This amendment does not revise that history. The evidence infrastructure did not exist
+from the beginning: it was implemented, then wired, and the distinction is the substance
+of the finding.
+
+## How it was closed
+
+| Stage | Change |
+|---|---|
+| v0.17.1 | Execution provenance derived from the verified grant; the `"unspecified"` identity fallback removed; the decision/grant inconsistency closed at issuance, so an `ALLOW` is no longer produced alongside an unusable capability binding |
+| v0.17.2 Steps 1–7 | Evidence model and lifecycle completed: correlation chain, per-receipt reconciliation deadline, store contract, reconciliation concurrency, evidence-failure semantics, bounded retention, lifecycle counters |
+| v0.17.2 Step 8 | The live composition root explicitly wires the evidence store through to the executor — the omission this finding named |
+| v0.17.2 Step 9 | Scenario evidence isolated from live evidence, extending ADR-013 M2a to the evidence plane |
+| v0.17.2 Step 10 | Startup reconciliation wired ahead of readiness, so no live execution enters the boundary with stale `STARTED` receipts unresolved |
+
+The contract is documented in
+[ADR-032 §12](ADR-032-runtime-tool-execution-isolation.md). Closure rests on executed
+acceptance evidence rather than on the dependency being present: the corpus drives real
+executions through the live composition chain and asserts the receipt appears in the
+externally supplied store, since asserting that a store was passed to a constructor
+would pass against a chain that never writes to it.
+
+## What this closure does not include
+
+**Relational persistence of execution evidence is explicitly out of scope.** The evidence
+plane is production-wired, not durable: its persistence characteristics are those of the
+configured store implementation, which is currently in-memory. A process restart
+therefore begins with an empty plane.
+
+"Production evidence wired" must not be read as "durable across process restart".
+Execution evidence is not part of the durable security state plane governed by
+[ADR-030](ADR-030-durable-state-repository-architecture.md), and SQL persistence of
+execution receipts remains an open question rather than an implied consequence of this
+closure. See [ADR-032 §12.10](ADR-032-runtime-tool-execution-isolation.md).
+
+Also unchanged by this closure: M-4, the ADR-023 in-process `ToolRegistry` residual risk,
+and the execution API proposed under the ADR-023 amendment, which remains `Proposed`.

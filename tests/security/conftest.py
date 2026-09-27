@@ -73,6 +73,7 @@ def build_runtime():
         risk_tier: RiskTier = RiskTier.HIGH,
         execution_authority: ExecutionAuthority | None = None,
         risk_aggregator: RiskAggregator | None = None,
+        evidence_store=None,
     ) -> SimpleNamespace:
         agent_service = create_test_agent_service()
         agent_service.register_agent(
@@ -141,6 +142,9 @@ def build_runtime():
             # `app/api/dependencies.py` no longer uses.
             risk_aggregator=aggregator,
             lock_manager=lock_manager,
+            # ADR-032 §12: supplied by the caller so a test can assert evidence reaches
+            # the store it injected, rather than one the fixture created.
+            evidence_store=evidence_store,
         )
 
         return SimpleNamespace(
@@ -153,6 +157,7 @@ def build_runtime():
             risk_service=risk_service,
             tool_registry=tool_registry,
             execution_authority=authority,
+            evidence_store=evidence_store,
             retention_policy=session_service.retention_policy,
             risk_aggregator=aggregator,
             lock_manager=lock_manager,

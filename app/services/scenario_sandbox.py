@@ -13,6 +13,8 @@ start from the same state and grade identically.
 
 from dataclasses import dataclass
 
+from app.config.settings import get_max_terminal_execution_receipts
+from app.models.execution_evidence_retention import ExecutionEvidenceRetentionPolicy
 from app.registry.tool_registry import ToolRegistry
 from app.repositories.in_memory.agent_repository import InMemoryAgentRepository
 from app.repositories.in_memory.audit_evidence_repository import (
@@ -26,6 +28,7 @@ from app.repositories.in_memory.tool_repository import InMemoryToolRepository
 from app.runtime.execution_authority import ExecutionAuthority
 from app.services.agent_service import AgentService
 from app.services.audit_service import AuditService
+from app.services.execution_evidence_service import ExecutionEvidenceService
 from app.services.findings_service import FindingsService
 from app.services.risk_service import RiskService
 from app.services.runtime_bootstrap import (
@@ -58,6 +61,7 @@ class ScenarioSandbox:
     audit_service: AuditService
     tool_registry: ToolRegistry
     execution_authority: ExecutionAuthority
+    evidence_store: ExecutionEvidenceService
 
 
 def build_scenario_sandbox(agent_id: str = SCENARIO_AGENT_ID) -> ScenarioSandbox:
@@ -76,6 +80,17 @@ def build_scenario_sandbox(agent_id: str = SCENARIO_AGENT_ID) -> ScenarioSandbox
     risk_service = RiskService()
     tool_registry = ToolRegistry()
     execution_authority = ExecutionAuthority()
+    # ADR-013 M2a: scenario execution evidence is real execution evidence, but it is not
+    # live production security state. This store belongs to one throwaway run: it is
+    # constructed here rather than sourced from anywhere, so there is no path — no
+    # discovery, no global, no "use the live store if none was supplied" — by which a
+    # scenario can write into live evidence or read it. Nothing promotes, copies or
+    # synchronises receipts between the two planes.
+    evidence_store = ExecutionEvidenceService(
+        retention_policy=ExecutionEvidenceRetentionPolicy(
+            max_terminal_receipts=get_max_terminal_execution_receipts(),
+        )
+    )
 
     runtime = bootstrap_runtime_service(
         agent_service=agent_service,
@@ -92,6 +107,7 @@ def build_scenario_sandbox(agent_id: str = SCENARIO_AGENT_ID) -> ScenarioSandbox
         # from real runtime activity.
         telemetry_emitter=None,
         execution_authority=execution_authority,
+        evidence_store=evidence_store,
     )
 
     return ScenarioSandbox(
@@ -103,4 +119,5 @@ def build_scenario_sandbox(agent_id: str = SCENARIO_AGENT_ID) -> ScenarioSandbox
         audit_service=audit_service,
         tool_registry=tool_registry,
         execution_authority=execution_authority,
+        evidence_store=evidence_store,
     )

@@ -8,6 +8,9 @@ Security invariants
    verifies, and the requested operation must exactly match the grant's binding.
 3. Every refusal fails closed with ``ExecutionBindingError`` and a reason code, and
    a refused attempt never consumes the grant.
+4. Execution identity (``agent_id``, ``session_id``) is fixed at issuance and covered
+   by the grant signature. The authority is the sole source of that identity, so no
+   downstream component has to trust a caller's claim about who is executing.
 
 Key material
 ------------
@@ -25,7 +28,7 @@ import time
 from collections.abc import Callable
 from enum import Enum
 from threading import RLock
-from typing import NamedTuple
+from typing import Any, NamedTuple
 from uuid import uuid4
 
 from app.models.audit_event import Decision
@@ -39,10 +42,11 @@ DEFAULT_GRANT_TTL_SECONDS = 30.0
 
 
 class _OutstandingGrant(NamedTuple):
-    """An issued, unconsumed grant and the agent it was issued for."""
+    """An issued, unconsumed grant and the identity it was issued for."""
 
     expires_at: float
     agent_id: str
+    session_id: str
 
 
 class ExecutionRefusalReason(str, Enum):
@@ -59,6 +63,7 @@ class ExecutionRefusalReason(str, Enum):
     TOOL_MISMATCH = "TOOL_MISMATCH"
     RESOURCE_MISMATCH = "RESOURCE_MISMATCH"
     PARAMETER_MISMATCH = "PARAMETER_MISMATCH"
+    IDENTITY_MISMATCH = "IDENTITY_MISMATCH"
     INVALID_REQUEST = "INVALID_REQUEST"
 
 
@@ -129,9 +134,16 @@ class ExecutionAuthority:
         decision: Decision,
         *,
         agent_id: str,
+        session_id: str,
         expected_epoch: int | None = None,
+        capability_profile_id: str | None = None,
+        capability_digest: str | None = None,
     ) -> RuntimeExecutionGrant | None:
         """Issue a grant for ``binding`` if and only if it may be authorized.
+
+        ``agent_id`` and ``session_id`` are the authenticated execution identity. They
+        are bound into the grant and covered by its signature here, at issuance, so the
+        executor never has to trust a caller's claim about who is executing.
 
         Conditions:
         1. ``decision`` is a final ALLOW.
@@ -159,7 +171,13 @@ class ExecutionAuthority:
                         if current_epoch != expected_epoch:
                             return None
 
-                        return self._create_grant(binding, agent_id)
+                        return self._create_grant(
+                            binding,
+                            agent_id,
+                            session_id,
+                            capability_profile_id=capability_profile_id,
+                            capability_digest=capability_digest,
+                        )
                 else:
                     persisted_state = self._enforcement_repository.get_state(agent_id)
                     current_epoch = (
@@ -168,12 +186,21 @@ class ExecutionAuthority:
                     if current_epoch != expected_epoch:
                         return None
 
-            return self._create_grant(binding, agent_id)
+            return self._create_grant(
+                binding,
+                agent_id,
+                session_id,
+                capability_profile_id=capability_profile_id,
+                capability_digest=capability_digest,
+            )
 
     def _create_grant(
         self,
         binding: ExecutionBinding,
         agent_id: str,
+        session_id: str,
+        capability_profile_id: str | None = None,
+        capability_digest: str | None = None,
     ) -> RuntimeExecutionGrant:
         now = self._clock()
         self._prune(now)
@@ -186,28 +213,36 @@ class ExecutionAuthority:
             binding,
             now,
             expires_at,
+            agent_id=agent_id,
+            session_id=session_id,
+            capability_profile_id=capability_profile_id,
+            capability_digest=capability_digest,
         )
-        self._outstanding[grant_id] = _OutstandingGrant(expires_at, agent_id)
+        self._outstanding[grant_id] = _OutstandingGrant(expires_at, agent_id, session_id)
 
         return RuntimeExecutionGrant(
             grant_id=grant_id,
             authority_id=self._authority_id,
+            agent_id=agent_id,
+            session_id=session_id,
             binding=binding,
             issued_at=now,
             expires_at=expires_at,
             signature=signature,
+            capability_profile_id=capability_profile_id,
+            capability_digest=capability_digest,
         )
 
-    def verify_and_consume(
+    def verify_grant(
         self,
         grant: object,
         requested: ExecutionBinding,
     ) -> None:
-        """Verify that ``grant`` authorizes exactly ``requested``, then consume it.
+        """Verify that ``grant`` authorizes exactly ``requested`` without consuming it.
 
         Raises:
             ExecutionBindingError: for any reason the grant cannot authorize the
-                requested operation. A refused attempt does not consume the grant.
+                requested operation.
         """
         tool_id = requested.tool_id
 
@@ -237,6 +272,10 @@ class ExecutionAuthority:
             grant.binding,
             grant.issued_at,
             grant.expires_at,
+            agent_id=grant.agent_id,
+            session_id=grant.session_id,
+            capability_profile_id=getattr(grant, "capability_profile_id", None),
+            capability_digest=getattr(grant, "capability_digest", None),
         )
         if not hmac.compare_digest(
             expected_signature.encode("utf-8"),
@@ -263,15 +302,51 @@ class ExecutionAuthority:
                     "grant was revoked before use",
                 )
 
-            if grant.grant_id not in self._outstanding:
+            outstanding = self._outstanding.get(grant.grant_id)
+            if outstanding is None:
                 raise ExecutionBindingError(
                     ExecutionRefusalReason.CONSUMED,
                     tool_id,
                     "grant has already been used",
                 )
 
+            # The signature already covers identity, so a tampered grant is refused as
+            # INVALID_SIGNATURE before reaching here. This cross-check is independent of
+            # the signature: it holds the invariant that a grant's identity is the
+            # identity this authority issued it for, even if a future code path were to
+            # construct a grant outside _create_grant.
+            if (
+                outstanding.agent_id != grant.agent_id
+                or outstanding.session_id != grant.session_id
+            ):
+                raise ExecutionBindingError(
+                    ExecutionRefusalReason.IDENTITY_MISMATCH,
+                    tool_id,
+                    "grant identity does not match the identity it was issued for",
+                )
+
             self._require_exact_match(grant.binding, requested)
-            del self._outstanding[grant.grant_id]
+
+    def consume_grant(self, grant: RuntimeExecutionGrant) -> None:
+        """Atomically consume an outstanding grant."""
+        with self._lock:
+            if grant.grant_id in self._outstanding:
+                del self._outstanding[grant.grant_id]
+
+    def verify_and_consume(
+        self,
+        grant: object,
+        requested: ExecutionBinding,
+    ) -> None:
+        """Verify that ``grant`` authorizes exactly ``requested``, then consume it.
+
+        Raises:
+            ExecutionBindingError: for any reason the grant cannot authorize the
+                requested operation. A refused attempt does not consume the grant.
+        """
+        self.verify_grant(grant, requested)
+        assert isinstance(grant, RuntimeExecutionGrant)
+        self.consume_grant(grant)
 
     def suspend_issuance(self, agent_id: str) -> int:
         """Close grant issuance for an agent and revoke its outstanding grants.
@@ -343,15 +418,32 @@ class ExecutionAuthority:
         binding: ExecutionBinding,
         issued_at: float,
         expires_at: float,
+        *,
+        agent_id: str,
+        session_id: str,
+        capability_profile_id: str | None = None,
+        capability_digest: str | None = None,
     ) -> str:
+        # Identity is signed unconditionally. Optional capability fields are included
+        # only when present, for compatibility with grants that carry no profile; an
+        # unsigned identity on a signed token would look authoritative while remaining
+        # editable, which is worse than carrying no identity at all.
+        payload_dict: dict[str, Any] = {
+            "agent_id": agent_id,
+            "authority_id": authority_id,
+            "binding": binding.canonical_json(),
+            "expires_at": expires_at,
+            "grant_id": grant_id,
+            "issued_at": issued_at,
+            "session_id": session_id,
+        }
+        if capability_profile_id is not None:
+            payload_dict["capability_profile_id"] = capability_profile_id
+        if capability_digest is not None:
+            payload_dict["capability_digest"] = capability_digest
+
         payload = json.dumps(
-            {
-                "authority_id": authority_id,
-                "binding": binding.canonical_json(),
-                "expires_at": expires_at,
-                "grant_id": grant_id,
-                "issued_at": issued_at,
-            },
+            payload_dict,
             sort_keys=True,
             separators=(",", ":"),
             ensure_ascii=False,

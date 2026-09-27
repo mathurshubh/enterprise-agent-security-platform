@@ -79,6 +79,8 @@ class ExecutionGrant(BaseModel):
     expires_at: datetime
     approved_by: str | None = None
     consumed_at: datetime | None = None
+    capability_profile_id: str | None = None
+    capability_digest: str | None = None
 
     @field_validator("execution_parameters", mode="after")
     @classmethod
@@ -113,6 +115,8 @@ class ExecutionGrant(BaseModel):
             expires_at=self.expires_at,
             approved_by=self.approved_by,
             consumed_at=self.consumed_at,
+            capability_profile_id=self.capability_profile_id,
+            capability_digest=self.capability_digest,
         )
         memo[id(self)] = copied
         return copied

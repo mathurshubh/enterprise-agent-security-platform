@@ -41,6 +41,47 @@ def get_default_provider() -> str:
     )
 
 
+MAX_TERMINAL_EXECUTION_RECEIPTS_ENV_VAR = "EXECUTION_EVIDENCE_MAX_TERMINAL_RECEIPTS"
+DEFAULT_MAX_TERMINAL_EXECUTION_RECEIPTS = 10_000
+
+
+def get_max_terminal_execution_receipts() -> int:
+    """Return the configured in-memory execution-history capacity.
+
+    Retention capacity is operational rather than security-sensitive, so it keeps a
+    default: an absent bound is the dangerous state, and a configured one is not. The
+    default derives from a ~20MB in-process budget at a conservative ~2KB per retained
+    receipt; it is an initial operational figure, not a guaranteed memory ceiling, since
+    the footprint also includes the grant index, container overhead and interpreter
+    memory.
+
+    A malformed or out-of-range override fails closed rather than silently falling back
+    to the default, because a deployment that tried to set a bound and failed should not
+    look like one that never set it.
+
+    Raises:
+        ConfigurationError: if the override is not an integer of at least 1.
+    """
+    raw = os.getenv(MAX_TERMINAL_EXECUTION_RECEIPTS_ENV_VAR)
+    if raw is None or not raw.strip():
+        return DEFAULT_MAX_TERMINAL_EXECUTION_RECEIPTS
+
+    try:
+        value = int(raw.strip())
+    except ValueError:
+        raise ConfigurationError(
+            f"{MAX_TERMINAL_EXECUTION_RECEIPTS_ENV_VAR} must be an integer, got "
+            f"'{raw.strip()}'"
+        ) from None
+
+    if value < 1:
+        raise ConfigurationError(
+            f"{MAX_TERMINAL_EXECUTION_RECEIPTS_ENV_VAR} must be at least 1, got {value}"
+        )
+
+    return value
+
+
 def get_jwt_secret_key() -> str:
     """Return the configured JWT signing key, or fail closed.
 

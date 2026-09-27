@@ -4,6 +4,10 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import Any, Protocol, runtime_checkable
 
+from app.models.audit_event import Decision
+from app.models.execution_binding import ExecutionBinding
+from app.models.execution_capability import ExecutionCapabilities
+from app.models.execution_provenance import ExecutionProvenance
 from app.models.execution_receipt import (
     ExecutionReceipt,
     ExecutionStatus,
@@ -11,9 +15,92 @@ from app.models.execution_receipt import (
 )
 from app.models.runtime_context import RuntimeContext
 from app.models.runtime_execution_grant import RuntimeExecutionGrant
+from app.models.sandbox_execution_result import SandboxExecutionResult
 from app.models.tool_descriptor import ToolDescriptor
 from app.models.tool_metadata import ToolMetadata
 from app.tools.base_tool import BaseTool
+
+
+@runtime_checkable
+class ExecutionAuthorityProtocol(Protocol):
+    """Protocol governing the execution trust boundary's authority (ADR-023).
+
+    The executor previously discovered this surface with ``hasattr``, which made the
+    "verification precedes execution" invariant depend on whichever methods the
+    concrete object happened to expose: an authority with ``consume_grant`` but no
+    ``verify_grant`` would have executed with verification silently skipped. Requiring
+    the contract makes the invariant structural rather than incidental.
+    """
+
+    @property
+    def authority_id(self) -> str:
+        """Identifier of this authority, used to reject foreign grants."""
+        ...
+
+    def issue(
+        self,
+        binding: ExecutionBinding,
+        decision: Decision,
+        *,
+        agent_id: str,
+        session_id: str,
+        expected_epoch: int | None = None,
+        capability_profile_id: str | None = None,
+        capability_digest: str | None = None,
+    ) -> RuntimeExecutionGrant | None:
+        """Issue a grant for ``binding`` if and only if it may be authorized."""
+        ...
+
+    def verify_grant(self, grant: object, requested: ExecutionBinding) -> None:
+        """Verify that ``grant`` authorizes exactly ``requested`` without consuming it."""
+        ...
+
+    def consume_grant(self, grant: RuntimeExecutionGrant) -> None:
+        """Atomically consume an outstanding grant."""
+        ...
+
+    def verify_and_consume(self, grant: object, requested: ExecutionBinding) -> None:
+        """Verify that ``grant`` authorizes exactly ``requested``, then consume it."""
+        ...
+
+
+@runtime_checkable
+class ToolExecutionSandboxProtocol(Protocol):
+    """Protocol governing physical tool execution isolation (ADR-032)."""
+
+    def execute(
+        self,
+        *,
+        tool: BaseTool,
+        parameters: Mapping[str, Any],
+        capabilities: ExecutionCapabilities,
+        provenance: ExecutionProvenance,
+    ) -> SandboxExecutionResult:
+        """Execute an authorized tool within the isolated sandbox environment.
+
+        ``provenance`` is derived from the verified grant. The sandbox receives no
+        caller-supplied ``RuntimeContext``: it needs identity only to label the child
+        payload, and unsigned identity has no place at an enforcement boundary.
+        """
+        ...
+
+
+@runtime_checkable
+class CapabilityProfileRegistryProtocol(Protocol):
+    """Protocol governing resolution of immutable ExecutionCapabilities profiles (ADR-032)."""
+
+    def resolve_profile(self, profile_id: str) -> ExecutionCapabilities:
+        """Resolve an ExecutionCapabilities profile by profile_id."""
+        ...
+
+    def register_profile(self, capabilities: ExecutionCapabilities) -> None:
+        """Register an immutable ExecutionCapabilities profile."""
+        ...
+
+    def exists(self, profile_id: str) -> bool:
+        """Whether a profile is registered under ``profile_id``."""
+        ...
+
 
 
 @runtime_checkable
@@ -71,7 +158,11 @@ class ToolExecutorProtocol(Protocol):
 
 @runtime_checkable
 class ExecutionEvidenceStoreProtocol(Protocol):
-    """Authoritative protocol for persisting and querying execution receipts (NEW-003).
+    """Authoritative protocol for persisting and querying execution receipts.
+
+    Invariants enumerated in ADR-032 §12.1. No production path supplies an evidence
+    store today, so these govern an implemented and tested capability that is not yet
+    on the production execution path (ADR-026, NEW-003).
 
     Transition semantics:
     - record_started(): Creates initial STARTED receipt. Rejects if receipt_id or
@@ -90,8 +181,12 @@ class ExecutionEvidenceStoreProtocol(Protocol):
         grant_id: str,
         session_id: str,
         agent_id: str,
+        request_id: str,
         tool_id: str,
         binding_hash: str,
+        capability_profile_id: str,
+        capability_digest: str,
+        declared_timeout_seconds: float,
         started_at: datetime,
         monotonic_start: float | None = None,
     ) -> ExecutionReceipt:
@@ -120,6 +215,16 @@ class ExecutionEvidenceStoreProtocol(Protocol):
         reason: ReconciliationReason,
     ) -> ExecutionReceipt:
         """Reconciliation authority: transition an open (STARTED) receipt to UNKNOWN."""
+        ...
+
+    def get_monotonic_start(self, receipt_id: str) -> float | None:
+        """Monotonic start recorded for an in-flight receipt, or None if unavailable.
+
+        Reconciliation depends on this to evaluate each receipt against its own declared
+        execution budget. ``None`` means the timing evidence is genuinely missing, which
+        is itself a reconcilable condition; a store that cannot answer at all is a
+        contract violation, not a store whose executions are all unrecoverable.
+        """
         ...
 
     def get(self, receipt_id: str) -> ExecutionReceipt | None:

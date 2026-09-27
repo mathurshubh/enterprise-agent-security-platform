@@ -34,6 +34,10 @@ class FileReadTool(BaseTool):
     def metadata(self) -> ToolMetadata:
         return self._metadata
 
+    @property
+    def workspace(self) -> Path:
+        return self._workspace
+
     def execute(
         self,
         parameters: dict[str, Any],

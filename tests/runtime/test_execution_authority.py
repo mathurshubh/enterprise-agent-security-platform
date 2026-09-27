@@ -42,7 +42,7 @@ class TestIssuance:
     def test_non_allow_decisions_never_produce_a_grant(self, decision) -> None:
         authority = ExecutionAuthority()
 
-        assert authority.issue(NOTES, decision, agent_id="agent-1") is None
+        assert authority.issue(NOTES, decision, agent_id="agent-1", session_id="session-1") is None
         assert authority.outstanding_grant_count == 0
 
     def test_every_decision_value_is_classified(self) -> None:
@@ -57,7 +57,7 @@ class TestIssuance:
         clock = FakeClock()
         authority = ExecutionAuthority(clock=clock)
 
-        grant = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1")
+        grant = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1", session_id="session-1")
 
         assert grant is not None
         assert grant.binding == NOTES
@@ -70,14 +70,14 @@ class TestIssuance:
     def test_each_issuance_is_a_distinct_grant(self) -> None:
         authority = ExecutionAuthority()
 
-        first = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1")
-        second = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1")
+        first = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1", session_id="session-1")
+        second = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1", session_id="session-1")
 
         assert first.grant_id != second.grant_id
         assert first.signature != second.signature
 
     def test_grant_model_cannot_represent_a_non_allow_decision(self) -> None:
-        grant = ExecutionAuthority().issue(NOTES, Decision.ALLOW, agent_id="agent-1")
+        grant = ExecutionAuthority().issue(NOTES, Decision.ALLOW, agent_id="agent-1", session_id="session-1")
 
         with pytest.raises(ValidationError):
             RuntimeExecutionGrant(**{**grant.model_dump(), "decision": Decision.DENY})
@@ -91,7 +91,7 @@ class TestIssuance:
 class TestVerification:
     def test_exact_match_is_accepted_and_consumed(self) -> None:
         authority = ExecutionAuthority()
-        grant = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1")
+        grant = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1", session_id="session-1")
 
         authority.verify_and_consume(grant, NOTES)
 
@@ -105,13 +105,13 @@ class TestVerification:
         requested = ExecutionBinding.from_operation(
             "file_read", {"mode": "r", "path": "notes.txt"}
         )
-        grant = authority.issue(authorized, Decision.ALLOW, agent_id="agent-1")
+        grant = authority.issue(authorized, Decision.ALLOW, agent_id="agent-1", session_id="session-1")
 
         authority.verify_and_consume(grant, requested)
 
     def test_replayed_grant_is_rejected(self) -> None:
         authority = ExecutionAuthority()
-        grant = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1")
+        grant = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1", session_id="session-1")
         authority.verify_and_consume(grant, NOTES)
 
         _refused(
@@ -121,7 +121,7 @@ class TestVerification:
 
     def test_different_resource_is_rejected_without_consuming_the_grant(self) -> None:
         authority = ExecutionAuthority()
-        grant = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1")
+        grant = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1", session_id="session-1")
 
         _refused(
             ExecutionRefusalReason.RESOURCE_MISMATCH,
@@ -132,7 +132,7 @@ class TestVerification:
 
     def test_different_tool_is_rejected(self) -> None:
         authority = ExecutionAuthority()
-        grant = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1")
+        grant = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1", session_id="session-1")
         requested = ExecutionBinding.from_operation(
             "directory_list", {"path": "notes.txt"}
         )
@@ -144,7 +144,7 @@ class TestVerification:
 
     def test_additional_parameter_is_rejected(self) -> None:
         authority = ExecutionAuthority()
-        grant = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1")
+        grant = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1", session_id="session-1")
         requested = ExecutionBinding.from_operation(
             "file_read", {"path": "notes.txt", "mode": "raw"}
         )
@@ -156,7 +156,7 @@ class TestVerification:
 
     def test_tampered_binding_invalidates_the_signature(self) -> None:
         authority = ExecutionAuthority()
-        grant = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1")
+        grant = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1", session_id="session-1")
         tampered = grant.model_copy(update={"binding": SECRETS})
 
         _refused(
@@ -166,7 +166,7 @@ class TestVerification:
 
     def test_extended_expiry_invalidates_the_signature(self) -> None:
         authority = ExecutionAuthority()
-        grant = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1")
+        grant = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1", session_id="session-1")
         extended = grant.model_copy(update={"expires_at": grant.expires_at + 3600})
 
         _refused(
@@ -179,6 +179,8 @@ class TestVerification:
         forged = RuntimeExecutionGrant(
             grant_id="grant-forged",
             authority_id=authority.authority_id,
+            agent_id="agent-1",
+            session_id="session-1",
             binding=SECRETS,
             issued_at=0.0,
             expires_at=1e12,
@@ -192,7 +194,7 @@ class TestVerification:
 
     def test_grant_from_a_foreign_authority_is_rejected(self) -> None:
         authority = ExecutionAuthority()
-        foreign = ExecutionAuthority().issue(NOTES, Decision.ALLOW, agent_id="agent-1")
+        foreign = ExecutionAuthority().issue(NOTES, Decision.ALLOW, agent_id="agent-1", session_id="session-1")
 
         _refused(
             ExecutionRefusalReason.FOREIGN_AUTHORITY,
@@ -204,6 +206,8 @@ class TestVerification:
         forged = RuntimeExecutionGrant(
             grant_id="grant-forged",
             authority_id="authoritÿ",
+            agent_id="agent-1",
+            session_id="session-1",
             binding=NOTES,
             issued_at=0.0,
             expires_at=1e12,
@@ -218,7 +222,7 @@ class TestVerification:
     def test_expired_grant_is_rejected(self) -> None:
         clock = FakeClock()
         authority = ExecutionAuthority(ttl_seconds=5.0, clock=clock)
-        grant = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1")
+        grant = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1", session_id="session-1")
         clock.advance(5.0)
 
         _refused(
@@ -229,7 +233,7 @@ class TestVerification:
     def test_grant_is_valid_until_it_expires(self) -> None:
         clock = FakeClock()
         authority = ExecutionAuthority(ttl_seconds=5.0, clock=clock)
-        grant = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1")
+        grant = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1", session_id="session-1")
         clock.advance(4.9)
 
         authority.verify_and_consume(grant, NOTES)
@@ -266,7 +270,7 @@ class TestIssuanceGate:
 
     def test_outstanding_grants_are_revoked(self) -> None:
         authority = ExecutionAuthority()
-        grant = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1")
+        grant = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1", session_id="session-1")
 
         revoked = authority.suspend_issuance("agent-1")
 
@@ -279,9 +283,9 @@ class TestIssuanceGate:
 
     def test_revocation_is_distinguishable_from_consumption(self) -> None:
         authority = ExecutionAuthority()
-        consumed = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1")
+        consumed = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1", session_id="session-1")
         authority.verify_and_consume(consumed, NOTES)
-        revoked = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1")
+        revoked = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1", session_id="session-1")
         authority.suspend_issuance("agent-1")
 
         _refused(
@@ -297,35 +301,35 @@ class TestIssuanceGate:
         authority = ExecutionAuthority()
         authority.suspend_issuance("agent-1")
 
-        assert authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1") is None
+        assert authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1", session_id="session-1") is None
         assert authority.issuance_suspended("agent-1") is True
 
     def test_other_agents_keep_their_authority(self) -> None:
         authority = ExecutionAuthority()
-        other = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-2")
+        other = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-2", session_id="session-1")
 
         authority.suspend_issuance("agent-1")
 
         assert authority.issuance_suspended("agent-2") is False
-        assert authority.issue(SECRETS, Decision.ALLOW, agent_id="agent-2") is not None
+        assert authority.issue(SECRETS, Decision.ALLOW, agent_id="agent-2", session_id="session-1") is not None
         authority.verify_and_consume(other, NOTES)
 
     def test_suspension_is_idempotent(self) -> None:
         authority = ExecutionAuthority()
-        authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1")
+        authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1", session_id="session-1")
 
         assert authority.suspend_issuance("agent-1") == 1
         assert authority.suspend_issuance("agent-1") == 0
 
     def test_reinstatement_reopens_issuance_without_restoring_old_grants(self) -> None:
         authority = ExecutionAuthority()
-        revoked = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1")
+        revoked = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1", session_id="session-1")
         authority.suspend_issuance("agent-1")
 
         authority.resume_issuance("agent-1")
 
         assert authority.issuance_suspended("agent-1") is False
-        assert authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1") is not None
+        assert authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1", session_id="session-1") is not None
         # Reinstatement restores the ability to obtain authority, not the old authority.
         _refused(
             ExecutionRefusalReason.REVOKED,
@@ -335,12 +339,12 @@ class TestIssuanceGate:
     def test_revoked_grants_are_pruned_once_they_expire(self) -> None:
         clock = FakeClock()
         authority = ExecutionAuthority(ttl_seconds=5.0, clock=clock)
-        grant = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1")
+        grant = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1", session_id="session-1")
         authority.suspend_issuance("agent-1")
 
         clock.advance(5.0)
         authority.resume_issuance("agent-1")
-        authority.issue(SECRETS, Decision.ALLOW, agent_id="agent-1")  # triggers pruning
+        authority.issue(SECRETS, Decision.ALLOW, agent_id="agent-1", session_id="session-1")  # triggers pruning
 
         _refused(
             ExecutionRefusalReason.EXPIRED,
@@ -364,7 +368,11 @@ class TestConcurrentSuspension:
 
         with ThreadPoolExecutor(max_workers=2) as executor:
             issuing = executor.submit(
-                authority.issue, NOTES, Decision.ALLOW, agent_id="agent-1"
+                authority.issue,
+                NOTES,
+                Decision.ALLOW,
+                agent_id="agent-1",
+                session_id="session-1",
             )
             suspending = executor.submit(authority.suspend_issuance, "agent-1")
             grant = issuing.result()
@@ -386,7 +394,7 @@ class TestBoundedState:
         clock = FakeClock()
         authority = ExecutionAuthority(ttl_seconds=5.0, clock=clock)
         for _ in range(3):
-            authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1")
+            authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1", session_id="session-1")
         assert authority.outstanding_grant_count == 3
 
         clock.advance(5.0)
@@ -399,8 +407,8 @@ class TestBoundedState:
         authority = ExecutionAuthority(ttl_seconds=10.0, clock=clock)
 
         # 1. Issue grant A and grant B
-        authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1")
-        authority.issue(NOTES, Decision.ALLOW, agent_id="agent-2")
+        authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1", session_id="session-1")
+        authority.issue(NOTES, Decision.ALLOW, agent_id="agent-2", session_id="session-1")
         assert len(authority._outstanding) == 2
 
         # Revoke grant B
@@ -409,14 +417,14 @@ class TestBoundedState:
         assert len(authority._outstanding) == 1
 
         # Issue grant C at t=0
-        authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1")
+        authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1", session_id="session-1")
         assert len(authority._outstanding) == 2
 
         # Advance clock past TTL (t=10.1)
         clock.advance(10.1)
 
         # Now at t=10.1, issue grant D (valid until 20.1)
-        grant_d = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1")
+        grant_d = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1", session_id="session-1")
         # grant A, B, C are expired. grant D is active.
 
         # verify_and_consume on grant_d should prune expired grants A, B, C under lock
@@ -432,7 +440,7 @@ class TestBoundedState:
         clock = FakeClock()
         authority = ExecutionAuthority(ttl_seconds=10.0, clock=clock)
 
-        grant = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1")
+        grant = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1", session_id="session-1")
         authority.suspend_issuance("agent-1")
 
         # Time advanced within TTL
@@ -449,7 +457,7 @@ class TestBoundedState:
         clock = FakeClock()
         authority = ExecutionAuthority(ttl_seconds=10.0, clock=clock)
 
-        grant = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1")
+        grant = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1", session_id="session-1")
         authority.verify_and_consume(grant, NOTES)
 
         clock.advance(4.0)
@@ -464,7 +472,7 @@ class TestBoundedState:
         clock = FakeClock()
         authority = ExecutionAuthority(ttl_seconds=10.0, clock=clock)
 
-        grant = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1")
+        grant = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1", session_id="session-1")
         authority.verify_and_consume(grant, NOTES)
 
         clock.advance(10.1)
@@ -479,7 +487,7 @@ class TestBoundedState:
         clock = FakeClock()
         authority = ExecutionAuthority(ttl_seconds=10.0, clock=clock)
 
-        grant = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1")
+        grant = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1", session_id="session-1")
         authority.suspend_issuance("agent-1")
 
         # Advance past expiry
@@ -490,3 +498,120 @@ class TestBoundedState:
             ExecutionRefusalReason.EXPIRED,
             lambda: authority.verify_and_consume(grant, NOTES),
         )
+
+
+class TestExecutionIdentity:
+    """Identity is authority state, not a caller's claim (v0.17.1).
+
+    ``RuntimeExecutionGrant`` previously carried no agent or session, so every
+    downstream consumer had to obtain execution identity from somewhere else — in
+    practice an unsigned, caller-supplied ``RuntimeContext``. The authority already
+    held the authenticated ``agent_id`` internally to revoke a suspended agent's
+    grants; these tests hold the invariant that the identity it issues for is the
+    identity the grant carries, and that neither field can be edited afterwards.
+
+    This is the parity the persisted ADR-031 ``ExecutionGrant`` already enforces.
+    """
+
+    def test_an_issued_grant_carries_the_identity_it_was_issued_for(self) -> None:
+        authority = ExecutionAuthority()
+
+        grant = authority.issue(
+            NOTES, Decision.ALLOW, agent_id="agent-7", session_id="session-9"
+        )
+
+        assert grant is not None
+        assert grant.agent_id == "agent-7"
+        assert grant.session_id == "session-9"
+
+    def test_identity_cannot_be_omitted_from_a_grant(self) -> None:
+        """A grant with no identity is not representable, so no consumer has to
+        handle the absent case by inventing a placeholder."""
+        with pytest.raises(ValidationError):
+            RuntimeExecutionGrant(
+                grant_id="grant-1",
+                authority_id="auth-1",
+                binding=NOTES,
+                issued_at=0.0,
+                expires_at=1e12,
+                signature="0" * 64,
+            )
+
+    @pytest.mark.parametrize("field", ["agent_id", "session_id"])
+    def test_editing_identity_invalidates_the_signature(self, field: str) -> None:
+        """The substitution this closes: present a real grant while claiming to be
+        someone else. Identity is in the signed payload, so the edit does not verify."""
+        authority = ExecutionAuthority()
+        grant = authority.issue(
+            NOTES, Decision.ALLOW, agent_id="agent-1", session_id="session-1"
+        )
+
+        substituted = grant.model_copy(update={field: "impersonated"})
+
+        _refused(
+            ExecutionRefusalReason.INVALID_SIGNATURE,
+            lambda: authority.verify_grant(substituted, NOTES),
+        )
+
+    def test_identity_is_signed_distinctly_from_the_binding(self) -> None:
+        """Two grants for the same operation but different subjects must not share a
+        signature, otherwise one subject's grant would verify as another's."""
+        authority = ExecutionAuthority(clock=FakeClock())
+
+        first = authority.issue(
+            NOTES, Decision.ALLOW, agent_id="agent-1", session_id="session-1"
+        )
+        second = authority.issue(
+            NOTES, Decision.ALLOW, agent_id="agent-2", session_id="session-1"
+        )
+
+        assert first.signature != second.signature
+
+    def test_a_grant_whose_identity_diverges_from_issuance_is_refused(self) -> None:
+        """Independent of the signature: the authority's own issuance record is
+        cross-checked, so a grant constructed outside ``_create_grant`` cannot present
+        an identity this authority never issued for."""
+        authority = ExecutionAuthority()
+        grant = authority.issue(
+            NOTES, Decision.ALLOW, agent_id="agent-1", session_id="session-1"
+        )
+
+        # Re-sign the substituted identity so the signature check passes and only the
+        # outstanding-record cross-check can refuse it.
+        substituted = grant.model_copy(update={"agent_id": "agent-2"})
+        resigned = substituted.model_copy(
+            update={
+                "signature": authority._sign(
+                    substituted.grant_id,
+                    substituted.authority_id,
+                    substituted.binding,
+                    substituted.issued_at,
+                    substituted.expires_at,
+                    agent_id=substituted.agent_id,
+                    session_id=substituted.session_id,
+                    capability_profile_id=substituted.capability_profile_id,
+                    capability_digest=substituted.capability_digest,
+                )
+            }
+        )
+
+        _refused(
+            ExecutionRefusalReason.IDENTITY_MISMATCH,
+            lambda: authority.verify_grant(resigned, NOTES),
+        )
+
+    def test_a_refused_identity_does_not_consume_the_grant(self) -> None:
+        authority = ExecutionAuthority()
+        grant = authority.issue(
+            NOTES, Decision.ALLOW, agent_id="agent-1", session_id="session-1"
+        )
+
+        _refused(
+            ExecutionRefusalReason.INVALID_SIGNATURE,
+            lambda: authority.verify_and_consume(
+                grant.model_copy(update={"agent_id": "impersonated"}), NOTES
+            ),
+        )
+
+        assert authority.outstanding_grant_count == 1
+        authority.verify_and_consume(grant, NOTES)

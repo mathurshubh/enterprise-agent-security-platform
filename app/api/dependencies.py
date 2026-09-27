@@ -8,9 +8,12 @@ instances with diverging state.
 """
 
 from app.auth.jwt_service import JWTService
-from app.config.settings import get_jwt_secret_key
+from app.config.settings import get_jwt_secret_key, get_max_terminal_execution_receipts
 from app.detection.registry import DetectionRegistry
 from app.models.detection_retention import DetectionRetentionPolicy
+from app.models.execution_evidence_retention import (
+    ExecutionEvidenceRetentionPolicy,
+)
 from app.registry.scenario_registry import ScenarioRegistry
 from app.registry.tool_registry import ToolRegistry
 from app.repositories.in_memory import (
@@ -29,6 +32,8 @@ from app.services.audit_service import AuditService
 from app.services.capability_service import CapabilityService
 from app.services.detection_service import DetectionService
 from app.services.enforcement_coordinator import EnforcementCoordinator
+from app.services.execution_evidence_service import ExecutionEvidenceService
+from app.services.execution_reconciler import ExecutionReconciler
 from app.services.findings_service import FindingsService
 from app.services.risk_aggregator import RiskAggregator
 from app.services.risk_service import RiskService
@@ -102,6 +107,29 @@ telemetry_dispatcher: InMemoryTelemetryDispatcher = InMemoryTelemetryDispatcher(
 # that runs tools on behalf of the shared runtime must verify against it.
 execution_authority: ExecutionAuthority = ExecutionAuthority()
 
+# ADR-032 §12: the authoritative execution evidence store for the live runtime. One
+# instance per composition root — the scenario pipeline gets its own, because scenario
+# activity must not enter live security state (ADR-013 M2a).
+#
+# Capacity is a deployment decision, so it comes from configuration; the policy itself
+# is a required argument, which is what makes an unbounded store unrepresentable rather
+# than merely discouraged.
+execution_evidence_store: ExecutionEvidenceService = ExecutionEvidenceService(
+    retention_policy=ExecutionEvidenceRetentionPolicy(
+        max_terminal_receipts=get_max_terminal_execution_receipts(),
+    )
+)
+
+# ADR-032 §12: the recovery boundary for the live evidence plane. Constructed here
+# against the one live store — not in the lifespan hook, which must operate on the
+# composition root's store rather than building a second evidence plane of its own.
+#
+# Reconciliation itself runs at startup (app/main.py), never at import: security
+# lifecycle ordering must not be an accidental consequence of module import order.
+execution_reconciler: ExecutionReconciler = ExecutionReconciler(
+    evidence_store=execution_evidence_store
+)
+
 runtime_service: RuntimeService = bootstrap_runtime_service(
     agent_service=agent_service,
     session_service=session_service,
@@ -113,6 +141,7 @@ runtime_service: RuntimeService = bootstrap_runtime_service(
     risk_service=risk_service,
     telemetry_emitter=telemetry_dispatcher,
     execution_authority=execution_authority,
+    evidence_store=execution_evidence_store,
     risk_aggregator=risk_aggregator,
     lock_manager=agent_lock_manager,
 )

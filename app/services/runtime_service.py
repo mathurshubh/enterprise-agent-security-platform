@@ -14,6 +14,12 @@ from app.models.execution_binding import (
     ExecutionBinding,
     ExecutionBindingValidationError,
 )
+from app.models.execution_capability import (
+    ExecutionCapabilities,
+    FilesystemCapability,
+    NetworkCapability,
+    ResourceLimits,
+)
 from app.models.finding import Finding
 from app.models.response_action import ResponseType
 from app.models.runtime_context import RuntimeContext
@@ -40,6 +46,11 @@ from app.models.tool_operational import ToolOperational
 from app.models.tool_risk_level import ToolRiskLevel
 from app.models.watermark import BaselineWatermark
 from app.registry.tool_registry import ToolRegistry
+from app.runtime.capability_registry import InMemoryCapabilityProfileRegistry
+from app.runtime.contracts import (
+    CapabilityProfileRegistryProtocol,
+    ExecutionEvidenceStoreProtocol,
+)
 from app.runtime.execution_authority import ExecutionAuthority
 from app.services.agent_lock_manager import AgentLockManager
 from app.services.agent_risk_aggregate import ProjectionInvariantError
@@ -98,6 +109,8 @@ class RuntimeService:
         agent_service: AgentService | None = None,
         risk_aggregator: RiskAggregator | None = None,
         lock_manager: AgentLockManager | None = None,
+        capability_registry: CapabilityProfileRegistryProtocol | None = None,
+        evidence_store: ExecutionEvidenceStoreProtocol | None = None,
     ) -> None:
         self._authorization_service = authorization_service
         self._session_service = session_service
@@ -110,6 +123,10 @@ class RuntimeService:
         self._telemetry_emitter = telemetry_emitter
         self._execution_authority = execution_authority
         self._agent_service = agent_service
+        self._capability_registry = capability_registry or self._create_default_capability_registry()
+        # Held for the composition root to hand to the executor. RuntimeService does
+        # not write evidence itself: the pipeline decides, the executor observes.
+        self._evidence_store = evidence_store
         if (
             self._execution_authority is not None
             and getattr(self._execution_authority, "_enforcement_repository", None) is None
@@ -155,6 +172,48 @@ class RuntimeService:
             lock_manager if lock_manager is not None else AgentLockManager()
         )
         self._last_result = None
+
+    def _create_default_capability_registry(self) -> InMemoryCapabilityProfileRegistry:
+        """Derive a capability profile per registered tool from the tool's own workspace.
+
+        A tool whose workspace cannot be determined gets no profile rather than a
+        ``/tmp`` default. ``workspace_root`` is the boundary the sandbox confines the
+        tool to, so substituting one would grant read access to a directory nobody
+        chose. With no profile the tool produces no executable grant, which is the
+        fail-closed outcome.
+        """
+        reg = InMemoryCapabilityProfileRegistry()
+        if self._tool_registry:
+            for tool_id in self._tool_registry.list_tool_ids():
+                desc = self._tool_registry.resolve(tool_id)
+                tool_inst = desc.instance
+                tool_workspace = (
+                    getattr(tool_inst, "workspace", None)
+                    or getattr(tool_inst, "_workspace", None)
+                ) if tool_inst else None
+                if not tool_workspace:
+                    continue
+                ws = str(tool_workspace)
+                reg.register_profile(
+                    ExecutionCapabilities(
+                        capability_profile_id=f"profile-{tool_id}",
+                        filesystem=FilesystemCapability(
+                            workspace_root=ws,
+                            read_only=True,
+                        ),
+                        network=NetworkCapability(),
+                        resources=ResourceLimits(),
+                    )
+                )
+        return reg
+
+    @property
+    def capability_registry(self) -> CapabilityProfileRegistryProtocol | None:
+        return self._capability_registry
+
+    @property
+    def evidence_store(self) -> ExecutionEvidenceStoreProtocol | None:
+        return self._evidence_store
 
     @property
     def telemetry_emitter(self) -> TelemetryEmitter | None:
@@ -907,14 +966,40 @@ class RuntimeService:
         # transitions (recovery or suspension) fail closed without grant issuance.
         authorization = None
         if self._execution_authority is not None and binding is not None:
-            authorization = self._execution_authority.issue(
-                binding,
-                final_decision,
-                agent_id=agent_id,
-                expected_epoch=context_epoch,
-            )
-            if authorization is None and final_decision == Decision.ALLOW:
-                final_decision = Decision.DENY
+            # ADR-032: an executable grant must carry an explicit capability binding.
+            # The executor refuses a profile-less grant, but by then the pipeline has
+            # already concluded ALLOW, leaving a decision that can never be enforced —
+            # "allowed, never executed". Capability binding is validated here so the
+            # decision and what is enforceable agree. The executor still verifies the
+            # binding independently; moving validation earlier adds a gate rather than
+            # replacing one.
+            cap_profile_id = None
+            cap_digest = None
+            profile_id = f"profile-{tool_id}"
+            if self._capability_registry is not None and self._capability_registry.exists(
+                profile_id
+            ):
+                caps = self._capability_registry.resolve_profile(profile_id)
+                cap_profile_id = caps.capability_profile_id
+                cap_digest = caps.compute_digest()
+
+            if cap_profile_id is None:
+                # Fail closed without issuing: a tool with no capability profile has no
+                # containment to execute inside.
+                if final_decision == Decision.ALLOW:
+                    final_decision = Decision.DENY
+            else:
+                authorization = self._execution_authority.issue(
+                    binding,
+                    final_decision,
+                    agent_id=agent_id,
+                    session_id=session_id,
+                    expected_epoch=context_epoch,
+                    capability_profile_id=cap_profile_id,
+                    capability_digest=cap_digest,
+                )
+                if authorization is None and final_decision == Decision.ALLOW:
+                    final_decision = Decision.DENY
 
         recorded_event.final_decision = final_decision
         self._session_service.update_event_final_decision(
