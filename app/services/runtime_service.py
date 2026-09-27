@@ -47,7 +47,10 @@ from app.models.tool_risk_level import ToolRiskLevel
 from app.models.watermark import BaselineWatermark
 from app.registry.tool_registry import ToolRegistry
 from app.runtime.capability_registry import InMemoryCapabilityProfileRegistry
-from app.runtime.contracts import CapabilityProfileRegistryProtocol
+from app.runtime.contracts import (
+    CapabilityProfileRegistryProtocol,
+    ExecutionEvidenceStoreProtocol,
+)
 from app.runtime.execution_authority import ExecutionAuthority
 from app.services.agent_lock_manager import AgentLockManager
 from app.services.agent_risk_aggregate import ProjectionInvariantError
@@ -107,6 +110,7 @@ class RuntimeService:
         risk_aggregator: RiskAggregator | None = None,
         lock_manager: AgentLockManager | None = None,
         capability_registry: CapabilityProfileRegistryProtocol | None = None,
+        evidence_store: ExecutionEvidenceStoreProtocol | None = None,
     ) -> None:
         self._authorization_service = authorization_service
         self._session_service = session_service
@@ -120,6 +124,9 @@ class RuntimeService:
         self._execution_authority = execution_authority
         self._agent_service = agent_service
         self._capability_registry = capability_registry or self._create_default_capability_registry()
+        # Held for the composition root to hand to the executor. RuntimeService does
+        # not write evidence itself: the pipeline decides, the executor observes.
+        self._evidence_store = evidence_store
         if (
             self._execution_authority is not None
             and getattr(self._execution_authority, "_enforcement_repository", None) is None
@@ -203,6 +210,10 @@ class RuntimeService:
     @property
     def capability_registry(self) -> CapabilityProfileRegistryProtocol | None:
         return self._capability_registry
+
+    @property
+    def evidence_store(self) -> ExecutionEvidenceStoreProtocol | None:
+        return self._evidence_store
 
     @property
     def telemetry_emitter(self) -> TelemetryEmitter | None:

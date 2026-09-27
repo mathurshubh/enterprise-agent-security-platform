@@ -11,6 +11,7 @@ from app.models.response_action import ResponseType
 from app.models.runtime_result import RuntimeResult
 from app.providers.provider_factory import ProviderFactory
 from app.registry.tool_registry import ToolRegistry
+from app.runtime.contracts import ExecutionEvidenceStoreProtocol
 from app.runtime.execution_authority import ExecutionAuthority
 from app.runtime.sandbox.process_sandbox import ProcessToolExecutionSandbox
 from app.runtime.tool_executor import DefaultToolExecutor
@@ -56,6 +57,7 @@ class AgentRuntimeService:
         executor: DefaultToolExecutor | None = None,
         agent_id: str | None = None,
         execution_authority: ExecutionAuthority | None = None,
+        evidence_store: ExecutionEvidenceStoreProtocol | None = None,
     ) -> None:
         if agent is None:
             effective_id = agent_id or "agent-1"
@@ -87,10 +89,17 @@ class AgentRuntimeService:
         )
         capability_registry = getattr(self._runtime_service, "capability_registry", None)
         sandbox = getattr(self._runtime_service, "sandbox", None) or ProcessToolExecutionSandbox()
+        # Injected explicitly rather than discovered from the runtime service. The
+        # sandbox line above shows why: RuntimeService has no `sandbox` attribute, so
+        # that getattr always returns None and the fallback is always taken — implicit
+        # sourcing plus a dead branch. Evidence is a security-evidence dependency and
+        # is passed in or absent, never inferred and never constructed here, so there
+        # is exactly one authoritative store per composition root.
         self._executor = executor or DefaultToolExecutor(
             authority=authority,
             sandbox=sandbox,
             capability_registry=capability_registry,
+            evidence_store=evidence_store,
         )
 
     @property
