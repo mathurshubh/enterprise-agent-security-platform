@@ -5,7 +5,7 @@
 ![Tests](https://img.shields.io/badge/Tests-1337%2B_Passing-success)
 ![GitHub Release](https://img.shields.io/badge/GitHub_Release-v0.15-blue)
 ![Git Tag](https://img.shields.io/badge/Git_Tag-v0.15.0-blue)
-![Development Cycle](https://img.shields.io/badge/Development-v0.17.1--completed-orange)
+![Development Cycle](https://img.shields.io/badge/Development-v0.17.2--completed-orange)
 ![Providers](https://img.shields.io/badge/Providers-Ollama_|_Gemini-orange)
 ![Security](https://img.shields.io/badge/Security-Zero_Trust-red)
 ![License](https://img.shields.io/badge/License-MIT-green)
@@ -39,6 +39,7 @@ Instead, it provides deterministic security controls around AI agents, including
 - **Execution Grant & Approval Control Plane (ADR-031):** Durable human-in-the-loop approval lifecycle with atomic exactly-once claim resumption (`PENDING -> APPROVED -> CONSUMED`)
 - **Runtime Tool Execution Isolation (v0.17, ADR-032):** Process-level execution containment (`ProcessToolExecutionSandbox`), immutable capability bindings, process-level filesystem and network guards, and zero in-process fallback
 - **Execution Provenance & Boundary Hardening (v0.17.1, ADR-023/ADR-032):** Execution identity (`agent_id`, `session_id`) bound into the signed `RuntimeExecutionGrant` and derived from it rather than from caller-supplied context, an explicit `ExecutionAuthorityProtocol`, fail-closed capability-profile and workspace-root requirements, and isolation probes removed from the production child registry
+- **Execution Evidence & Recovery (v0.17.2, ADR-032 §12):** Execution evidence recorded on the production path with grant-derived correlation, execution-outcome and evidence-integrity treated as independent axes, bounded terminal retention, lifecycle counters and a non-silent integrity signal, scenario evidence isolated from live evidence (ADR-013 M2a), and startup reconciliation completed before readiness. Production-wired, not durably persisted
 - Management API & Enterprise Findings Console
 
 ---
@@ -90,9 +91,9 @@ Identity → Authority → Policy → Capability → Runtime → Resource → Te
 
 - **Latest Published GitHub Release:** `v0.15`
 - **Latest Repository Tag:** `v0.15.0`
-- **Current Development Cycle:** `v0.17.1` — Completed (Ready for Merge)
+- **Current Development Cycle:** `v0.17.2` — Completed (Ready for Merge)
 - **Strategic Architecture Baseline:** Jan–Aug 2026 AI Security Architecture Baseline Review (`4abf2b6`)
-- **Automated Test Coverage:** **1,378+ automated tests passing** (11 skipped, 7 xfailed, `.venv/bin/python -m pytest`)
+- **Automated Test Coverage:** **1,454+ automated tests passing** (11 skipped, 7 xfailed, `.venv/bin/python -m pytest`)
 - **Frontend Build Status:** Passing (`npm run build` & `npm run lint`)
 - **Architecture Reference Range:** ADR-000 through ADR-032
 
@@ -102,10 +103,10 @@ Identity → Authority → Policy → Capability → Runtime → Resource → Te
 
 | Metric | Value |
 |----------|---------|
-| Automated Tests | 1,378+ Passing (11 skipped, 7 xfailed) |
+| Automated Tests | 1,454+ Passing (11 skipped, 7 xfailed) |
 | Latest Published GitHub Release | v0.15 |
 | Latest Repository Tag | v0.15.0 |
-| Current Development Cycle | v0.17.1 (Completed) |
+| Current Development Cycle | v0.17.2 (Completed) |
 | Architecture Baseline Commit | 4abf2b6134d894d15bad76a0ec45db6adecb6262 |
 | Detection Rules | 4 (`PROMPT_INJECTION`, `SENSITIVE_FILE_ACCESS`, `DATA_EXFILTRATION`, `EXCESSIVE_DENIALS`) |
 | Security Framework Mappings | 3 (OWASP LLM Top 10, MITRE ATLAS, MITRE ATT&CK) |
