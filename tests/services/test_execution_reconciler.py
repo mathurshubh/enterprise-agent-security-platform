@@ -236,3 +236,120 @@ def test_each_receipt_is_evaluated_against_its_own_declared_budget():
 
     assert [r.receipt_id for r in reconciled] == ["r-short"]
     assert [r.receipt_id for r in store.list_open()] == ["r-long"]
+
+
+class _StoreWithoutMonotonicAccessor:
+    """Conforms to every part of the evidence store contract except the timing accessor.
+
+    This is the shape that made reconciliation degrade silently: the accessor was read
+    through ``getattr(..., lambda _: None)``, so its absence was indistinguishable from
+    "this receipt has no recorded timing", and every open receipt was reconciled to
+    UNKNOWN. Reconciliation reported that all executions were unrecoverable when the
+    truth was that reconciliation could not run.
+    """
+
+    def __init__(self, open_receipt) -> None:
+        self._open = (open_receipt,)
+        self.reconciled: list[str] = []
+
+    def record_started(self, **kwargs):  # pragma: no cover - not exercised
+        raise NotImplementedError
+
+    def record_terminal(self, **kwargs):  # pragma: no cover - not exercised
+        raise NotImplementedError
+
+    def record_reconciled(self, *, receipt_id, reconciled_at, reason):
+        self.reconciled.append(receipt_id)
+        return self._open[0]
+
+    def get(self, receipt_id):  # pragma: no cover - not exercised
+        return None
+
+    def get_by_grant(self, grant_id):  # pragma: no cover - not exercised
+        return None
+
+    def list_open(self):
+        return self._open
+
+    def list_receipts(self, session_id=None, agent_id=None):  # pragma: no cover
+        return ()
+
+
+def _open_receipt():
+    store = ExecutionEvidenceService()
+    return _start(store, "r-probe", declared_timeout_seconds=10.0, monotonic_start=0.0)
+
+
+def test_a_store_violating_the_evidence_contract_is_refused_at_wiring():
+    """A missing contract is a wiring fault, not an execution outcome."""
+    import pytest
+
+    store = _StoreWithoutMonotonicAccessor(_open_receipt())
+
+    with pytest.raises(TypeError, match="ExecutionEvidenceStoreProtocol"):
+        ExecutionReconciler(evidence_store=store)
+
+    assert store.reconciled == [], "a refused wiring may not reconcile anything"
+
+
+def test_reconciliation_does_not_silently_degrade_if_the_contract_is_bypassed():
+    """Defense in depth, and the discriminating test for the loop itself.
+
+    The construction check above makes the missing accessor unreachable through normal
+    wiring, so it alone cannot distinguish a direct protocol call from the old
+    ``getattr`` fallback. This asserts the loop's own behaviour: presented with a store
+    that cannot answer, reconciliation fails loudly rather than declaring the execution
+    unrecoverable.
+    """
+    import pytest
+
+    reconciler = ExecutionReconciler(evidence_store=ExecutionEvidenceService())
+    bad_store = _StoreWithoutMonotonicAccessor(_open_receipt())
+    reconciler._store = bad_store
+
+    with pytest.raises(AttributeError):
+        reconciler.reconcile_unresolved(now_utc=_utc_now(), monotonic_now=100.0)
+
+    assert bad_store.reconciled == [], (
+        "the receipt must not be reconciled to UNKNOWN because the store could not "
+        "report its timing"
+    )
+
+
+def test_missing_timing_evidence_remains_reconcilable():
+    """The semantic distinction the contract preserves: a conforming store returning
+    None means the timing is genuinely missing, which is still a reconcilable
+    condition and keeps its existing EVIDENCE_UNAVAILABLE outcome."""
+    store = ExecutionEvidenceService()
+    store.record_started(
+        receipt_id="r-no-timing",
+        grant_id="g-no-timing",
+        session_id="s1",
+        agent_id="agent-1",
+        request_id="req-1",
+        tool_id="file_read",
+        binding_hash="h1",
+        capability_profile_id="profile-file_read",
+        capability_digest="d" * 64,
+        declared_timeout_seconds=10.0,
+        started_at=_utc_now(),
+        # monotonic_start deliberately omitted
+    )
+    assert store.get_monotonic_start("r-no-timing") is None
+
+    reconciler = ExecutionReconciler(evidence_store=store)
+    reconciled = reconciler.reconcile_unresolved(now_utc=_utc_now(), monotonic_now=1.0)
+
+    assert len(reconciled) == 1
+    assert reconciled[0].status == ExecutionStatus.UNKNOWN
+    assert (
+        reconciled[0].reconciliation_reason == ReconciliationReason.EVIDENCE_UNAVAILABLE
+    )
+
+
+def test_the_production_store_satisfies_the_evidence_contract() -> None:
+    """The contract must describe the implementation, not an aspiration."""
+    from app.runtime.contracts import ExecutionEvidenceStoreProtocol
+
+    assert isinstance(ExecutionEvidenceService(), ExecutionEvidenceStoreProtocol)
+    assert hasattr(ExecutionEvidenceStoreProtocol, "get_monotonic_start")

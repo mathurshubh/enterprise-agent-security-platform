@@ -217,6 +217,16 @@ class ExecutionEvidenceStoreProtocol(Protocol):
         """Reconciliation authority: transition an open (STARTED) receipt to UNKNOWN."""
         ...
 
+    def get_monotonic_start(self, receipt_id: str) -> float | None:
+        """Monotonic start recorded for an in-flight receipt, or None if unavailable.
+
+        Reconciliation depends on this to evaluate each receipt against its own declared
+        execution budget. ``None`` means the timing evidence is genuinely missing, which
+        is itself a reconcilable condition; a store that cannot answer at all is a
+        contract violation, not a store whose executions are all unrecoverable.
+        """
+        ...
+
     def get(self, receipt_id: str) -> ExecutionReceipt | None:
         """Retrieve receipt by receipt_id."""
         ...

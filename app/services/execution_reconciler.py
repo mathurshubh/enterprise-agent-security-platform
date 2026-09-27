@@ -45,6 +45,18 @@ class ExecutionReconciler:
         recovery_grace_seconds: float = DEFAULT_RECOVERY_GRACE_SECONDS,
         monotonic_clock: Callable[[], float] = time.monotonic,
     ) -> None:
+        if not isinstance(evidence_store, ExecutionEvidenceStoreProtocol):
+            # Refused at wiring time. Reconciliation read the timing accessor through
+            # getattr with a None default, so a store not providing it silently
+            # reconciled every open receipt to UNKNOWN — reconciliation degrading to
+            # "declare everything unrecoverable" rather than reporting that it could
+            # not run. A missing contract is a wiring fault, not an execution outcome.
+            raise TypeError(
+                "evidence_store does not satisfy ExecutionEvidenceStoreProtocol: "
+                "reconciliation requires list_open, get_monotonic_start and "
+                "record_reconciled"
+            )
+
         # No global execution SLA: the execution budget belongs to the receipt, because
         # it belongs to the capability that governed that execution. A configurable
         # global value here would be a parameter that appears to control the deadline
@@ -91,10 +103,10 @@ class ExecutionReconciler:
         reconciled = []
 
         for receipt in open_receipts:
-            # Retrieve per-receipt monotonic start
-            start_mono = getattr(self._store, "get_monotonic_start", lambda _: None)(
-                receipt.receipt_id
-            )
+            # Direct protocol call: None means the timing evidence is genuinely
+            # missing for this receipt, which is reconcilable. It no longer doubles as
+            # "the store does not implement this", which the construction check refuses.
+            start_mono = self._store.get_monotonic_start(receipt.receipt_id)
 
             if start_mono is None:
                 # Execution start evidence lacks monotonic timing; outcome is unrecoverable
