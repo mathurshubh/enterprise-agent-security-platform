@@ -2,7 +2,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.13-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.116+-009688)
-![Tests](https://img.shields.io/badge/Tests-1337_Passing-success)
+![Tests](https://img.shields.io/badge/Tests-1337%2B_Passing-success)
 ![GitHub Release](https://img.shields.io/badge/GitHub_Release-v0.15-blue)
 ![Git Tag](https://img.shields.io/badge/Git_Tag-v0.15.0-blue)
 ![Development Cycle](https://img.shields.io/badge/Development-v0.17.0--completed-orange)
@@ -91,7 +91,7 @@ Identity → Authority → Policy → Capability → Runtime → Resource → Te
 - **Latest Repository Tag:** `v0.15.0`
 - **Current Development Cycle:** `v0.17.0` — Completed (Ready for Merge)
 - **Strategic Architecture Baseline:** Jan–Aug 2026 AI Security Architecture Baseline Review (`4abf2b6`)
-- **Automated Test Coverage:** **1,337 passed, 11 skipped, 7 xfailed** (`.venv/bin/python -m pytest`)
+- **Automated Test Coverage:** **1,337+ automated tests passing** (11 skipped, 7 xfailed, `.venv/bin/python -m pytest`)
 - **Frontend Build Status:** Passing (`npm run build` & `npm run lint`)
 - **Architecture Reference Range:** ADR-000 through ADR-032
 
@@ -101,7 +101,7 @@ Identity → Authority → Policy → Capability → Runtime → Resource → Te
 
 | Metric | Value |
 |----------|---------|
-| Automated Tests | 1,337 Passing (11 skipped, 7 xfailed) |
+| Automated Tests | 1,337+ Passing (11 skipped, 7 xfailed) |
 | Latest Published GitHub Release | v0.15 |
 | Latest Repository Tag | v0.15.0 |
 | Current Development Cycle | v0.17.0 (Completed) |
