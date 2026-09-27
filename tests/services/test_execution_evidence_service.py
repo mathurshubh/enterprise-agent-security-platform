@@ -665,3 +665,113 @@ def test_retention_does_not_run_on_record_started() -> None:
 
     assert len(service.list_open()) == 5
     assert service.get("rcpt-terminal") is not None
+
+
+# ---------------------------------------------------------------------------
+# v0.17.2 Step 7 — lifecycle observability
+# ---------------------------------------------------------------------------
+
+
+def test_counters_start_at_zero() -> None:
+    service = _bounded(10)
+
+    assert service.open_receipt_count == 0
+    assert service.terminal_receipt_count == 0
+    assert service.evidence_failure_count == 0
+    assert service.reconciled_unknown_count == 0
+
+
+def test_an_open_receipt_counts_as_open_and_not_terminal() -> None:
+    service = _bounded(10)
+    _started(service, "a")
+
+    assert service.open_receipt_count == 1
+    assert service.terminal_receipt_count == 0
+
+
+def test_terminalisation_moves_a_receipt_from_open_to_terminal() -> None:
+    service = _bounded(10)
+    _started(service, "a")
+    _terminate(service, "a")
+
+    assert service.open_receipt_count == 0
+    assert service.terminal_receipt_count == 1
+
+
+def test_a_reconciled_unknown_receipt_counts_as_terminal() -> None:
+    service = _bounded(10)
+    _started(service, "a")
+    service.record_reconciled(
+        receipt_id="rcpt-a",
+        reconciled_at=_T0 + timedelta(seconds=5),
+        reason=ReconciliationReason.PROCESS_RESTART,
+    )
+
+    assert service.open_receipt_count == 0
+    assert service.terminal_receipt_count == 1
+
+
+def test_reconciliation_to_unknown_is_counted_exactly_once() -> None:
+    """Counted at the transition, not inferred from the receipt population: a receipt
+    can be evicted while remaining a fact about what reconciliation did."""
+    service = _bounded(1)
+    _started(service, "a")
+    service.record_reconciled(
+        receipt_id="rcpt-a",
+        reconciled_at=_T0 + timedelta(seconds=5),
+        reason=ReconciliationReason.EXECUTION_TIMEOUT,
+    )
+    assert service.reconciled_unknown_count == 1
+
+    # A second reconciliation of the same receipt is refused, so nothing double-counts.
+    with pytest.raises(ExecutionReceiptTransitionError):
+        service.record_reconciled(
+            receipt_id="rcpt-a",
+            reconciled_at=_T0 + timedelta(seconds=6),
+            reason=ReconciliationReason.EXECUTION_TIMEOUT,
+        )
+    assert service.reconciled_unknown_count == 1
+
+    # And it survives the receipt being evicted by retention.
+    _started(service, "b", offset=10)
+    _terminate(service, "b")
+    assert service.get("rcpt-a") is None
+    assert service.reconciled_unknown_count == 1
+
+
+def test_an_evidence_persistence_failure_is_counted() -> None:
+    """Persistence failures, never execution failures."""
+    service = _bounded(10)
+    _started(service, "a")
+
+    with pytest.raises(ExecutionReceiptDuplicateError):
+        _started(service, "a")
+
+    assert service.evidence_failure_count == 1
+
+
+def test_the_self_resolution_race_is_not_counted_as_an_evidence_failure() -> None:
+    """A transition rejected because the receipt already terminalised is ordinary
+    concurrency (Step 4). Counting it would make a race look like an integrity fault."""
+    service = _bounded(10)
+    _started(service, "a")
+    _terminate(service, "a")
+
+    with pytest.raises(ExecutionReceiptTransitionError):
+        _terminate(service, "a")
+
+    assert service.evidence_failure_count == 0
+
+
+def test_counters_stay_consistent_after_eviction() -> None:
+    """Derived from authoritative state, so eviction cannot leave them disagreeing
+    with the receipts themselves."""
+    service = _bounded(2)
+    _started(service, "open-1", offset=0)
+    for i, name in enumerate(("a", "b", "c"), start=1):
+        _started(service, name, offset=i)
+        _terminate(service, name)
+
+    assert service.terminal_receipt_count == 2, "bounded by retention"
+    assert service.open_receipt_count == 1, "the open receipt is untouched"
+    assert len(service.list_receipts()) == 3

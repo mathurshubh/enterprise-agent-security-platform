@@ -35,6 +35,7 @@ Execution evidence invariants (ADR-032 §12.1; these were previously cited as
 """
 
 import hashlib
+import logging
 import time
 from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
@@ -78,6 +79,8 @@ from app.runtime.execution_authority import (
     ExecutionRefusalReason,
 )
 from app.tools.base_tool import BaseTool
+
+logger = logging.getLogger(__name__)
 
 
 class ToolExecutionError(Exception):
@@ -349,6 +352,9 @@ class DefaultToolExecutor:
         *,
         receipt_id: str,
         tool_id: str,
+        session_id: str,
+        agent_id: str,
+        trace_id: str | None,
         status: ExecutionStatus,
         completed_at: datetime,
         duration_ms: int,
@@ -378,6 +384,13 @@ class DefaultToolExecutor:
             )
             return None
         except Exception as exc:
+            self._emit_evidence_failure(
+                tool_id=tool_id,
+                session_id=session_id,
+                agent_id=agent_id,
+                trace_id=trace_id,
+                error_code="EVIDENCE_INTEGRITY_FAILURE",
+            )
             integrity = ExecutionEvidenceIntegrityError(
                 "Terminal execution evidence could not be recorded; the execution "
                 "occurred and cannot be rolled back, so its outcome is not established",
@@ -386,6 +399,49 @@ class DefaultToolExecutor:
             )
             integrity.__cause__ = exc
             return integrity
+
+    def _emit_evidence_failure(
+        self,
+        *,
+        tool_id: str,
+        session_id: str,
+        agent_id: str,
+        trace_id: str | None,
+        error_code: str,
+    ) -> None:
+        """Emit the evidence-integrity signal without the fail-silent guarantee.
+
+        Deliberately not routed through ``_safe_emit``: that path exists so an
+        observability outage cannot fail an execution, and swallowing an
+        evidence-integrity event there would discard the one signal saying the platform
+        cannot account for an execution that happened.
+
+        The separation between security-state correctness and observability
+        availability is still preserved. A telemetry fault is recorded locally rather
+        than raised, so it never becomes an execution or evidence failure itself — but
+        it is never silently dropped either.
+        """
+        if self._telemetry_emitter is None:
+            return
+
+        try:
+            self._telemetry_emitter.emit(
+                BehavioralEvent(
+                    event_type=TelemetryEventType.EXECUTION_EVIDENCE_FAILED,
+                    session_id=session_id,
+                    agent_id=agent_id,
+                    trace_id=trace_id,
+                    tool_id=tool_id,
+                    error_code=error_code,
+                )
+            )
+        except Exception as exc:
+            logger.error(
+                "Execution evidence integrity signal could not be emitted for tool "
+                "%s (%s); the evidence failure stands regardless",
+                tool_id,
+                type(exc).__name__,
+            )
 
     def _run(
         self,
@@ -437,6 +493,13 @@ class DefaultToolExecutor:
                     monotonic_start=start_monotonic,
                 )
             except Exception as exc:
+                self._emit_evidence_failure(
+                    tool_id=tool.tool_id,
+                    session_id=session_id,
+                    agent_id=agent_id,
+                    trace_id=trace_id,
+                    error_code="EVIDENCE_UNAVAILABLE",
+                )
                 raise ExecutionEvidenceUnavailableError(
                     "STARTED execution evidence could not be recorded; execution is "
                     "refused before the sandbox is invoked",
@@ -485,6 +548,9 @@ class DefaultToolExecutor:
             integrity_failure = self._record_terminal(
                 receipt_id=receipt_id,
                 tool_id=tool.tool_id,
+                session_id=session_id,
+                agent_id=agent_id,
+                trace_id=trace_id,
                 status=status,
                 completed_at=completed_utc,
                 duration_ms=duration_ms,
@@ -524,6 +590,9 @@ class DefaultToolExecutor:
             integrity_failure = self._record_terminal(
                 receipt_id=receipt_id,
                 tool_id=tool.tool_id,
+                session_id=session_id,
+                agent_id=agent_id,
+                trace_id=trace_id,
                 status=ExecutionStatus.SUCCEEDED,
                 completed_at=completed_utc,
                 duration_ms=duration_ms,
@@ -566,6 +635,9 @@ class DefaultToolExecutor:
         integrity_failure = self._record_terminal(
             receipt_id=receipt_id,
             tool_id=tool.tool_id,
+            session_id=session_id,
+            agent_id=agent_id,
+            trace_id=trace_id,
             status=status,
             completed_at=completed_utc,
             duration_ms=duration_ms,

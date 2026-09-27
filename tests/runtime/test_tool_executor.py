@@ -923,3 +923,152 @@ def test_a_raised_execution_failure_remains_primary_when_terminal_evidence_fails
     assert isinstance(
         exc_info.value.evidence_failure, ExecutionEvidenceIntegrityError
     )
+
+
+# ---------------------------------------------------------------------------
+# v0.17.2 Step 7 — the evidence-integrity signal is not fail-silent
+# ---------------------------------------------------------------------------
+
+
+def _executor_with_failing_terminal(telemetry):
+    authority = ExecutionAuthority()
+    executor = _make_executor(
+        authority=authority,
+        evidence_store=_store_failing_terminal(),
+        sandbox=StubSandbox(),
+        telemetry_emitter=telemetry,
+    )
+    tool = ExecutionTestTool()
+    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    grant = _grant_for(authority, tool.tool_id, {})
+    return executor, descriptor, grant
+
+
+def test_an_evidence_integrity_failure_emits_the_evidence_failed_event():
+    telemetry = MagicMock()
+    executor, descriptor, grant = _executor_with_failing_terminal(telemetry)
+
+    with pytest.raises(ExecutionEvidenceIntegrityError):
+        executor.execute_descriptor(descriptor, {}, grant=grant)
+
+    emitted = [c.args[0] for c in telemetry.emit.call_args_list]
+    evidence_events = [
+        e
+        for e in emitted
+        if e.event_type == TelemetryEventType.EXECUTION_EVIDENCE_FAILED
+    ]
+    assert len(evidence_events) == 1
+    assert evidence_events[0].error_code == "EVIDENCE_INTEGRITY_FAILURE"
+
+
+def test_a_started_evidence_failure_emits_the_evidence_failed_event():
+    telemetry = MagicMock()
+    authority = ExecutionAuthority()
+    store = MagicMock()
+    store.record_started.side_effect = RuntimeError("store down")
+    sandbox = StubSandbox()
+    executor = _make_executor(
+        authority=authority,
+        evidence_store=store,
+        sandbox=sandbox,
+        telemetry_emitter=telemetry,
+    )
+    tool = ExecutionTestTool()
+    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    grant = _grant_for(authority, tool.tool_id, {})
+
+    with pytest.raises(ExecutionEvidenceUnavailableError):
+        executor.execute_descriptor(descriptor, {}, grant=grant)
+
+    codes = [
+        e.args[0].error_code
+        for e in telemetry.emit.call_args_list
+        if e.args[0].event_type == TelemetryEventType.EXECUTION_EVIDENCE_FAILED
+    ]
+    assert codes == ["EVIDENCE_UNAVAILABLE"]
+    assert sandbox.executions == 0
+
+
+def test_the_evidence_signal_is_not_routed_through_the_fail_silent_path(monkeypatch):
+    """``_safe_emit`` exists so an observability outage cannot fail an execution.
+    Sending the integrity event through it would discard the one signal saying the
+    platform cannot account for an execution that happened.
+    """
+    telemetry = MagicMock()
+    executor, descriptor, grant = _executor_with_failing_terminal(telemetry)
+
+    safe_emit_events: list[object] = []
+    original = executor._safe_emit
+
+    def _recording_safe_emit(event_type, **kwargs):
+        safe_emit_events.append(event_type)
+        return original(event_type, **kwargs)
+
+    monkeypatch.setattr(executor, "_safe_emit", _recording_safe_emit)
+
+    with pytest.raises(ExecutionEvidenceIntegrityError):
+        executor.execute_descriptor(descriptor, {}, grant=grant)
+
+    assert TelemetryEventType.EXECUTION_EVIDENCE_FAILED not in safe_emit_events
+
+
+def test_a_telemetry_outage_does_not_become_an_evidence_or_execution_failure():
+    """Separation preserved in the other direction: the emitter failing must not change
+    which error the caller sees, and must not be silently dropped either."""
+    telemetry = MagicMock()
+    telemetry.emit.side_effect = RuntimeError("telemetry pipeline down")
+    executor, descriptor, grant = _executor_with_failing_terminal(telemetry)
+
+    with pytest.raises(ExecutionEvidenceIntegrityError):
+        executor.execute_descriptor(descriptor, {}, grant=grant)
+
+
+def test_a_successful_execution_emits_no_evidence_failure_event():
+    telemetry = MagicMock()
+    authority = ExecutionAuthority()
+    executor = _make_executor(
+        authority=authority,
+        evidence_store=ExecutionEvidenceService(retention_policy=_TEST_RETENTION),
+        sandbox=StubSandbox(),
+        telemetry_emitter=telemetry,
+    )
+    tool = ExecutionTestTool()
+    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    grant = _grant_for(authority, tool.tool_id, {})
+
+    executor.execute_descriptor(descriptor, {}, grant=grant)
+
+    emitted = [c.args[0].event_type for c in telemetry.emit.call_args_list]
+    assert TelemetryEventType.EXECUTION_EVIDENCE_FAILED not in emitted
+    assert TelemetryEventType.EXECUTION_COMPLETED in emitted
+
+
+def test_a_telemetry_outage_is_recorded_rather_than_silently_discarded(monkeypatch):
+    """The discriminating half of the separation.
+
+    Asserting that the integrity error still raises is not enough: that holds whether
+    the emitter fault is recorded or silently swallowed. The signal saying the platform
+    cannot account for an execution must not vanish because the emitter was down.
+    """
+    import app.runtime.tool_executor as module
+
+    recorded: list[str] = []
+    monkeypatch.setattr(
+        module.logger,
+        "error",
+        lambda msg, *args: recorded.append(msg % args if args else msg),
+    )
+
+    telemetry = MagicMock()
+    telemetry.emit.side_effect = RuntimeError("telemetry pipeline down")
+    executor, descriptor, grant = _executor_with_failing_terminal(telemetry)
+
+    with pytest.raises(ExecutionEvidenceIntegrityError):
+        executor.execute_descriptor(descriptor, {}, grant=grant)
+
+    assert len(recorded) == 1
+    assert "evidence integrity signal" in recorded[0]
+    assert "RuntimeError" in recorded[0]
+    assert "telemetry pipeline down" not in recorded[0], (
+        "the exception type is recorded, never its message"
+    )

@@ -51,6 +51,11 @@ class ExecutionEvidenceService(ExecutionEvidenceStoreProtocol):
     """Thread-safe authoritative store for tool execution receipts."""
 
     def __init__(self, retention_policy: ExecutionEvidenceRetentionPolicy) -> None:
+        # Two counters are events, not populations, so they cannot be derived from the
+        # retained receipts: an evidence failure leaves no receipt, and a reconciled
+        # UNKNOWN can be evicted while remaining a fact about what reconciliation did.
+        self._evidence_failure_count = 0
+        self._reconciled_unknown_count = 0
         # Required, not optional: an unbounded store is not representable, so no wiring
         # omission can produce one in a long-running process.
         self._retention_policy = retention_policy
@@ -62,6 +67,54 @@ class ExecutionEvidenceService(ExecutionEvidenceStoreProtocol):
     @property
     def retention_policy(self) -> ExecutionEvidenceRetentionPolicy:
         return self._retention_policy
+
+    @property
+    def open_receipt_count(self) -> int:
+        """Receipts currently in STARTED.
+
+        Derived from authoritative state under the lock rather than tracked
+        independently, so no lifecycle or eviction path can leave it disagreeing with
+        the receipts themselves. Persistent growth here is the signal for an evidence
+        fault that retention deliberately does not absorb.
+        """
+        with self._lock:
+            return sum(
+                1
+                for r in self._receipts.values()
+                if r.status == ExecutionStatus.STARTED
+            )
+
+    @property
+    def terminal_receipt_count(self) -> int:
+        """Retained terminal receipts, including UNKNOWN. Bounded by retention."""
+        with self._lock:
+            return sum(
+                1
+                for r in self._receipts.values()
+                if r.status != ExecutionStatus.STARTED
+            )
+
+    @property
+    def evidence_failure_count(self) -> int:
+        """Evidence *persistence* failures, never execution failures.
+
+        A transition rejected because the receipt already reached a terminal state is
+        not counted: that is the expected self-resolution race, and treating it as an
+        evidence fault would make ordinary concurrency look like an integrity problem.
+        """
+        with self._lock:
+            return self._evidence_failure_count
+
+    @property
+    def reconciled_unknown_count(self) -> int:
+        """Executions reconciliation actually resolved to UNKNOWN.
+
+        Counted at the transition rather than inferred from receipts currently holding
+        that status, because a reconciled receipt can later be evicted and because
+        UNKNOWN is only ever reached through reconciliation.
+        """
+        with self._lock:
+            return self._reconciled_unknown_count
 
     def _prune_terminal_locked(self) -> None:
         """Evict oldest terminal receipts beyond the configured bound.
@@ -110,11 +163,13 @@ class ExecutionEvidenceService(ExecutionEvidenceStoreProtocol):
         """Record the initial STARTED receipt at the tool execution boundary."""
         with self._lock:
             if receipt_id in self._receipts:
+                self._evidence_failure_count += 1
                 raise ExecutionReceiptDuplicateError(
                     f"Execution receipt '{receipt_id}' already exists"
                 )
 
             if grant_id in self._grant_to_receipt:
+                self._evidence_failure_count += 1
                 raise ExecutionReceiptDuplicateError(
                     f"Grant '{grant_id}' is already bound to receipt '{self._grant_to_receipt[grant_id]}'"
                 )
@@ -230,6 +285,7 @@ class ExecutionEvidenceService(ExecutionEvidenceStoreProtocol):
             )
 
             self._receipts[receipt_id] = reconciled_receipt
+            self._reconciled_unknown_count += 1
             self._monotonic_starts.pop(receipt_id, None)
             # UNKNOWN is terminal, so a reconciled receipt is subject to the same bound.
             self._prune_terminal_locked()
