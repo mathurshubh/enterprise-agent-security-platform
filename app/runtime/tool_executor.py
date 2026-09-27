@@ -66,6 +66,8 @@ from app.runtime.contracts import (
 )
 from app.runtime.exceptions import (
     CapabilityProfileNotFoundError,
+    ExecutionEvidenceIntegrityError,
+    ExecutionEvidenceUnavailableError,
     SandboxIsolationError,
     SandboxResourceExhaustedError,
     SandboxTimeoutError,
@@ -87,6 +89,10 @@ class ToolExecutionError(Exception):
         super().__init__(f"Execution failed for tool '{tool_id}': {message}")
         self.tool_id = tool_id
         self.cause = cause
+        # Set when terminal evidence could not be recorded for a failed execution. The
+        # execution failure stays primary; this carries the evidence fault alongside it
+        # rather than replacing it.
+        self.evidence_failure: Exception | None = None
 
 
 class ToolDisabledError(Exception):
@@ -338,6 +344,49 @@ class DefaultToolExecutor:
                 # Fail-silent guarantee: telemetry projection must never fail execution
                 pass
 
+    def _record_terminal(
+        self,
+        *,
+        receipt_id: str,
+        tool_id: str,
+        status: ExecutionStatus,
+        completed_at: datetime,
+        duration_ms: int,
+        error_type: str | None = None,
+        error_code: str | None = None,
+        output_digest: str | None = None,
+    ) -> ExecutionEvidenceIntegrityError | None:
+        """Record terminal evidence, returning an integrity error rather than raising.
+
+        The caller decides whether the evidence fault is primary. For a successful
+        execution it is: nothing else failed, and success must not be reported when the
+        outcome was not established. For a failed execution it is not: the execution
+        failure is the primary result and this is retained alongside it.
+        """
+        if self._evidence_store is None:
+            return None
+
+        try:
+            self._evidence_store.record_terminal(
+                receipt_id=receipt_id,
+                status=status,
+                completed_at=completed_at,
+                duration_ms=duration_ms,
+                error_type=error_type,
+                error_code=error_code,
+                output_digest=output_digest,
+            )
+            return None
+        except Exception as exc:
+            integrity = ExecutionEvidenceIntegrityError(
+                "Terminal execution evidence could not be recorded; the execution "
+                "occurred and cannot be rolled back, so its outcome is not established",
+                tool_id=tool_id,
+                receipt_id=receipt_id,
+            )
+            integrity.__cause__ = exc
+            return integrity
+
     def _run(
         self,
         tool: BaseTool,
@@ -372,20 +421,28 @@ class DefaultToolExecutor:
             # correlation only. declared_timeout_seconds is the limit governing THIS
             # execution, so reconciliation can derive its deadline from the capability
             # that applied rather than from a global SLA.
-            self._evidence_store.record_started(
-                receipt_id=receipt_id,
-                grant_id=grant.grant_id,
-                session_id=session_id,
-                agent_id=agent_id,
-                request_id=trace_id,
-                tool_id=tool.tool_id,
-                binding_hash=binding_hash,
-                capability_profile_id=grant.capability_profile_id,
-                capability_digest=grant.capability_digest,
-                declared_timeout_seconds=capabilities.resources.wall_clock_timeout_seconds,
-                started_at=start_utc,
-                monotonic_start=start_monotonic,
-            )
+            try:
+                self._evidence_store.record_started(
+                    receipt_id=receipt_id,
+                    grant_id=grant.grant_id,
+                    session_id=session_id,
+                    agent_id=agent_id,
+                    request_id=trace_id,
+                    tool_id=tool.tool_id,
+                    binding_hash=binding_hash,
+                    capability_profile_id=grant.capability_profile_id,
+                    capability_digest=grant.capability_digest,
+                    declared_timeout_seconds=capabilities.resources.wall_clock_timeout_seconds,
+                    started_at=start_utc,
+                    monotonic_start=start_monotonic,
+                )
+            except Exception as exc:
+                raise ExecutionEvidenceUnavailableError(
+                    "STARTED execution evidence could not be recorded; execution is "
+                    "refused before the sandbox is invoked",
+                    tool_id=tool.tool_id,
+                    receipt_id=receipt_id,
+                ) from exc
 
         # N3-6: Operational telemetry projection (fails silent)
         self._safe_emit(
@@ -425,15 +482,15 @@ class DefaultToolExecutor:
                 status = ExecutionStatus.FAILED
                 error_code = "TOOL_EXECUTION_ERROR"
 
-            if self._evidence_store is not None:
-                self._evidence_store.record_terminal(
-                    receipt_id=receipt_id,
-                    status=status,
-                    completed_at=completed_utc,
-                    duration_ms=duration_ms,
-                    error_type=error_type,
-                    error_code=error_code,
-                )
+            integrity_failure = self._record_terminal(
+                receipt_id=receipt_id,
+                tool_id=tool.tool_id,
+                status=status,
+                completed_at=completed_utc,
+                duration_ms=duration_ms,
+                error_type=error_type,
+                error_code=error_code,
+            )
             self._safe_emit(
                 TelemetryEventType.EXECUTION_FAILED,
                 tool_id=tool.tool_id,
@@ -444,9 +501,16 @@ class DefaultToolExecutor:
                 error_code=error_code,
             )
 
+            # The execution failure remains primary. An evidence fault must not erase
+            # the outcome it was trying to record, so it travels as secondary
+            # information rather than replacing the exception the caller needs.
             if isinstance(exc, ToolExecutionError | ToolDisabledError):
+                if integrity_failure is not None:
+                    exc.evidence_failure = integrity_failure
                 raise
-            raise ToolExecutionError(tool.tool_id, str(exc), cause=exc) from exc
+            wrapped = ToolExecutionError(tool.tool_id, str(exc), cause=exc)
+            wrapped.evidence_failure = integrity_failure
+            raise wrapped from exc
 
         duration_ms = sandbox_result.duration_ms or int(
             (self._monotonic_clock() - start_monotonic) * 1000
@@ -457,14 +521,20 @@ class DefaultToolExecutor:
             output_digest = sandbox_result.output_digest or compute_output_digest(
                 sandbox_result.output
             )
-            if self._evidence_store is not None:
-                self._evidence_store.record_terminal(
-                    receipt_id=receipt_id,
-                    status=ExecutionStatus.SUCCEEDED,
-                    completed_at=completed_utc,
-                    duration_ms=duration_ms,
-                    output_digest=output_digest,
-                )
+            integrity_failure = self._record_terminal(
+                receipt_id=receipt_id,
+                tool_id=tool.tool_id,
+                status=ExecutionStatus.SUCCEEDED,
+                completed_at=completed_utc,
+                duration_ms=duration_ms,
+                output_digest=output_digest,
+            )
+            if integrity_failure is not None:
+                # The tool succeeded, but the platform cannot establish that it did.
+                # Returning the output would report an outcome no evidence supports, so
+                # the evidence fault is the primary result and no COMPLETED telemetry is
+                # emitted for an execution whose outcome was never recorded.
+                raise integrity_failure
             self._safe_emit(
                 TelemetryEventType.EXECUTION_COMPLETED,
                 tool_id=tool.tool_id,
@@ -493,15 +563,15 @@ class DefaultToolExecutor:
             status = ExecutionStatus.FAILED
             error_code = "TOOL_EXECUTION_ERROR"
 
-        if self._evidence_store is not None:
-            self._evidence_store.record_terminal(
-                receipt_id=receipt_id,
-                status=status,
-                completed_at=completed_utc,
-                duration_ms=duration_ms,
-                error_type=err_type,
-                error_code=error_code,
-            )
+        integrity_failure = self._record_terminal(
+            receipt_id=receipt_id,
+            tool_id=tool.tool_id,
+            status=status,
+            completed_at=completed_utc,
+            duration_ms=duration_ms,
+            error_type=err_type,
+            error_code=error_code,
+        )
         self._safe_emit(
             TelemetryEventType.EXECUTION_FAILED,
             tool_id=tool.tool_id,
@@ -511,7 +581,9 @@ class DefaultToolExecutor:
             duration_ms=duration_ms,
             error_code=error_code,
         )
-        raise ToolExecutionError(
+        failure = ToolExecutionError(
             tool.tool_id,
             sandbox_result.error_message or "Tool execution failed in sandbox",
         )
+        failure.evidence_failure = integrity_failure
+        raise failure

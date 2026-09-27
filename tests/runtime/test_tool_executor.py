@@ -18,6 +18,7 @@ from app.models.execution_provenance import ExecutionProvenance
 from app.models.execution_receipt import ExecutionStatus
 from app.models.runtime_context import RuntimeContext
 from app.models.sandbox_execution_result import SandboxExecutionResult
+from app.models.telemetry.event_taxonomy import TelemetryEventType
 from app.models.tool_capability import ToolCapability
 from app.models.tool_descriptor import ToolDescriptor
 from app.models.tool_governance import ToolGovernance
@@ -29,6 +30,8 @@ from app.runtime.capability_registry import InMemoryCapabilityProfileRegistry
 from app.runtime.exceptions import (
     CapabilityDigestMismatchError,
     CapabilityProfileNotFoundError,
+    ExecutionEvidenceIntegrityError,
+    ExecutionEvidenceUnavailableError,
     SandboxIsolationError,
     SandboxResourceExhaustedError,
     SandboxTimeoutError,
@@ -482,11 +485,17 @@ def test_tool_executor_fails_closed_if_store_record_started_fails_n3_3():
     descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
     grant = _grant_for(authority, tool.tool_id, {})
 
-    with pytest.raises(RuntimeError, match="Store storage failed"):
+    with pytest.raises(ExecutionEvidenceUnavailableError) as exc_info:
         executor.execute_descriptor(descriptor, {}, grant=grant)
 
     # Sandbox was never entered!
     assert sandbox.executions == 0
+
+    # A pre-execution refusal, named as such rather than surfacing the store's own
+    # error, which a caller cannot distinguish from a tool failure. The underlying
+    # cause is preserved for diagnosis.
+    assert isinstance(exc_info.value.__cause__, RuntimeError)
+    assert "Store storage failed" in str(exc_info.value.__cause__)
 
 
 def test_telemetry_failure_does_not_block_execution_n3_6():
@@ -780,3 +789,131 @@ def test_executor_has_no_in_process_execution_path():
                         f"Violated ADR-032: Found illegal in-process call '{target_var}.execute(...)' "
                         f"at line {node.lineno} in {executor_file}"
                     )
+
+
+# ---------------------------------------------------------------------------
+# v0.17.2 Step 5 — execution outcome and evidence integrity are two axes
+# ---------------------------------------------------------------------------
+
+
+def _store_failing_terminal():
+    store = MagicMock()
+    store.record_terminal.side_effect = RuntimeError("evidence backend unavailable")
+    return store
+
+
+def test_successful_execution_with_failed_terminal_evidence_is_not_reported_as_success():
+    """The execution happened, but the platform cannot establish that it did.
+
+    Returning the tool output here would report an outcome no evidence supports. The
+    execution cannot be rolled back either, so the honest result is an evidence
+    integrity failure rather than either success or a fabricated failure.
+    """
+    authority = ExecutionAuthority()
+    telemetry = MagicMock()
+    executor = _make_executor(
+        authority=authority,
+        evidence_store=_store_failing_terminal(),
+        sandbox=StubSandbox(),
+        telemetry_emitter=telemetry,
+    )
+    tool = ExecutionTestTool()
+    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    grant = _grant_for(authority, tool.tool_id, {})
+
+    with pytest.raises(ExecutionEvidenceIntegrityError) as exc_info:
+        executor.execute_descriptor(descriptor, {}, grant=grant)
+
+    assert isinstance(exc_info.value.__cause__, RuntimeError)
+    emitted = [c.args[0].event_type for c in telemetry.emit.call_args_list]
+    assert TelemetryEventType.EXECUTION_COMPLETED not in emitted, (
+        "no COMPLETED telemetry for an execution whose outcome was never recorded"
+    )
+
+
+def test_an_evidence_failure_is_not_categorised_as_a_sandbox_failure():
+    """The isolation boundary and the evidence boundary are different things.
+
+    Collapsing them would let an evidence fault be recorded as an ISOLATION_FAILURE in
+    the very receipt that could not be written.
+    """
+    from app.runtime.exceptions import SandboxError
+
+    integrity = ExecutionEvidenceIntegrityError("x")
+    unavailable = ExecutionEvidenceUnavailableError("y")
+
+    assert not isinstance(integrity, SandboxError)
+    assert not isinstance(unavailable, SandboxError)
+    assert not isinstance(integrity, ToolExecutionError)
+
+
+def test_a_failed_execution_survives_successful_terminal_evidence_unchanged():
+    """Baseline for the masking cases: the execution failure is what the caller sees."""
+    authority = ExecutionAuthority()
+    store = ExecutionEvidenceService()
+    executor = _make_executor(
+        authority=authority,
+        evidence_store=store,
+        sandbox=StubSandbox(should_fail=True, error_msg="tool blew up"),
+    )
+    tool = ExecutionTestTool()
+    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    grant = _grant_for(authority, tool.tool_id, {})
+
+    with pytest.raises(ToolExecutionError, match="tool blew up") as exc_info:
+        executor.execute_descriptor(descriptor, {}, grant=grant)
+
+    assert exc_info.value.evidence_failure is None
+    assert store.get_by_grant(grant.grant_id).status == ExecutionStatus.FAILED
+
+
+def test_a_failed_execution_remains_primary_when_terminal_evidence_also_fails():
+    """The masking fix, non-exception failure path.
+
+    record_terminal was called and its failure propagated, replacing the sandbox's own
+    outcome — so a caller was told the evidence failed and never learned the tool had
+    failed. The execution failure stays primary; the evidence fault travels with it.
+    """
+    authority = ExecutionAuthority()
+    executor = _make_executor(
+        authority=authority,
+        evidence_store=_store_failing_terminal(),
+        sandbox=StubSandbox(should_fail=True, error_msg="tool blew up"),
+    )
+    tool = ExecutionTestTool()
+    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    grant = _grant_for(authority, tool.tool_id, {})
+
+    with pytest.raises(ToolExecutionError, match="tool blew up") as exc_info:
+        executor.execute_descriptor(descriptor, {}, grant=grant)
+
+    assert isinstance(
+        exc_info.value.evidence_failure, ExecutionEvidenceIntegrityError
+    ), "the evidence fault must remain observable as secondary information"
+
+
+def test_a_raised_execution_failure_remains_primary_when_terminal_evidence_fails():
+    """The masking fix, exception path.
+
+    This is where record_terminal sat inside the except handler, so raising there
+    replaced the original exception entirely and the timeout was lost.
+    """
+    authority = ExecutionAuthority()
+    executor = _make_executor(
+        authority=authority,
+        evidence_store=_store_failing_terminal(),
+        sandbox=StubSandbox(raise_direct=TimeoutError("sandbox wall clock exceeded")),
+    )
+    tool = ExecutionTestTool()
+    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    grant = _grant_for(authority, tool.tool_id, {})
+
+    with pytest.raises(ToolExecutionError) as exc_info:
+        executor.execute_descriptor(descriptor, {}, grant=grant)
+
+    assert isinstance(exc_info.value.cause, TimeoutError), (
+        "the original execution failure must survive the evidence fault"
+    )
+    assert isinstance(
+        exc_info.value.evidence_failure, ExecutionEvidenceIntegrityError
+    )
