@@ -23,6 +23,7 @@ limit that actually governed that execution.
 - M4-7 (Epistemic Preservation): Missing execution evidence must not be converted to SUCCEEDED or FAILED; it is preserved as UNKNOWN.
 """
 
+import logging
 import time
 from collections.abc import Callable
 from datetime import datetime
@@ -32,6 +33,9 @@ from app.models.execution_receipt import (
     ReconciliationReason,
 )
 from app.runtime.contracts import ExecutionEvidenceStoreProtocol
+from app.services.execution_evidence_service import ExecutionReceiptTransitionError
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_RECOVERY_GRACE_SECONDS = 10.0
 
@@ -65,6 +69,47 @@ class ExecutionReconciler:
         self._grace = recovery_grace_seconds
         self._clock = monotonic_clock
 
+    def _reconcile_one(
+        self,
+        receipt: ExecutionReceipt,
+        now_utc: datetime,
+        reason: ReconciliationReason,
+    ) -> ExecutionReceipt | None:
+        """Reconcile one receipt, tolerating the expected race and isolating failures.
+
+        Reconciliation reads a snapshot from ``list_open()``, so a receipt may be
+        terminalized independently between the snapshot and this transition. That is
+        ordinary concurrency and the better outcome: the execution reported its own
+        result. The receipt is treated as resolved and is not returned as reconciled,
+        because nothing here reconciled it and it did not become UNKNOWN.
+
+        A genuinely unexpected failure is isolated to this receipt and observed. One
+        receipt must not compromise reconciliation of unrelated receipts, or a single
+        bad record becomes a batch-wide availability failure.
+
+        Returns:
+            The reconciled receipt, or None if it self-resolved or could not be
+            reconciled.
+        """
+        try:
+            return self._store.record_reconciled(
+                receipt_id=receipt.receipt_id,
+                reconciled_at=now_utc,
+                reason=reason,
+            )
+        except ExecutionReceiptTransitionError:
+            # Expected: the receipt reached a terminal state on its own. Not a failure,
+            # and deliberately not counted as a reconciliation.
+            return None
+        except Exception as exc:
+            # Only the exception type is recorded, never its message (N3-7).
+            logger.warning(
+                "Reconciliation failed for receipt %s (%s); continuing batch",
+                receipt.receipt_id,
+                type(exc).__name__,
+            )
+            return None
+
     def reconcile_on_startup(self, now_utc: datetime) -> tuple[ExecutionReceipt, ...]:
         """Crash consistency: reconcile previously STARTED receipts discovered at startup.
 
@@ -75,12 +120,11 @@ class ExecutionReconciler:
         open_receipts = self._store.list_open()
         reconciled = []
         for receipt in open_receipts:
-            rec = self._store.record_reconciled(
-                receipt_id=receipt.receipt_id,
-                reconciled_at=now_utc,
-                reason=ReconciliationReason.PROCESS_RESTART,
+            rec = self._reconcile_one(
+                receipt, now_utc, ReconciliationReason.PROCESS_RESTART
             )
-            reconciled.append(rec)
+            if rec is not None:
+                reconciled.append(rec)
         return tuple(reconciled)
 
     def reconcile_unresolved(
@@ -110,12 +154,11 @@ class ExecutionReconciler:
 
             if start_mono is None:
                 # Execution start evidence lacks monotonic timing; outcome is unrecoverable
-                rec = self._store.record_reconciled(
-                    receipt_id=receipt.receipt_id,
-                    reconciled_at=now_utc,
-                    reason=ReconciliationReason.EVIDENCE_UNAVAILABLE,
+                rec = self._reconcile_one(
+                    receipt, now_utc, ReconciliationReason.EVIDENCE_UNAVAILABLE
                 )
-                reconciled.append(rec)
+                if rec is not None:
+                    reconciled.append(rec)
                 continue
 
             # Two clocks, kept separate: the execution deadline is the limit the
@@ -125,11 +168,10 @@ class ExecutionReconciler:
             reconciliation_deadline = execution_deadline + self._grace
 
             if current_monotonic >= reconciliation_deadline:
-                rec = self._store.record_reconciled(
-                    receipt_id=receipt.receipt_id,
-                    reconciled_at=now_utc,
-                    reason=ReconciliationReason.EXECUTION_TIMEOUT,
+                rec = self._reconcile_one(
+                    receipt, now_utc, ReconciliationReason.EXECUTION_TIMEOUT
                 )
-                reconciled.append(rec)
+                if rec is not None:
+                    reconciled.append(rec)
 
         return tuple(reconciled)
