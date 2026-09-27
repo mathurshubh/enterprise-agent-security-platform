@@ -167,8 +167,15 @@ class RuntimeService:
         self._last_result = None
 
     def _create_default_capability_registry(self) -> InMemoryCapabilityProfileRegistry:
+        """Derive a capability profile per registered tool from the tool's own workspace.
+
+        A tool whose workspace cannot be determined gets no profile rather than a
+        ``/tmp`` default. ``workspace_root`` is the boundary the sandbox confines the
+        tool to, so substituting one would grant read access to a directory nobody
+        chose. With no profile the tool produces no executable grant, which is the
+        fail-closed outcome.
+        """
         reg = InMemoryCapabilityProfileRegistry()
-        workspace = "/tmp"
         if self._tool_registry:
             for tool_id in self._tool_registry.list_tool_ids():
                 desc = self._tool_registry.resolve(tool_id)
@@ -177,7 +184,9 @@ class RuntimeService:
                     getattr(tool_inst, "workspace", None)
                     or getattr(tool_inst, "_workspace", None)
                 ) if tool_inst else None
-                ws = str(tool_workspace) if tool_workspace else workspace
+                if not tool_workspace:
+                    continue
+                ws = str(tool_workspace)
                 reg.register_profile(
                     ExecutionCapabilities(
                         capability_profile_id=f"profile-{tool_id}",

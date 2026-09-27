@@ -45,15 +45,31 @@ class SandboxExecutionRegistry:
 
 
 # Built-in production tool wrappers
+def _require_workspace_root(context: Mapping[str, Any]) -> str:
+    """Return the confining workspace root, refusing to substitute a default.
+
+    The wrappers previously fell back to ``/tmp``. A workspace root is the boundary a
+    tool is confined to, so an absent one is a wiring failure, not a value to guess —
+    and because the runner supplies the key as ``None`` when no filesystem capability
+    is present, the default was reached as the literal string ``"None"`` rather than as
+    ``/tmp`` anyway.
+    """
+    workspace = context.get("workspace_root")
+    if not workspace:
+        raise PermissionError(
+            "Execution refused: no workspace_root was supplied by the capability "
+            "descriptor, so the filesystem boundary is undefined"
+        )
+    return str(workspace)
+
+
 def _run_file_read(parameters: Mapping[str, Any], context: Mapping[str, Any]) -> Any:
-    workspace = context.get("workspace_root", "/tmp")
-    tool = FileReadTool(workspace=str(workspace))
+    tool = FileReadTool(workspace=_require_workspace_root(context))
     return tool.execute(dict(parameters))
 
 
 def _run_directory_list(parameters: Mapping[str, Any], context: Mapping[str, Any]) -> Any:
-    workspace = context.get("workspace_root", "/tmp")
-    tool = DirectoryListTool(workspace=str(workspace))
+    tool = DirectoryListTool(workspace=_require_workspace_root(context))
     return tool.execute(dict(parameters))
 
 
