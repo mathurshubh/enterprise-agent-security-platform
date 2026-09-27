@@ -239,3 +239,195 @@ def test_the_live_store_is_bounded_by_configuration() -> None:
     policy = dependencies.execution_evidence_store.retention_policy
     assert policy.max_terminal_receipts >= 1
     assert policy.max_terminal_receipts == get_max_terminal_execution_receipts()
+
+
+def _fresh_sandbox():
+    from app.services.scenario_sandbox import build_scenario_sandbox
+
+    return build_scenario_sandbox()
+
+
+def _capturing_runner(captured: list):
+    from app.services.scenario_runner_service import ScenarioRunnerService
+
+    def factory():
+        sandbox = _fresh_sandbox()
+        captured.append(sandbox)
+        return sandbox
+
+    return ScenarioRunnerService(sandbox_factory=factory)
+
+
+def _tool_sequence_scenario():
+    """A scenario the runner can execute without a live LLM provider."""
+    from app.services.attack_scenario_service import AttackScenarioService
+
+    registry = AttackScenarioService().load_registry()
+    for scenario in registry.list_scenarios():
+        if getattr(scenario, "tool_sequence", None):
+            return scenario
+    pytest.skip("no tool-sequence scenario registered")
+
+
+# ---------------------------------------------------------------------------
+# v0.17.2 Step 9 — scenario evidence isolation (ADR-013 M2a, evidence plane)
+# ---------------------------------------------------------------------------
+
+
+def _live_store_from_composition_root():
+    from app.api import dependencies
+
+    return dependencies.execution_evidence_store
+
+
+@pytest.mark.security_invariant
+def test_invariant_a_scenario_sandbox_has_its_own_evidence_store() -> None:
+    """Two planes, two stores. Scenario evidence is real execution evidence, but it is
+    not live production security state."""
+    live_store = _live_store_from_composition_root()
+    first = _fresh_sandbox()
+    second = _fresh_sandbox()
+
+    assert first.evidence_store is not live_store
+    assert second.evidence_store is not live_store
+    assert first.evidence_store is not second.evidence_store, (
+        "every run starts from a fresh sandbox, evidence included"
+    )
+    assert first.runtime.evidence_store is first.evidence_store
+
+
+@pytest.mark.security_invariant
+def test_invariant_an_execution_in_a_scenario_sandbox_records_only_scenario_evidence() -> None:
+    """The full non-interference proof: evidence appears in one store and not the other.
+
+    Driven through the scenario sandbox's own composition chain, because that is the
+    only scenario path reaching the executor, with a fixed-invocation agent standing in
+    for the LLM so every deterministic component stays real.
+
+    The execution outcome is deliberately not asserted. What matters is which store
+    receives the receipt; a failed execution produces one just as a successful one does,
+    and the sandbox's tools are confined to their own workspace.
+    """
+    import contextlib
+
+    live_store = _live_store_from_composition_root()
+    live_before = len(live_store.list_receipts())
+
+    sandbox = _fresh_sandbox()
+    scenario_store = sandbox.evidence_store
+    assert scenario_store.list_receipts() == ()
+
+    agent_id = sandbox.runtime._agent_service.list_agents()[0].agent_id
+    agent_runtime = AgentRuntimeService(
+        agent=_FixedInvocationAgent(agent_id, "file_read", {"path": "notes.txt"}),
+        runtime_service=sandbox.runtime,
+        tool_registry=sandbox.tool_registry,
+        execution_authority=sandbox.execution_authority,
+        evidence_store=scenario_store,
+    )
+
+    with contextlib.suppress(Exception):
+        agent_runtime.execute("read a file")
+
+    assert len(scenario_store.list_receipts()) == 1, (
+        "the scenario's own store holds the evidence for its execution"
+    )
+    assert len(live_store.list_receipts()) == live_before, (
+        "and the live store is untouched"
+    )
+
+
+@pytest.mark.security_invariant
+def test_invariant_a_scenario_run_does_not_touch_live_evidence() -> None:
+    """Through the real runner.
+
+    Note what this does and does not prove. Tool-sequence scenarios drive
+    RuntimeService directly and never reach the executor, so they produce no receipts
+    at all — the assertion here is non-interference with live evidence, not that
+    scenario evidence is written. The test above covers that.
+    """
+    live_store = _live_store_from_composition_root()
+    live_before = len(live_store.list_receipts())
+
+    captured: list = []
+    _capturing_runner(captured).run(_tool_sequence_scenario())
+
+    assert captured, "the runner built a sandbox"
+    assert captured[0].evidence_store is not live_store
+    assert len(live_store.list_receipts()) == live_before
+
+
+@pytest.mark.security_invariant
+def test_invariant_repeated_scenario_runs_never_contaminate_live_evidence() -> None:
+    live_store = _live_store_from_composition_root()
+    live_before = len(live_store.list_receipts())
+
+    captured: list = []
+    scenario = _tool_sequence_scenario()
+    for _ in range(3):
+        _capturing_runner(captured).run(scenario)
+
+    assert len(captured) == 3
+    assert len({id(s.evidence_store) for s in captured}) == 3, "no store is shared"
+    assert len(live_store.list_receipts()) == live_before
+
+
+@pytest.mark.security_invariant
+def test_invariant_scenario_composition_cannot_fall_back_to_live_evidence() -> None:
+    """Omitting the store leaves the executor without one; it never resolves to live
+    evidence through discovery, a global, or a default."""
+    live_store = _live_store_from_composition_root()
+    sandbox = _fresh_sandbox()
+
+    agent_runtime = AgentRuntimeService(
+        agent=_FixedInvocationAgent("scenario-agent", "file_read", {"path": "x.txt"}),
+        runtime_service=sandbox.runtime,
+        tool_registry=sandbox.tool_registry,
+        execution_authority=sandbox.execution_authority,
+        # evidence_store deliberately omitted
+    )
+
+    assert agent_runtime._executor._evidence_store is None, (
+        "an omitted store stays absent rather than resolving to the live plane"
+    )
+    assert agent_runtime._executor._evidence_store is not live_store
+
+
+@pytest.mark.security_regression
+def test_the_scenario_runner_passes_the_sandbox_store_to_the_agent_loop() -> None:
+    """The wiring the behavioural tests depend on, pinned directly."""
+    captured: list = []
+    _capturing_runner(captured).run(_tool_sequence_scenario())
+
+    sandbox = captured[0]
+    assert sandbox.runtime.evidence_store is sandbox.evidence_store
+
+
+@pytest.mark.security_invariant
+def test_invariant_the_runner_composes_the_agent_loop_against_the_sandbox_store() -> None:
+    """The runner's own wiring, observed rather than assumed.
+
+    This is the gap the behavioural tests above cannot close. Tool-sequence scenarios
+    drive RuntimeService directly and never reach the executor, so the runner's
+    ``evidence_store=`` argument is never exercised by running a scenario — a mutation
+    pointing that argument at the *live* store passed every other test in this module.
+
+    ``_resolve_pipeline`` is the composition step itself, so it is exercised directly:
+    prompt mode would reach the executor but needs a live LLM provider.
+    """
+    live_store = _live_store_from_composition_root()
+    captured: list = []
+    runner = _capturing_runner(captured)
+
+    _runtime, agent_runtime = runner._resolve_pipeline()
+
+    assert captured, "the runner built a sandbox"
+    sandbox = captured[0]
+    store = agent_runtime._executor._evidence_store
+
+    assert store is sandbox.evidence_store, (
+        "the agent loop must record into the sandbox's own store"
+    )
+    assert store is not live_store, (
+        "and must never be composed against the live evidence plane"
+    )

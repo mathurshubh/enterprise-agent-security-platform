@@ -75,6 +75,11 @@ class ScenarioRunnerService:
             tool_registry=sandbox.tool_registry,
             agent_id=self._RUNTIME_AGENT_ID,
             execution_authority=sandbox.execution_authority,
+            # The sandbox's own store, passed explicitly. Omitting it would leave the
+            # executor without one rather than falling back to live evidence, but
+            # scenario runs should record their own evidence: it is what exercises the
+            # evidence machinery against a real execution path (ADR-013 M2a).
+            evidence_store=sandbox.evidence_store,
         )
         return sandbox.runtime, agent_runtime
 
