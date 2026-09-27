@@ -5,7 +5,11 @@ Invariants:
 - N3-4 (Terminal Monotonicity): Terminal execution states are immutable and cannot be transitioned.
 - N3-5 (Reconciliation Authority): Transition to UNKNOWN is reserved for reconciliation authority.
 - N3-7 (Diagnostic Safety): Raw exception messages excluded.
-- N3-9 (Grant Receipt Uniqueness): Exactly one receipt may be created per grant_id.
+- N3-9 (Grant Receipt Uniqueness): One receipt per grant_id, over *retained* evidence
+  state. This is a provenance/uniqueness property of the evidence index; it is not the
+  mechanism preventing re-execution. Single-use grant consumption in ExecutionAuthority
+  is what prevents a grant being executed twice, and it holds independently of whether
+  the corresponding receipt is still retained.
 - N3-10 (UTC Evidence Time): Enforces timezone-aware UTC timestamps.
 - N3-11 (Per-Receipt Elapsed Time): Tracks monotonic start per receipt for duration validation.
 """
@@ -13,6 +17,7 @@ Invariants:
 from datetime import datetime
 from threading import RLock
 
+from app.models.execution_evidence_retention import ExecutionEvidenceRetentionPolicy
 from app.models.execution_receipt import (
     ExecutionReceipt,
     ExecutionStatus,
@@ -45,11 +50,46 @@ class ExecutionReceiptTransitionError(ValueError):
 class ExecutionEvidenceService(ExecutionEvidenceStoreProtocol):
     """Thread-safe authoritative store for tool execution receipts."""
 
-    def __init__(self) -> None:
+    def __init__(self, retention_policy: ExecutionEvidenceRetentionPolicy) -> None:
+        # Required, not optional: an unbounded store is not representable, so no wiring
+        # omission can produce one in a long-running process.
+        self._retention_policy = retention_policy
         self._lock = RLock()
         self._receipts: dict[str, ExecutionReceipt] = {}
         self._grant_to_receipt: dict[str, str] = {}
         self._monotonic_starts: dict[str, float] = {}
+
+    @property
+    def retention_policy(self) -> ExecutionEvidenceRetentionPolicy:
+        return self._retention_policy
+
+    def _prune_terminal_locked(self) -> None:
+        """Evict oldest terminal receipts beyond the configured bound.
+
+        Called only after a receipt reaches a terminal state, never on record_started:
+        the bound is on terminal evidence, so a long-running or orphaned STARTED receipt
+        stays available to the reconciler however many terminal receipts exist.
+
+        Every structure keyed by the evicted receipt is pruned in the same critical
+        section. Bounding ``_receipts`` alone would leave the grant index and the
+        monotonic-start map growing without limit, so the store would remain unbounded
+        while appearing bounded.
+        """
+        terminal = [
+            receipt
+            for receipt in self._receipts.values()
+            if receipt.status != ExecutionStatus.STARTED
+        ]
+        excess = len(terminal) - self._retention_policy.max_terminal_receipts
+        if excess <= 0:
+            return
+
+        # Oldest-first. sorted() is stable, so receipts sharing a started_at are evicted
+        # in insertion order rather than arbitrarily.
+        for receipt in sorted(terminal, key=lambda r: r.started_at)[:excess]:
+            self._receipts.pop(receipt.receipt_id, None)
+            self._grant_to_receipt.pop(receipt.grant_id, None)
+            self._monotonic_starts.pop(receipt.receipt_id, None)
 
     def record_started(
         self,
@@ -151,6 +191,7 @@ class ExecutionEvidenceService(ExecutionEvidenceStoreProtocol):
 
             self._receipts[receipt_id] = terminal_receipt
             self._monotonic_starts.pop(receipt_id, None)
+            self._prune_terminal_locked()
             return terminal_receipt
 
     def record_reconciled(
@@ -190,6 +231,8 @@ class ExecutionEvidenceService(ExecutionEvidenceStoreProtocol):
 
             self._receipts[receipt_id] = reconciled_receipt
             self._monotonic_starts.pop(receipt_id, None)
+            # UNKNOWN is terminal, so a reconciled receipt is subject to the same bound.
+            self._prune_terminal_locked()
             return reconciled_receipt
 
     def get(self, receipt_id: str) -> ExecutionReceipt | None:

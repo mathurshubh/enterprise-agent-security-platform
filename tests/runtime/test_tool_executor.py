@@ -14,6 +14,9 @@ from app.models.execution_capability import (
     NetworkCapability,
     ResourceLimits,
 )
+from app.models.execution_evidence_retention import (
+    ExecutionEvidenceRetentionPolicy,
+)
 from app.models.execution_provenance import ExecutionProvenance
 from app.models.execution_receipt import ExecutionStatus
 from app.models.runtime_context import RuntimeContext
@@ -50,6 +53,9 @@ from app.runtime.tool_executor import (
 )
 from app.services.execution_evidence_service import ExecutionEvidenceService
 from app.tools.base_tool import BaseTool
+
+# Generous bound: these tests exercise lifecycle semantics, not capacity.
+_TEST_RETENTION = ExecutionEvidenceRetentionPolicy(max_terminal_receipts=1000)
 
 
 class ExecutionTestTool(BaseTool):
@@ -367,7 +373,7 @@ def test_grant_is_consumed_once_verified_even_if_the_tool_then_fails():
 
 def test_tool_executor_records_started_and_succeeded_receipt():
     authority = ExecutionAuthority()
-    store = ExecutionEvidenceService()
+    store = ExecutionEvidenceService(retention_policy=_TEST_RETENTION)
     executor = _make_executor(authority=authority, evidence_store=store)
 
     tool = ExecutionTestTool()
@@ -410,7 +416,7 @@ def test_tool_executor_records_started_and_succeeded_receipt():
 def test_tool_executor_records_failed_receipt_and_strips_raw_message_n3_7():
     """N3-7: Raw error messages must not enter the durable evidence record."""
     authority = ExecutionAuthority()
-    store = ExecutionEvidenceService()
+    store = ExecutionEvidenceService(retention_policy=_TEST_RETENTION)
     sandbox = StubSandbox(
         should_fail=True,
         fail_type="RuntimeError",
@@ -449,7 +455,7 @@ def test_tool_executor_records_failed_receipt_and_strips_raw_message_n3_7():
 def test_instantiation_failure_does_not_create_started_receipt_n3_2():
     """N3-2: Instantiation failure consumes grant but never records STARTED."""
     authority = ExecutionAuthority()
-    store = ExecutionEvidenceService()
+    store = ExecutionEvidenceService(retention_policy=_TEST_RETENTION)
     executor = _make_executor(authority=authority, evidence_store=store)
 
     # Tool factory that raises an error on instantiation
@@ -501,7 +507,7 @@ def test_tool_executor_fails_closed_if_store_record_started_fails_n3_3():
 def test_telemetry_failure_does_not_block_execution_n3_6():
     """N3-6: Telemetry failure fails silent; does not block valid execution."""
     authority = ExecutionAuthority()
-    store = ExecutionEvidenceService()
+    store = ExecutionEvidenceService(retention_policy=_TEST_RETENTION)
     mock_telemetry = MagicMock()
     mock_telemetry.emit.side_effect = RuntimeError("Telemetry pipeline down")
 
@@ -603,7 +609,7 @@ def test_executor_fails_closed_on_missing_capability_profile_in_registry():
 def test_tool_executor_records_distinct_failure_categories():
     """ADR-032 / Evidence: Distinguish TIMEOUT, RESOURCE_EXHAUSTED, ISOLATION_FAILURE, and TOOL_EXECUTION_ERROR."""
     authority = ExecutionAuthority()
-    store = ExecutionEvidenceService()
+    store = ExecutionEvidenceService(retention_policy=_TEST_RETENTION)
 
     # 1. Timeout
     sandbox_timeout = StubSandbox(
@@ -850,7 +856,7 @@ def test_an_evidence_failure_is_not_categorised_as_a_sandbox_failure():
 def test_a_failed_execution_survives_successful_terminal_evidence_unchanged():
     """Baseline for the masking cases: the execution failure is what the caller sees."""
     authority = ExecutionAuthority()
-    store = ExecutionEvidenceService()
+    store = ExecutionEvidenceService(retention_policy=_TEST_RETENTION)
     executor = _make_executor(
         authority=authority,
         evidence_store=store,

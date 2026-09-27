@@ -2,6 +2,9 @@
 
 from datetime import datetime, timezone
 
+from app.models.execution_evidence_retention import (
+    ExecutionEvidenceRetentionPolicy,
+)
 from app.models.execution_receipt import (
     ExecutionStatus,
     ReconciliationReason,
@@ -9,13 +12,16 @@ from app.models.execution_receipt import (
 from app.services.execution_evidence_service import ExecutionEvidenceService
 from app.services.execution_reconciler import ExecutionReconciler
 
+# Generous bound: these tests exercise lifecycle semantics, not capacity.
+_TEST_RETENTION = ExecutionEvidenceRetentionPolicy(max_terminal_receipts=1000)
+
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
 def test_reconcile_on_startup():
-    store = ExecutionEvidenceService()
+    store = ExecutionEvidenceService(retention_policy=_TEST_RETENTION)
     now = _utc_now()
 
     store.record_started(
@@ -60,7 +66,7 @@ def test_reconcile_on_startup():
 
 def test_reconcile_unresolved_evaluates_per_receipt_monotonic_time():
     """N3-11: Reconciler evaluates each receipt independently using its monotonic start."""
-    store = ExecutionEvidenceService()
+    store = ExecutionEvidenceService(retention_policy=_TEST_RETENTION)
     now = _utc_now()
 
     # Receipt 1: started at monotonic 10.0 (old)
@@ -124,7 +130,7 @@ def test_reconcile_unresolved_evaluates_per_receipt_monotonic_time():
 
 def test_reconcile_unresolved_missing_monotonic_evidence():
     """Missing monotonic start evidence reconciles as EVIDENCE_UNAVAILABLE."""
-    store = ExecutionEvidenceService()
+    store = ExecutionEvidenceService(retention_policy=_TEST_RETENTION)
     now = _utc_now()
 
     store.record_started(
@@ -186,7 +192,7 @@ def test_a_long_running_execution_inside_its_declared_budget_is_not_reconciled()
     This is the acceptance property for that fix: at 40s elapsed, a receipt declaring a
     120s budget is still open.
     """
-    store = ExecutionEvidenceService()
+    store = ExecutionEvidenceService(retention_policy=_TEST_RETENTION)
     _start(store, "r-long", declared_timeout_seconds=120.0, monotonic_start=0.0)
 
     reconciler = ExecutionReconciler(evidence_store=store, recovery_grace_seconds=10.0)
@@ -206,7 +212,7 @@ def test_a_long_running_execution_inside_its_declared_budget_is_not_reconciled()
 def test_reconciliation_becomes_eligible_after_the_declared_budget_plus_grace():
     """Two clocks: the execution deadline is the declared budget; the reconciliation
     deadline adds the allowance for observing an outcome after that limit passed."""
-    store = ExecutionEvidenceService()
+    store = ExecutionEvidenceService(retention_policy=_TEST_RETENTION)
     _start(store, "r-long", declared_timeout_seconds=120.0, monotonic_start=0.0)
     reconciler = ExecutionReconciler(evidence_store=store, recovery_grace_seconds=10.0)
 
@@ -227,7 +233,7 @@ def test_reconciliation_becomes_eligible_after_the_declared_budget_plus_grace():
 def test_each_receipt_is_evaluated_against_its_own_declared_budget():
     """Per-receipt, not per-batch: one deadline cannot be applied to every execution,
     because different capabilities declare different limits."""
-    store = ExecutionEvidenceService()
+    store = ExecutionEvidenceService(retention_policy=_TEST_RETENTION)
     _start(store, "r-short", declared_timeout_seconds=5.0, monotonic_start=0.0)
     _start(store, "r-long", declared_timeout_seconds=600.0, monotonic_start=0.0)
     reconciler = ExecutionReconciler(evidence_store=store, recovery_grace_seconds=10.0)
@@ -276,7 +282,7 @@ class _StoreWithoutMonotonicAccessor:
 
 
 def _open_receipt():
-    store = ExecutionEvidenceService()
+    store = ExecutionEvidenceService(retention_policy=_TEST_RETENTION)
     return _start(store, "r-probe", declared_timeout_seconds=10.0, monotonic_start=0.0)
 
 
@@ -303,7 +309,7 @@ def test_reconciliation_does_not_silently_degrade_if_the_contract_is_bypassed():
     """
     import pytest
 
-    reconciler = ExecutionReconciler(evidence_store=ExecutionEvidenceService())
+    reconciler = ExecutionReconciler(evidence_store=ExecutionEvidenceService(retention_policy=_TEST_RETENTION))
     bad_store = _StoreWithoutMonotonicAccessor(_open_receipt())
     reconciler._store = bad_store
 
@@ -320,7 +326,7 @@ def test_missing_timing_evidence_remains_reconcilable():
     """The semantic distinction the contract preserves: a conforming store returning
     None means the timing is genuinely missing, which is still a reconcilable
     condition and keeps its existing EVIDENCE_UNAVAILABLE outcome."""
-    store = ExecutionEvidenceService()
+    store = ExecutionEvidenceService(retention_policy=_TEST_RETENTION)
     store.record_started(
         receipt_id="r-no-timing",
         grant_id="g-no-timing",
@@ -351,7 +357,7 @@ def test_the_production_store_satisfies_the_evidence_contract() -> None:
     """The contract must describe the implementation, not an aspiration."""
     from app.runtime.contracts import ExecutionEvidenceStoreProtocol
 
-    assert isinstance(ExecutionEvidenceService(), ExecutionEvidenceStoreProtocol)
+    assert isinstance(ExecutionEvidenceService(retention_policy=_TEST_RETENTION), ExecutionEvidenceStoreProtocol)
     assert hasattr(ExecutionEvidenceStoreProtocol, "get_monotonic_start")
 
 
@@ -424,7 +430,7 @@ def test_a_receipt_that_self_resolves_is_skipped_not_reconciled():
     the execution reported its own result — so the receipt must not be forced to
     UNKNOWN, and the transition rejection must not become a batch-level error.
     """
-    inner = ExecutionEvidenceService()
+    inner = ExecutionEvidenceService(retention_policy=_TEST_RETENTION)
     _start(inner, "r-racing", declared_timeout_seconds=1.0, monotonic_start=0.0)
     store = _CompletesAfterSnapshot(inner, "r-racing")
     reconciler = ExecutionReconciler(evidence_store=store, recovery_grace_seconds=0.0)
@@ -441,7 +447,7 @@ def test_a_receipt_that_self_resolves_is_skipped_not_reconciled():
 def test_the_self_resolved_race_is_not_accounted_as_a_reconciliation():
     """No false accounting: the skipped receipt is absent from the result while a
     genuinely unresolved one in the same batch is still reconciled."""
-    inner = ExecutionEvidenceService()
+    inner = ExecutionEvidenceService(retention_policy=_TEST_RETENTION)
     _start(inner, "r-racing", declared_timeout_seconds=1.0, monotonic_start=0.0)
     _start(inner, "r-stuck", declared_timeout_seconds=1.0, monotonic_start=0.0)
     store = _CompletesAfterSnapshot(inner, "r-racing")
@@ -457,7 +463,7 @@ def test_the_self_resolved_race_is_not_accounted_as_a_reconciliation():
 def test_one_unexpected_receipt_failure_does_not_abort_the_batch():
     """Reconciliation is best-effort per receipt: a single bad record must not become a
     batch-wide availability failure that leaves unrelated executions unresolved."""
-    inner = ExecutionEvidenceService()
+    inner = ExecutionEvidenceService(retention_policy=_TEST_RETENTION)
     for name in ("r-a", "r-b", "r-c"):
         _start(inner, name, declared_timeout_seconds=1.0, monotonic_start=0.0)
     store = _FailsForOneReceipt(inner, "r-a")
@@ -473,7 +479,7 @@ def test_one_unexpected_receipt_failure_does_not_abort_the_batch():
 
 def test_startup_reconciliation_also_tolerates_a_self_resolved_receipt():
     """The startup path shares the same transition tolerance."""
-    inner = ExecutionEvidenceService()
+    inner = ExecutionEvidenceService(retention_policy=_TEST_RETENTION)
     _start(inner, "r-racing", declared_timeout_seconds=1.0, monotonic_start=0.0)
     _start(inner, "r-orphan", declared_timeout_seconds=1.0, monotonic_start=0.0)
     store = _CompletesAfterSnapshot(inner, "r-racing")
@@ -513,7 +519,7 @@ def test_a_self_resolved_race_is_not_reported_as_a_reconciliation_failure(monkey
     failure must produce one.
     """
     captured = _capture_warnings(monkeypatch)
-    inner = ExecutionEvidenceService()
+    inner = ExecutionEvidenceService(retention_policy=_TEST_RETENTION)
     _start(inner, "r-racing", declared_timeout_seconds=1.0, monotonic_start=0.0)
     reconciler = ExecutionReconciler(
         evidence_store=_CompletesAfterSnapshot(inner, "r-racing"),
@@ -531,7 +537,7 @@ def test_an_unexpected_reconciliation_failure_is_observed(monkeypatch):
     """The other half: an unexpected failure is isolated *and* reported, so a persistent
     evidence fault is not indistinguishable from an ordinary race."""
     captured = _capture_warnings(monkeypatch)
-    inner = ExecutionEvidenceService()
+    inner = ExecutionEvidenceService(retention_policy=_TEST_RETENTION)
     _start(inner, "r-a", declared_timeout_seconds=1.0, monotonic_start=0.0)
     reconciler = ExecutionReconciler(
         evidence_store=_FailsForOneReceipt(inner, "r-a"), recovery_grace_seconds=0.0

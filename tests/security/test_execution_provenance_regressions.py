@@ -46,6 +46,9 @@ from app.models.execution_capability import (
     NetworkCapability,
     ResourceLimits,
 )
+from app.models.execution_evidence_retention import (
+    ExecutionEvidenceRetentionPolicy,
+)
 from app.models.execution_provenance import ExecutionProvenance
 from app.models.runtime_context import RuntimeContext
 from app.models.sandbox_execution_result import SandboxExecutionResult
@@ -67,6 +70,10 @@ from app.services.execution_evidence_service import ExecutionEvidenceService
 from app.tools.base_tool import BaseTool
 
 PROFILE_ID = "profile-provenance"
+
+
+# Generous bound: these tests exercise lifecycle semantics, not capacity.
+_TEST_RETENTION = ExecutionEvidenceRetentionPolicy(max_terminal_receipts=1000)
 
 
 class _Tool(BaseTool):
@@ -122,7 +129,7 @@ def _capabilities() -> ExecutionCapabilities:
 
 def _harness():
     authority = ExecutionAuthority()
-    store = ExecutionEvidenceService()
+    store = ExecutionEvidenceService(retention_policy=_TEST_RETENTION)
     sandbox = _RecordingSandbox()
     registry = InMemoryCapabilityProfileRegistry({PROFILE_ID: _capabilities()})
     executor = DefaultToolExecutor(
