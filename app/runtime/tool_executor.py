@@ -20,7 +20,12 @@ ADR-032 execution isolation invariants:
   are categorized distinctly in execution evidence receipts.
 
 NEW-003 invariants:
-- N3-1 (Provenance): Derives identity and binding exclusively from the verified grant/context.
+- N3-1 (Provenance): Execution identity is derived exclusively from the verified grant.
+  ``agent_id`` and ``session_id`` are read from ``RuntimeExecutionGrant``, whose signature
+  covers them, so evidence attribution never depends on a caller's claim. A supplied
+  ``RuntimeContext`` contributes correlation metadata only (``request_id``), and a context
+  whose identity contradicts the grant is refused as ``IDENTITY_MISMATCH`` before the grant
+  is consumed.
 - N3-2 (Grant/Execution Separation): Consuming a grant does not imply execution started or succeeded.
 - N3-3 (Trusted Boundary): STARTED evidence established before invoking sandbox; store failure fails closed.
 - N3-6 (Evidence/Telemetry Separation): Evidence store is authoritative; telemetry is operational projection.
@@ -146,7 +151,9 @@ class DefaultToolExecutor:
         if not descriptor.enabled:
             raise ToolDisabledError(f"Tool '{descriptor.tool_id}' is disabled")
 
-        capabilities = self._verify_and_prepare(descriptor.tool_id, parameters, grant)
+        capabilities = self._verify_and_prepare(
+            descriptor.tool_id, parameters, grant, context
+        )
         assert grant is not None
         tool = self.instantiate(descriptor)
         return self._run(
@@ -165,7 +172,7 @@ class DefaultToolExecutor:
         grant: RuntimeExecutionGrant | None = None,
     ) -> Any:
         """Verify the grant and capability binding, then execute a BaseTool handle via sandbox."""
-        capabilities = self._verify_and_prepare(tool.tool_id, parameters, grant)
+        capabilities = self._verify_and_prepare(tool.tool_id, parameters, grant, context)
         assert grant is not None
         return self._run(
             tool,
@@ -180,6 +187,7 @@ class DefaultToolExecutor:
         tool_id: str,
         parameters: Mapping[str, Any],
         grant: RuntimeExecutionGrant | None,
+        context: RuntimeContext | None = None,
     ) -> ExecutionCapabilities:
         """Verify authority, grant, and capability binding, then consume grant before execution.
 
@@ -187,6 +195,7 @@ class DefaultToolExecutor:
         1. Check sandbox backend is configured (fail closed if None).
         2. Verify authority is present (fail closed if None).
         3. Verify grant is present and requested operation is valid.
+        3a. Refuse a caller context whose identity contradicts the verified grant.
         4. Verify explicit capability profile binding on grant (fail closed if absent).
         5. Resolve capability profile from registry (fail closed if missing).
         6. Verify capability digest matches grant.capability_digest (fail closed if mismatch).
@@ -221,6 +230,11 @@ class DefaultToolExecutor:
         if hasattr(self._authority, "verify_grant"):
             self._authority.verify_grant(grant, requested)
 
+        # 1a. A caller context that contradicts the verified grant is a confused-deputy
+        # signal, not something to resolve silently in the grant's favour. Refused here,
+        # before consumption, so a misrouted attempt does not spend the grant.
+        self._require_context_agrees_with_grant(grant, context, tool_id)
+
         # 2. Sandbox backend must be configured
         if self._sandbox is None:
             raise SandboxUnavailableError(
@@ -252,6 +266,36 @@ class DefaultToolExecutor:
             self._authority.verify_and_consume(grant, requested)
 
         return capabilities
+
+    @staticmethod
+    def _require_context_agrees_with_grant(
+        grant: RuntimeExecutionGrant,
+        context: RuntimeContext | None,
+        tool_id: str,
+    ) -> None:
+        """Refuse a context whose claimed identity contradicts the verified grant.
+
+        The grant is authoritative either way, so this changes no attribution. It exists
+        because a caller presenting grant A while claiming to be subject B is either
+        misrouted or attempting cross-agent execution, and both warrant a loud refusal
+        rather than a silently corrected record.
+        """
+        if context is None:
+            return
+
+        if context.authenticated_agent and context.authenticated_agent != grant.agent_id:
+            raise ExecutionBindingError(
+                ExecutionRefusalReason.IDENTITY_MISMATCH,
+                tool_id,
+                "context agent does not match the agent the grant was issued for",
+            )
+
+        if context.session_id and context.session_id != grant.session_id:
+            raise ExecutionBindingError(
+                ExecutionRefusalReason.IDENTITY_MISMATCH,
+                tool_id,
+                "context session does not match the session the grant was issued for",
+            )
 
     def _safe_emit(
         self,
@@ -291,20 +335,24 @@ class DefaultToolExecutor:
         start_utc = datetime.now(timezone.utc)
         start_monotonic = self._monotonic_clock()
 
+        # N3-1: identity is read from the verified grant, never from the context. The
+        # context is unsigned caller input; it contributes request correlation only, and
+        # _verify_and_prepare has already refused one that contradicts the grant.
+        session_id = grant.session_id
+        agent_id = grant.agent_id
+        trace_id = context.request_id if context is not None else f"req-{uuid4()}"
+
         effective_context = context or RuntimeContext(
-            session_id="unspecified",
-            request_id=f"req-{uuid4()}",
+            session_id=session_id,
+            request_id=trace_id,
             user_id="system",
             principal="system",
-            authenticated_agent="unspecified",
+            authenticated_agent=agent_id,
         )
 
         binding_hash = hashlib.sha256(
             grant.binding.canonical_json().encode("utf-8")
         ).hexdigest()
-        session_id = effective_context.session_id
-        agent_id = effective_context.authenticated_agent
-        trace_id = effective_context.request_id
         receipt_id = f"rcpt-{uuid4()}"
 
         if self._evidence_store is not None:

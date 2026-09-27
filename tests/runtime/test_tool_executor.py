@@ -148,6 +148,8 @@ def _grant_for(
     parameters: dict[str, Any],
     profile_id: str | None = "test-profile",
     digest: str | None = None,
+    agent_id: str = "agent-1",
+    session_id: str = "session-1",
 ):
     if profile_id is not None and digest is None:
         caps = _make_test_capabilities(profile_id)
@@ -155,7 +157,8 @@ def _grant_for(
     return authority.issue(
         ExecutionBinding.from_operation(tool_id, parameters),
         Decision.ALLOW,
-        agent_id="agent-1", session_id="session-1",
+        agent_id=agent_id,
+        session_id=session_id,
         capability_profile_id=profile_id,
         capability_digest=digest,
     )
@@ -228,6 +231,9 @@ def test_tool_executor_execute_descriptor_success():
     tool = ExecutionTestTool()
     descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
 
+    grant = _grant_for(
+        authority, tool.tool_id, {"param": "val"}, agent_id="a1", session_id="s1"
+    )
     context = RuntimeContext(
         session_id="s1",
         request_id="r1",
@@ -235,7 +241,6 @@ def test_tool_executor_execute_descriptor_success():
         principal="p1",
         authenticated_agent="a1",
     )
-    grant = _grant_for(authority, tool.tool_id, {"param": "val"})
 
     result = executor.execute_descriptor(
         descriptor, {"param": "val"}, context, grant=grant
@@ -363,7 +368,13 @@ def test_tool_executor_records_started_and_succeeded_receipt():
 
     tool = ExecutionTestTool()
     descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
-    grant = _grant_for(authority, tool.tool_id, {"msg": "hello"})
+    grant = _grant_for(
+        authority,
+        tool.tool_id,
+        {"msg": "hello"},
+        agent_id="agent-1",
+        session_id="sess-xyz",
+    )
     context = RuntimeContext(
         session_id="sess-xyz",
         request_id="req-123",
@@ -380,8 +391,10 @@ def test_tool_executor_records_started_and_succeeded_receipt():
     receipt = store.get_by_grant(grant.grant_id)
     assert receipt is not None
     assert receipt.status == ExecutionStatus.SUCCEEDED
-    assert receipt.session_id == "sess-xyz"
-    assert receipt.agent_id == "agent-1"
+    # Evidence identity is the grant's, not the context's. Asserting the context value
+    # is what let the "unspecified" fallback ship unnoticed.
+    assert receipt.session_id == grant.session_id
+    assert receipt.agent_id == grant.agent_id
     assert receipt.tool_id == tool.tool_id
     assert receipt.completed_at is not None
     assert receipt.duration_ms is not None and receipt.duration_ms >= 0
@@ -405,7 +418,9 @@ def test_tool_executor_records_failed_receipt_and_strips_raw_message_n3_7():
 
     tool = ExecutionTestTool()
     descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
-    grant = _grant_for(authority, tool.tool_id, {})
+    grant = _grant_for(
+        authority, tool.tool_id, {}, agent_id="agent-1", session_id="sess-fail"
+    )
     context = RuntimeContext(
         session_id="sess-fail",
         request_id="req-fail",

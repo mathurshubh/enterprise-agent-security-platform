@@ -1,0 +1,340 @@
+"""Execution evidence must be attributable to the subject the grant was issued for.
+
+The production caller passes no runtime context:
+
+    app/services/agent_runtime_service.py
+        output = self._executor.execute_descriptor(
+            descriptor, parameters, grant=runtime_result.authorization
+        )
+
+The executor answered that by fabricating one, and then read identity out of the
+thing it had just invented:
+
+    effective_context = context or RuntimeContext(
+        session_id="unspecified", authenticated_agent="unspecified", ...
+    )
+    session_id = effective_context.session_id
+    agent_id = effective_context.authenticated_agent
+
+So every sandboxed execution on the production path recorded a receipt whose
+session and agent were the literal string ``"unspecified"``. The real
+``grant_id`` was preserved, so the execution was not wholly untraceable — but the
+two keys an investigator uses to ask "what did this agent do in this session"
+carried no information, and no test asserted on the value, because the tests that
+did check identity asserted the *context's* value and supplied a context.
+
+The invariant is not that the fields are populated. It is that **execution
+identity derives from the verified grant**, which is signed, and never from a
+``RuntimeContext``, which is unsigned caller input. A caller that presents a
+grant while claiming a different subject is refused rather than silently
+recorded under the grant's subject.
+
+Scope: provenance only. Capability binding, consumption ordering and sandbox
+containment are unchanged and covered elsewhere.
+"""
+
+from typing import Any
+
+import pytest
+
+from app.models.audit_event import Decision
+from app.models.execution_binding import ExecutionBinding
+from app.models.execution_capability import (
+    ExecutionCapabilities,
+    FilesystemCapability,
+    NetworkCapability,
+    ResourceLimits,
+)
+from app.models.runtime_context import RuntimeContext
+from app.models.sandbox_execution_result import SandboxExecutionResult
+from app.models.tool_capability import ToolCapability
+from app.models.tool_descriptor import ToolDescriptor
+from app.models.tool_governance import ToolGovernance
+from app.models.tool_identity import ToolIdentity
+from app.models.tool_metadata import ToolMetadata
+from app.models.tool_operational import ToolOperational
+from app.models.tool_risk_level import ToolRiskLevel
+from app.runtime.capability_registry import InMemoryCapabilityProfileRegistry
+from app.runtime.execution_authority import (
+    ExecutionAuthority,
+    ExecutionBindingError,
+    ExecutionRefusalReason,
+)
+from app.runtime.tool_executor import DefaultToolExecutor
+from app.services.execution_evidence_service import ExecutionEvidenceService
+from app.tools.base_tool import BaseTool
+
+PROFILE_ID = "profile-provenance"
+
+
+class _Tool(BaseTool):
+    def __init__(self, tool_id: str = "provenance_tool") -> None:
+        self.implementation_id = "test_echo"
+        self._metadata = ToolMetadata(
+            identity=ToolIdentity(
+                tool_id=tool_id,
+                name="Provenance Tool",
+                version="1.0.0",
+                description="Execution provenance corpus",
+            ),
+            governance=ToolGovernance(risk_level=ToolRiskLevel.LOW),
+            capability=ToolCapability(category="test"),
+            operational=ToolOperational(),
+        )
+
+    @property
+    def metadata(self) -> ToolMetadata:
+        return self._metadata
+
+    def execute(self, parameters: dict[str, object]) -> dict[str, object]:
+        return {"executed": True, **parameters}
+
+
+class _RecordingSandbox:
+    """Records what the executor handed it, so provenance can be observed."""
+
+    def __init__(self) -> None:
+        self.contexts: list[RuntimeContext] = []
+
+    def execute(
+        self,
+        *,
+        tool: BaseTool,
+        parameters: dict[str, Any],
+        capabilities: ExecutionCapabilities,
+        context: RuntimeContext,
+    ) -> SandboxExecutionResult:
+        self.contexts.append(context)
+        return SandboxExecutionResult(success=True, output={"ok": True})
+
+
+def _capabilities() -> ExecutionCapabilities:
+    return ExecutionCapabilities(
+        capability_profile_id=PROFILE_ID,
+        filesystem=FilesystemCapability(workspace_root="/tmp", read_only=True),
+        environment_variables={},
+        network=NetworkCapability(),
+        resources=ResourceLimits(),
+    )
+
+
+def _harness():
+    authority = ExecutionAuthority()
+    store = ExecutionEvidenceService()
+    sandbox = _RecordingSandbox()
+    registry = InMemoryCapabilityProfileRegistry({PROFILE_ID: _capabilities()})
+    executor = DefaultToolExecutor(
+        authority=authority,
+        evidence_store=store,
+        sandbox=sandbox,
+        capability_registry=registry,
+    )
+    return authority, store, sandbox, executor
+
+
+def _grant(authority: ExecutionAuthority, tool_id: str, params: dict[str, str], *,
+           agent_id: str = "agent-1", session_id: str = "session-1"):
+    caps = _capabilities()
+    return authority.issue(
+        ExecutionBinding.from_operation(tool_id, params),
+        Decision.ALLOW,
+        agent_id=agent_id,
+        session_id=session_id,
+        capability_profile_id=PROFILE_ID,
+        capability_digest=caps.compute_digest(),
+    )
+
+
+@pytest.mark.security_invariant
+def test_invariant_evidence_identity_comes_from_the_grant_on_the_production_call_shape() -> None:
+    """The exact call AgentRuntimeService makes: no context at all.
+
+    This is the shape that produced ``"unspecified"``. A narrower test that passed a
+    context would have kept passing against the defect.
+    """
+    authority, store, _, executor = _harness()
+    tool = _Tool()
+    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    grant = _grant(
+        authority, tool.tool_id, {"msg": "x"},
+        agent_id="agent-real", session_id="session-real",
+    )
+
+    executor.execute_descriptor(descriptor, {"msg": "x"}, grant=grant)
+
+    receipt = store.get_by_grant(grant.grant_id)
+    assert receipt is not None
+    assert receipt.agent_id == "agent-real"
+    assert receipt.session_id == "session-real"
+
+
+@pytest.mark.security_invariant
+def test_invariant_no_placeholder_identity_is_recorded_without_a_context() -> None:
+    """The specific regression: a fabricated subject must not reach evidence."""
+    authority, store, _, executor = _harness()
+    tool = _Tool()
+    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    grant = _grant(authority, tool.tool_id, {})
+
+    executor.execute_descriptor(descriptor, {}, grant=grant)
+
+    receipt = store.get_by_grant(grant.grant_id)
+    assert receipt.agent_id != "unspecified"
+    assert receipt.session_id != "unspecified"
+    assert receipt.agent_id and receipt.session_id
+
+
+@pytest.mark.security_invariant
+def test_invariant_a_contradicting_context_cannot_reattribute_an_execution() -> None:
+    """Confused deputy: grant for one subject, context claiming another.
+
+    Refused outright rather than recorded under the grant's subject, because a
+    mismatch between authority and caller context is an anomaly worth surfacing.
+    """
+    authority, store, sandbox, executor = _harness()
+    tool = _Tool()
+    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    grant = _grant(authority, tool.tool_id, {}, agent_id="agent-a", session_id="session-a")
+    impersonating = RuntimeContext(
+        session_id="session-a",
+        request_id="req-1",
+        user_id="u",
+        principal="p",
+        authenticated_agent="agent-b",
+    )
+
+    with pytest.raises(ExecutionBindingError) as exc_info:
+        executor.execute_descriptor(descriptor, {}, impersonating, grant=grant)
+
+    assert exc_info.value.reason is ExecutionRefusalReason.IDENTITY_MISMATCH
+    assert sandbox.contexts == [], "nothing may execute after an identity refusal"
+    assert store.get_by_grant(grant.grant_id) is None, "no evidence for a refused attempt"
+
+
+@pytest.mark.security_invariant
+def test_invariant_a_contradicting_session_is_refused() -> None:
+    authority, _, sandbox, executor = _harness()
+    tool = _Tool()
+    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    grant = _grant(authority, tool.tool_id, {}, agent_id="agent-a", session_id="session-a")
+    rotated = RuntimeContext(
+        session_id="session-b",
+        request_id="req-1",
+        user_id="u",
+        principal="p",
+        authenticated_agent="agent-a",
+    )
+
+    with pytest.raises(ExecutionBindingError) as exc_info:
+        executor.execute_descriptor(descriptor, {}, rotated, grant=grant)
+
+    assert exc_info.value.reason is ExecutionRefusalReason.IDENTITY_MISMATCH
+    assert sandbox.contexts == []
+
+
+@pytest.mark.security_invariant
+def test_invariant_an_identity_refusal_does_not_consume_the_grant() -> None:
+    """A refused attempt never spends authority, so a misrouted call does not
+    destroy a legitimate one."""
+    authority, _, _, executor = _harness()
+    tool = _Tool()
+    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    grant = _grant(authority, tool.tool_id, {}, agent_id="agent-a", session_id="session-a")
+    wrong = RuntimeContext(
+        session_id="session-a",
+        request_id="req-1",
+        user_id="u",
+        principal="p",
+        authenticated_agent="agent-b",
+    )
+
+    with pytest.raises(ExecutionBindingError):
+        executor.execute_descriptor(descriptor, {}, wrong, grant=grant)
+
+    assert authority.outstanding_grant_count == 1
+    executor.execute_descriptor(descriptor, {}, grant=grant)
+    assert authority.outstanding_grant_count == 0
+
+
+@pytest.mark.security_regression
+def test_the_sandbox_receives_the_grants_identity_not_a_placeholder() -> None:
+    """Provenance reaching the isolation boundary is grant-derived too."""
+    authority, _, sandbox, executor = _harness()
+    tool = _Tool()
+    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    grant = _grant(
+        authority, tool.tool_id, {}, agent_id="agent-sb", session_id="session-sb"
+    )
+
+    executor.execute_descriptor(descriptor, {}, grant=grant)
+
+    assert len(sandbox.contexts) == 1
+    assert sandbox.contexts[0].authenticated_agent == "agent-sb"
+    assert sandbox.contexts[0].session_id == "session-sb"
+
+
+@pytest.mark.security_regression
+def test_an_agreeing_context_supplies_correlation_but_not_identity() -> None:
+    """A context that agrees is accepted, and its request_id is used for tracing.
+    Identity still comes from the grant, so the two sources cannot diverge."""
+    authority, store, _, executor = _harness()
+    tool = _Tool()
+    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    grant = _grant(
+        authority, tool.tool_id, {}, agent_id="agent-c", session_id="session-c"
+    )
+    context = RuntimeContext(
+        session_id="session-c",
+        request_id="req-trace-9",
+        user_id="u",
+        principal="p",
+        authenticated_agent="agent-c",
+    )
+
+    executor.execute_descriptor(descriptor, {}, context, grant=grant)
+
+    receipt = store.get_by_grant(grant.grant_id)
+    assert receipt.agent_id == grant.agent_id
+    assert receipt.session_id == grant.session_id
+
+
+@pytest.mark.security_invariant
+def test_invariant_an_empty_context_identity_does_not_blank_out_evidence() -> None:
+    """The one case where the two sources genuinely diverge.
+
+    ``RuntimeContext`` does not constrain its identity fields, so an empty
+    ``authenticated_agent`` is constructible and passes the mismatch guard, which
+    deliberately treats an absent claim as "no claim" rather than a contradiction.
+    Evidence must still carry the grant's subject rather than the empty string.
+    """
+    authority, store, _, executor = _harness()
+    tool = _Tool()
+    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    grant = _grant(
+        authority, tool.tool_id, {}, agent_id="agent-d", session_id="session-d"
+    )
+    blank = RuntimeContext(
+        session_id="",
+        request_id="req-blank",
+        user_id="u",
+        principal="p",
+        authenticated_agent="",
+    )
+
+    executor.execute_descriptor(descriptor, {}, blank, grant=grant)
+
+    receipt = store.get_by_grant(grant.grant_id)
+    assert receipt.agent_id == "agent-d"
+    assert receipt.session_id == "session-d"
+
+
+@pytest.mark.security_regression
+def test_the_executor_module_contains_no_placeholder_identity_fallback() -> None:
+    """Guard against reintroduction: the fabricated subject is gone from the source,
+    not merely unreachable on the paths these tests exercise."""
+    from pathlib import Path
+
+    import app.runtime.tool_executor as module
+
+    source = Path(module.__file__).read_text(encoding="utf-8")
+    assert '"unspecified"' not in source
