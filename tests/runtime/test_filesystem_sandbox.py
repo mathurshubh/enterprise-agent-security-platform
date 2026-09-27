@@ -190,7 +190,7 @@ class TestProcessSandboxFilesystemEnforcement:
         f = tmp_path / "relative_target.txt"
         f.write_text("relative content")
 
-        sandbox = ProcessToolExecutionSandbox()
+        sandbox = ProcessToolExecutionSandbox(enable_testing_handlers=True)
         tool = MockTool(tool_id="test_file_op", implementation_id="test_file_op")
         provenance = _make_provenance()
         caps = _make_caps(workspace_root=str(tmp_path), read_only=True)
@@ -206,7 +206,7 @@ class TestProcessSandboxFilesystemEnforcement:
         assert result.output == "relative content"
 
     def test_absolute_system_file_read_is_rejected(self, tmp_path: Path) -> None:
-        sandbox = ProcessToolExecutionSandbox()
+        sandbox = ProcessToolExecutionSandbox(enable_testing_handlers=True)
         tool = MockTool(tool_id="test_file_op", implementation_id="test_file_op")
         provenance = _make_provenance()
         caps = _make_caps(workspace_root=str(tmp_path), read_only=True)
@@ -224,7 +224,7 @@ class TestProcessSandboxFilesystemEnforcement:
         assert "/etc/passwd" not in result.error_message
 
     def test_path_traversal_escaping_workspace_is_rejected(self, tmp_path: Path) -> None:
-        sandbox = ProcessToolExecutionSandbox()
+        sandbox = ProcessToolExecutionSandbox(enable_testing_handlers=True)
         tool = MockTool(tool_id="test_file_op", implementation_id="test_file_op")
         provenance = _make_provenance()
         caps = _make_caps(workspace_root=str(tmp_path), read_only=True)
@@ -248,7 +248,7 @@ class TestProcessSandboxFilesystemEnforcement:
         except OSError:
             pytest.skip("Symlink creation not supported in this test environment")
 
-        sandbox = ProcessToolExecutionSandbox()
+        sandbox = ProcessToolExecutionSandbox(enable_testing_handlers=True)
         tool = MockTool(tool_id="test_file_op", implementation_id="test_file_op")
         provenance = _make_provenance()
         caps = _make_caps(workspace_root=str(tmp_path), read_only=True)
@@ -273,7 +273,7 @@ class TestProcessSandboxFilesystemEnforcement:
         disallowed_file = tmp_path / "forbidden.txt"
         disallowed_file.write_text("forbidden info")
 
-        sandbox = ProcessToolExecutionSandbox()
+        sandbox = ProcessToolExecutionSandbox(enable_testing_handlers=True)
         tool = MockTool(tool_id="test_file_op", implementation_id="test_file_op")
         provenance = _make_provenance()
         caps = _make_caps(
@@ -325,7 +325,7 @@ class TestProcessSandboxFilesystemEnforcement:
         (tmp_path / "existing.txt").write_text("existing")
         (tmp_path / "empty_dir").mkdir(exist_ok=True)
 
-        sandbox = ProcessToolExecutionSandbox()
+        sandbox = ProcessToolExecutionSandbox(enable_testing_handlers=True)
         tool = MockTool(tool_id="test_file_op", implementation_id="test_file_op")
         provenance = _make_provenance()
         caps = _make_caps(workspace_root=str(tmp_path), read_only=True)
@@ -343,7 +343,7 @@ class TestProcessSandboxFilesystemEnforcement:
         assert "read-only" in result.error_message.lower() or "[REDACTED_PATH]" in result.error_message
 
     def test_scratch_writes_are_isolated_and_ephemeral(self, tmp_path: Path) -> None:
-        sandbox = ProcessToolExecutionSandbox()
+        sandbox = ProcessToolExecutionSandbox(enable_testing_handlers=True)
         tool = MockTool(tool_id="test_file_op", implementation_id="test_file_op")
         provenance = _make_provenance()
         caps = _make_caps(
@@ -367,7 +367,7 @@ class TestProcessSandboxFilesystemEnforcement:
         assert not os.path.exists(scratch_dir)
 
     def test_scratch_cleaned_up_on_tool_failure(self, tmp_path: Path) -> None:
-        sandbox = ProcessToolExecutionSandbox()
+        sandbox = ProcessToolExecutionSandbox(enable_testing_handlers=True)
         tool = MockTool(tool_id="test_raise_error", implementation_id="test_raise_error")
         provenance = _make_provenance()
         caps = _make_caps(
@@ -394,7 +394,7 @@ class TestProcessSandboxFilesystemEnforcement:
         assert len(leftover) == 0
 
     def test_scratch_cleaned_up_on_timeout(self, tmp_path: Path) -> None:
-        sandbox = ProcessToolExecutionSandbox()
+        sandbox = ProcessToolExecutionSandbox(enable_testing_handlers=True)
         tool = MockTool(tool_id="test_sleep", implementation_id="test_sleep")
         provenance = _make_provenance()
         caps = _make_caps(
@@ -420,7 +420,7 @@ class TestProcessSandboxFilesystemEnforcement:
         assert len(leftover) == 0
 
     def test_missing_workspace_root_fails_closed(self) -> None:
-        sandbox = ProcessToolExecutionSandbox()
+        sandbox = ProcessToolExecutionSandbox(enable_testing_handlers=True)
         tool = MockTool(tool_id="test_echo", implementation_id="test_echo")
         provenance = _make_provenance()
         caps = _make_caps(

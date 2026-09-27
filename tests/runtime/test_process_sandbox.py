@@ -87,7 +87,7 @@ class TestProcessToolExecutionSandboxProtocol:
     """Verifies that ProcessToolExecutionSandbox satisfies the protocol."""
 
     def test_satisfies_protocol(self) -> None:
-        sandbox = ProcessToolExecutionSandbox()
+        sandbox = ProcessToolExecutionSandbox(enable_testing_handlers=True)
         assert isinstance(sandbox, ToolExecutionSandboxProtocol)
 
 
@@ -95,7 +95,7 @@ class TestProcessSandboxExecution:
     """Verifies execution, clean environment, timeouts, and bounded output."""
 
     def test_successful_tool_execution(self) -> None:
-        sandbox = ProcessToolExecutionSandbox()
+        sandbox = ProcessToolExecutionSandbox(enable_testing_handlers=True)
         tool = MockTool(tool_id="test_echo", implementation_id="test_echo")
         provenance = _make_provenance()
         caps = _make_test_capabilities()
@@ -135,7 +135,7 @@ class TestProcessSandboxExecution:
 
         monkeypatch.setattr(descriptor_module, "ToolExecutionDescriptor", _capturing)
 
-        sandbox = ProcessToolExecutionSandbox()
+        sandbox = ProcessToolExecutionSandbox(enable_testing_handlers=True)
         tool = MockTool(tool_id="test_echo", implementation_id="test_echo")
         provenance = _make_provenance(
             grant_id="grant-authoritative",
@@ -163,7 +163,7 @@ class TestProcessSandboxExecution:
         monkeypatch.setenv("JWT_SECRET_KEY", "top_secret_signing_key_999")
         monkeypatch.setenv("SOME_RANDOM_PARENT_VAR", "uncontrolled_parent_state")
 
-        sandbox = ProcessToolExecutionSandbox()
+        sandbox = ProcessToolExecutionSandbox(enable_testing_handlers=True)
         tool = MockTool(tool_id="test_env_dump", implementation_id="test_env_dump")
         provenance = _make_provenance()
 
@@ -188,7 +188,7 @@ class TestProcessSandboxExecution:
         assert env_dump["EXPLICIT_ALLOWED_VAR"] == "safe_value"
 
     def test_hard_wall_clock_timeout_enforced(self) -> None:
-        sandbox = ProcessToolExecutionSandbox()
+        sandbox = ProcessToolExecutionSandbox(enable_testing_handlers=True)
         tool = MockTool(tool_id="test_sleep", implementation_id="test_sleep")
         provenance = _make_provenance()
 
@@ -212,7 +212,7 @@ class TestProcessSandboxExecution:
         assert elapsed < 1.5
 
     def test_bounded_output_collection_kills_process_on_limit_breach(self) -> None:
-        sandbox = ProcessToolExecutionSandbox()
+        sandbox = ProcessToolExecutionSandbox(enable_testing_handlers=True)
         tool = MockTool(tool_id="test_output_flood", implementation_id="test_output_flood")
         provenance = _make_provenance()
 
@@ -231,7 +231,7 @@ class TestProcessSandboxExecution:
         assert exc_info.value.resource_type == "max_output_bytes"
 
     def test_process_group_cleanup_invariant_kills_child_and_grandchild(self) -> None:
-        sandbox = ProcessToolExecutionSandbox()
+        sandbox = ProcessToolExecutionSandbox(enable_testing_handlers=True)
         tool = MockTool(tool_id="test_fork_and_persist", implementation_id="test_fork_and_persist")
         provenance = _make_provenance()
         caps = _make_test_capabilities(timeout_seconds=2.0)
@@ -256,7 +256,7 @@ class TestProcessSandboxExecution:
             os.kill(child_pid, 0)
 
     def test_sanitized_error_handling_does_not_leak_paths_or_secrets(self) -> None:
-        sandbox = ProcessToolExecutionSandbox()
+        sandbox = ProcessToolExecutionSandbox(enable_testing_handlers=True)
         tool = MockTool(tool_id="test_raise_error", implementation_id="test_raise_error")
         provenance = _make_provenance()
         caps = _make_test_capabilities()
@@ -283,7 +283,7 @@ class TestProcessSandboxExecution:
         assert "[REDACTED]" in result.error_message
 
     def test_unknown_implementation_id_returns_clean_error(self) -> None:
-        sandbox = ProcessToolExecutionSandbox()
+        sandbox = ProcessToolExecutionSandbox(enable_testing_handlers=True)
         tool = MockTool(tool_id="unregistered_tool", implementation_id="unregistered_tool_v99")
         provenance = _make_provenance()
         caps = _make_test_capabilities()

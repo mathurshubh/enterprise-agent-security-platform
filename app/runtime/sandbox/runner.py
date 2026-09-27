@@ -1,6 +1,7 @@
 """Sandbox Runner — Headless subprocess entrypoint executing tool descriptors (ADR-032)."""
 
 import json
+import os
 import re
 import sys
 from typing import Any
@@ -58,7 +59,14 @@ def run_headless() -> int:
         return 1
 
     try:
-        fn = default_execution_registry.resolve(descriptor.implementation_id)
+        registry = default_execution_registry
+        if os.environ.get("EASP_SANDBOX_TESTING_HANDLERS") == "1":
+            # Opt-in only, set by ProcessToolExecutionSandbox(enable_testing_handlers=True).
+            from app.runtime.sandbox.testing_registry import register_testing_handlers
+
+            register_testing_handlers(registry)
+
+        fn = registry.resolve(descriptor.implementation_id)
     except KeyError as exc:
         error_payload = {
             "success": False,

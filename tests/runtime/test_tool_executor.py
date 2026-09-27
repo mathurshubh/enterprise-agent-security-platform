@@ -678,7 +678,7 @@ def test_adversarial_in_process_canary_not_invoked():
     CANARY_SENTINEL["invoked"] = False
 
     authority = ExecutionAuthority()
-    sandbox = ProcessToolExecutionSandbox()
+    sandbox = ProcessToolExecutionSandbox(enable_testing_handlers=True)
     profile_id = "canary-profile"
     caps = _make_test_capabilities(profile_id)
     registry = InMemoryCapabilityProfileRegistry({profile_id: caps})
@@ -733,7 +733,7 @@ def test_sandbox_pid_divergence():
             return {"pid": os.getpid()}
 
     authority = ExecutionAuthority()
-    sandbox = ProcessToolExecutionSandbox()
+    sandbox = ProcessToolExecutionSandbox(enable_testing_handlers=True)
     profile_id = "pid-profile"
     caps = _make_test_capabilities(profile_id)
     registry = InMemoryCapabilityProfileRegistry({profile_id: caps})

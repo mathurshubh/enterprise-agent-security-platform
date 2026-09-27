@@ -52,7 +52,15 @@ class ProcessToolExecutionSandbox:
     7. Filesystem Confinement: Working directory pinned to workspace_root; ephemeral scratch cleaned up.
     """
 
-    def __init__(self, platform_root: Path | None = None) -> None:
+    def __init__(
+        self,
+        platform_root: Path | None = None,
+        *,
+        enable_testing_handlers: bool = False,
+    ) -> None:
+        # Opt-in, default closed: when set, the child additionally registers the
+        # isolation-verification probes in testing_registry. Production never sets it.
+        self._enable_testing_handlers = enable_testing_handlers
         if platform_root is None:
             # Resolve repository root
             platform_root = Path(__file__).resolve().parent.parent.parent.parent
@@ -138,6 +146,8 @@ class ProcessToolExecutionSandbox:
             "PYTHONUNBUFFERED": "1",
             "PYTHONPATH": str(self._platform_root),
         }
+        if self._enable_testing_handlers:
+            env["EASP_SANDBOX_TESTING_HANDLERS"] = "1"
         # Block proxy environment variables from being inherited or injected
         blocked_proxy = {"http_proxy", "https_proxy", "all_proxy", "no_proxy"}
         for k, v in capabilities.environment_variables.items():

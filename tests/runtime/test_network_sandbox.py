@@ -182,7 +182,7 @@ class TestProcessSandboxNetworkEnforcement:
     """End-to-end subprocess integration tests verifying process-level network access enforcement."""
 
     def test_disabled_mode_denies_tcp_connection(self) -> None:
-        sandbox = ProcessToolExecutionSandbox()
+        sandbox = ProcessToolExecutionSandbox(enable_testing_handlers=True)
         tool = MockTool(tool_id="test_network_op", implementation_id="test_network_op")
         provenance = _make_provenance()
         caps = _make_caps(network_mode=NetworkEgressMode.DISABLED)
@@ -199,7 +199,7 @@ class TestProcessSandboxNetworkEnforcement:
         assert "[REDACTED_DESTINATION]" in result.error_message
 
     def test_disabled_mode_denies_udp_sendto(self) -> None:
-        sandbox = ProcessToolExecutionSandbox()
+        sandbox = ProcessToolExecutionSandbox(enable_testing_handlers=True)
         tool = MockTool(tool_id="test_network_op", implementation_id="test_network_op")
         provenance = _make_provenance()
         caps = _make_caps(network_mode=NetworkEgressMode.DISABLED)
@@ -216,7 +216,7 @@ class TestProcessSandboxNetworkEnforcement:
         assert "[REDACTED_DESTINATION]" in result.error_message
 
     def test_loopback_destinations_denied_in_subprocess(self) -> None:
-        sandbox = ProcessToolExecutionSandbox()
+        sandbox = ProcessToolExecutionSandbox(enable_testing_handlers=True)
         tool = MockTool(tool_id="test_network_op", implementation_id="test_network_op")
         provenance = _make_provenance()
         # Even if allowlist mistakenly contained loopback, process guard blocks it
@@ -238,7 +238,7 @@ class TestProcessSandboxNetworkEnforcement:
         assert "127.0.0.1" not in result.error_message
 
     def test_cloud_metadata_denied_in_subprocess(self) -> None:
-        sandbox = ProcessToolExecutionSandbox()
+        sandbox = ProcessToolExecutionSandbox(enable_testing_handlers=True)
         tool = MockTool(tool_id="test_network_op", implementation_id="test_network_op")
         provenance = _make_provenance()
         caps = _make_caps(
@@ -259,7 +259,7 @@ class TestProcessSandboxNetworkEnforcement:
         assert "169.254.169.254" not in result.error_message
 
     def test_alternate_ip_representations_denied_in_subprocess(self) -> None:
-        sandbox = ProcessToolExecutionSandbox()
+        sandbox = ProcessToolExecutionSandbox(enable_testing_handlers=True)
         tool = MockTool(tool_id="test_network_op", implementation_id="test_network_op")
         provenance = _make_provenance()
         caps = _make_caps(network_mode=NetworkEgressMode.ALLOWLIST, destinations=("2130706433:80",))
@@ -277,7 +277,7 @@ class TestProcessSandboxNetworkEnforcement:
         assert "[REDACTED_DESTINATION]" in result.error_message
 
     def test_unix_domain_sockets_denied_by_default_in_subprocess(self) -> None:
-        sandbox = ProcessToolExecutionSandbox()
+        sandbox = ProcessToolExecutionSandbox(enable_testing_handlers=True)
         tool = MockTool(tool_id="test_network_op", implementation_id="test_network_op")
         provenance = _make_provenance()
         caps = _make_caps(network_mode=NetworkEgressMode.ALLOWLIST, destinations=("api.example.com:443",))
@@ -295,7 +295,7 @@ class TestProcessSandboxNetworkEnforcement:
         assert "docker.sock" not in result.error_message
 
     def test_listener_bind_denied_by_default_in_subprocess(self) -> None:
-        sandbox = ProcessToolExecutionSandbox()
+        sandbox = ProcessToolExecutionSandbox(enable_testing_handlers=True)
         tool = MockTool(tool_id="test_network_op", implementation_id="test_network_op")
         provenance = _make_provenance()
         caps = _make_caps(network_mode=NetworkEgressMode.ALLOWLIST, destinations=("api.example.com:443",))
@@ -330,7 +330,7 @@ class TestProcessSandboxNetworkEnforcement:
         server_thread.start()
 
         try:
-            sandbox = ProcessToolExecutionSandbox()
+            sandbox = ProcessToolExecutionSandbox(enable_testing_handlers=True)
             tool = MockTool(tool_id="test_network_op", implementation_id="test_network_op")
             provenance = _make_provenance()
             # Allow initial destination, but redirect to metadata must be blocked
@@ -359,7 +359,7 @@ class TestProcessSandboxNetworkEnforcement:
             server.server_close()
 
     def test_proxy_environment_variables_scrubbed_from_child_environment(self) -> None:
-        sandbox = ProcessToolExecutionSandbox()
+        sandbox = ProcessToolExecutionSandbox(enable_testing_handlers=True)
         tool = MockTool(tool_id="test_env_dump", implementation_id="test_env_dump")
         provenance = _make_provenance()
         # Attempt to inject proxy environment variables
@@ -414,7 +414,7 @@ class TestProcessSandboxNetworkEnforcement:
         parent_fd = parent_sock.fileno()
 
         try:
-            sandbox = ProcessToolExecutionSandbox()
+            sandbox = ProcessToolExecutionSandbox(enable_testing_handlers=True)
             tool = MockTool(tool_id="test_echo", implementation_id="test_echo")
             provenance = _make_provenance()
             caps = _make_caps(network_mode=NetworkEgressMode.DISABLED)
