@@ -33,6 +33,7 @@ from app.services.capability_service import CapabilityService
 from app.services.detection_service import DetectionService
 from app.services.enforcement_coordinator import EnforcementCoordinator
 from app.services.execution_evidence_service import ExecutionEvidenceService
+from app.services.execution_reconciler import ExecutionReconciler
 from app.services.findings_service import FindingsService
 from app.services.risk_aggregator import RiskAggregator
 from app.services.risk_service import RiskService
@@ -117,6 +118,16 @@ execution_evidence_store: ExecutionEvidenceService = ExecutionEvidenceService(
     retention_policy=ExecutionEvidenceRetentionPolicy(
         max_terminal_receipts=get_max_terminal_execution_receipts(),
     )
+)
+
+# ADR-032 §12: the recovery boundary for the live evidence plane. Constructed here
+# against the one live store — not in the lifespan hook, which must operate on the
+# composition root's store rather than building a second evidence plane of its own.
+#
+# Reconciliation itself runs at startup (app/main.py), never at import: security
+# lifecycle ordering must not be an accidental consequence of module import order.
+execution_reconciler: ExecutionReconciler = ExecutionReconciler(
+    evidence_store=execution_evidence_store
 )
 
 runtime_service: RuntimeService = bootstrap_runtime_service(

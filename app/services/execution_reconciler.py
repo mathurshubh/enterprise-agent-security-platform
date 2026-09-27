@@ -69,6 +69,15 @@ class ExecutionReconciler:
         self._grace = recovery_grace_seconds
         self._clock = monotonic_clock
 
+    @property
+    def evidence_store(self) -> ExecutionEvidenceStoreProtocol:
+        """The store this reconciler resolves executions against.
+
+        Exposed so startup wiring can be asserted to operate on the same evidence plane
+        the executor writes to, rather than a second independently constructed one.
+        """
+        return self._store
+
     def _reconcile_one(
         self,
         receipt: ExecutionReceipt,
