@@ -59,6 +59,7 @@ from app.models.tool_descriptor import ToolDescriptor
 from app.runtime.capability_registry import verify_capability_binding
 from app.runtime.contracts import (
     CapabilityProfileRegistryProtocol,
+    ExecutionAuthorityProtocol,
     ExecutionEvidenceStoreProtocol,
     ToolExecutionSandboxProtocol,
 )
@@ -70,7 +71,6 @@ from app.runtime.exceptions import (
     SandboxUnavailableError,
 )
 from app.runtime.execution_authority import (
-    ExecutionAuthority,
     ExecutionBindingError,
     ExecutionRefusalReason,
 )
@@ -107,13 +107,26 @@ class DefaultToolExecutor:
 
     def __init__(
         self,
-        authority: ExecutionAuthority | None = None,
+        authority: ExecutionAuthorityProtocol | None = None,
         evidence_store: ExecutionEvidenceStoreProtocol | None = None,
         telemetry_emitter: Any | None = None,
         monotonic_clock: Callable[[], float] = time.monotonic,
         sandbox: ToolExecutionSandboxProtocol | None = None,
         capability_registry: CapabilityProfileRegistryProtocol | None = None,
     ) -> None:
+        if authority is not None and not isinstance(
+            authority, ExecutionAuthorityProtocol
+        ):
+            # Refused at wiring time rather than at execution. An authority missing part
+            # of the contract used to be accepted and probed with hasattr, which turned a
+            # wiring bug into silently skipped verification; surfacing it here means the
+            # failure names the cause instead of raising AttributeError mid-execution.
+            raise TypeError(
+                "authority does not satisfy ExecutionAuthorityProtocol: the execution "
+                "trust boundary requires issue, verify_grant, consume_grant and "
+                "verify_and_consume"
+            )
+
         self._authority = authority
         self._evidence_store = evidence_store
         self._telemetry_emitter = telemetry_emitter
@@ -227,9 +240,11 @@ class DefaultToolExecutor:
                 str(exc),
             ) from exc
 
-        # 1. Authoritative grant verification (signature, expiry, unconsumed, binding)
-        if hasattr(self._authority, "verify_grant"):
-            self._authority.verify_grant(grant, requested)
+        # 1. Authoritative grant verification (signature, expiry, unconsumed, binding).
+        # Unconditional: an authority that cannot verify is not an authority. Probing for
+        # the method left the invariant resting on the concrete class rather than on a
+        # contract, so a partial double would have disabled it while tests passed.
+        self._authority.verify_grant(grant, requested)
 
         # 1a. A caller context that contradicts the verified grant is a confused-deputy
         # signal, not something to resolve silently in the grant's favour. Refused here,
@@ -261,10 +276,7 @@ class DefaultToolExecutor:
         verify_capability_binding(grant, capabilities, tool_id=tool_id)
 
         # 4. Atomically consume grant now that all pre-execution checks have passed
-        if hasattr(self._authority, "consume_grant"):
-            self._authority.consume_grant(grant)
-        else:
-            self._authority.verify_and_consume(grant, requested)
+        self._authority.consume_grant(grant)
 
         return capabilities
 

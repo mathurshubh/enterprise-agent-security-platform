@@ -427,3 +427,96 @@ def test_provenance_is_immutable_and_rejects_unknown_fields() -> None:
         ExecutionProvenance(
             grant_id="g", agent_id="a", session_id="s", request_id="r", signature="x"
         )
+
+
+@pytest.mark.security_invariant
+def test_invariant_an_authority_that_cannot_verify_is_refused_at_wiring() -> None:
+    """Verification was discovered with ``hasattr`` and had no fail-closed branch:
+
+        if hasattr(self._authority, "verify_grant"):
+            self._authority.verify_grant(grant, requested)   # no else
+
+    Consumption had a fallback; verification did not. An authority exposing
+    ``consume_grant`` but not ``verify_grant`` would therefore have executed with the
+    grant never verified, and no test could see it, because the real class happens to
+    provide every method. The contract is now required.
+    """
+
+    class _PartialAuthority:
+        """Consumes grants but cannot verify them."""
+
+        authority_id = "partial"
+
+        def issue(self, *a, **k):  # pragma: no cover - never reached
+            return None
+
+        def consume_grant(self, grant) -> None:  # pragma: no cover - never reached
+            return None
+
+        def verify_and_consume(self, grant, requested) -> None:  # pragma: no cover
+            return None
+
+    with pytest.raises(TypeError, match="ExecutionAuthorityProtocol"):
+        DefaultToolExecutor(
+            authority=_PartialAuthority(),
+            sandbox=_RecordingSandbox(),
+            capability_registry=InMemoryCapabilityProfileRegistry(
+                {PROFILE_ID: _capabilities()}
+            ),
+        )
+
+
+@pytest.mark.security_invariant
+def test_invariant_verification_precedes_consumption_and_execution() -> None:
+    """Ordering, asserted rather than assumed: a grant refused at verification is not
+    consumed and nothing executes."""
+    calls: list[str] = []
+
+    class _RecordingAuthority(ExecutionAuthority):
+        def verify_grant(self, grant, requested) -> None:
+            calls.append("verify")
+            super().verify_grant(grant, requested)
+
+        def consume_grant(self, grant) -> None:
+            calls.append("consume")
+            super().consume_grant(grant)
+
+    authority = _RecordingAuthority()
+    sandbox = _RecordingSandbox()
+    executor = DefaultToolExecutor(
+        authority=authority,
+        sandbox=sandbox,
+        capability_registry=InMemoryCapabilityProfileRegistry(
+            {PROFILE_ID: _capabilities()}
+        ),
+    )
+    tool = _Tool()
+    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    grant = _grant(authority, tool.tool_id, {})
+
+    executor.execute_descriptor(descriptor, {}, grant=grant)
+
+    assert calls == ["verify", "consume"]
+    assert len(sandbox.provenance) == 1
+
+
+@pytest.mark.security_regression
+def test_the_real_authority_satisfies_the_contract() -> None:
+    """The contract must describe the implementation, not an aspiration."""
+    from app.runtime.contracts import ExecutionAuthorityProtocol
+
+    assert isinstance(ExecutionAuthority(), ExecutionAuthorityProtocol)
+
+
+@pytest.mark.security_regression
+def test_the_capability_registry_contract_covers_existence_checks() -> None:
+    """RuntimeService calls exists() at issuance; the protocol omitted it, so the call
+    was another undeclared dependency on a concrete class."""
+    from app.runtime.contracts import CapabilityProfileRegistryProtocol
+
+    registry = InMemoryCapabilityProfileRegistry({PROFILE_ID: _capabilities()})
+
+    assert isinstance(registry, CapabilityProfileRegistryProtocol)
+    assert hasattr(CapabilityProfileRegistryProtocol, "exists")
+    assert registry.exists(PROFILE_ID) is True
+    assert registry.exists("profile-absent") is False
