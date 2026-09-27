@@ -235,6 +235,109 @@ Session identity, cumulative risk scoping, persistent suspension, management-pla
 
 ---
 
+# Amendment: Execution Inside the Boundary (v0.17.2)
+
+**Status:** Proposed
+
+**Date:** 2026-09-27
+
+**Amends:** Option E under *Alternatives Considered*, which rejected letting the runtime endpoint execute authorized operations, and the *HTTP API* section that records the endpoint as decision-only.
+
+## Context
+
+Option E was rejected on a specific premise: it *"would add remote file reads to the API surface without a corresponding security requirement."* Two things have changed that premise.
+
+**A requirement now exists.** [ADR-032](ADR-032-runtime-tool-execution-isolation.md) §12 establishes execution evidence as the authoritative record of what the execution boundary observed. [ADR-026](ADR-026-materialized-risk-projection-and-enforcement-epochs.md) records NEW-003 as open: no production path supplies an evidence store, because no production path executes a tool into state the platform retains. Evidence cannot be recorded for an execution that never happens inside the boundary.
+
+**The current model rests on a caller's assertion.** `ExecuteRequest` accepts `tool_output` as an *input*, and `DetectionContext` scans it. On that path the platform decides partly from what the caller says the execution produced. The weakness is not hypothetical: `AgentRuntimeService`, the only component that actually executes a tool, passes `tool_output=""`, so on the executing path detection sees no output at all, while on the non-executing path it scans output the platform never observed.
+
+Option E's rejection remains correct about the API *response*: returning file contents over HTTP adds a remote-read capability the platform does not need. This amendment separates that concern from execution itself.
+
+## Decision
+
+**Execution is permitted inside the boundary. The API remains free of remote file reads.**
+
+The HTTP endpoint becomes an additional *ingress* to the existing execution authority, never a new authority and never a generic remote tool-execution interface.
+
+```text
+Agent (authenticated, acting as itself)
+      │
+      ▼
+RuntimeService ── authentication · session binding · authorization
+      │           detection · risk · response
+      ▼
+ExecutionAuthority.issue()          ← sole origin of execution authority
+      │
+      ▼
+DefaultToolExecutor ── verify grant · verify capability binding · consume
+      │
+      ▼
+ProcessToolExecutionSandbox
+      │
+      ▼
+ExecutionReceipt                    ← what the boundary observed
+      │
+      ▼
+receipt metadata returned to the caller
+```
+
+### Invariants
+
+1. **No bypass of execution authority.** API-level execution occurs only through authorization → grant issuance → capability binding → sandbox. HTTP adds no path that reaches a tool without a verified, consumed grant.
+2. **The caller selects a tool, never an implementation.** `tool_id` is a registered tool checked against the agent's approved tools. `implementation_id` is derived from the registered tool object and is not request-reachable; the child runtime packages production implementations only (ADR-032, v0.17.1).
+
+   Execution parameters are supplied through the existing `ExecuteRequest.parameters` contract and remain bound into the signed execution context; this amendment does not introduce a new parameter model. The sandbox never receives mutable, independently supplied parameters from the HTTP layer after grant issuance.
+3. **Grants do not leave the platform.** Unchanged. The caller never receives a grant, and grant issuance remains the single site in `RuntimeService`.
+4. **The response carries receipt metadata, not tool output.** `receipt_id`, status, duration and `output_digest`. No file contents, no raw output. This is what preserves Option E's original objection.
+5. **Evidence records; it does not authorize.** An `ExecutionReceipt` never establishes that an execution was permitted. The grant is authoritative for authorization; the receipt is authoritative for what happened.
+6. **Execution identity is unchanged.** `require_execution_identity` already enforces `role is AGENT ∧ principal.agent_id == agent_id`, so a principal cannot execute as another agent. Provenance derives from the verified grant (v0.17.1).
+7. **Caller-supplied output ceases to be authoritative.** Where the platform executes, the sandbox result is the observation. `tool_output` is retained for compatibility on non-executing requests but is no longer a basis for treating a caller's report as observed fact. Deprecating or removing the field is an API migration, deliberately not coupled to this trust-semantics decision.
+
+### Three distinct records
+
+| Record | Answers | Trust role |
+|---|---|---|
+| `AuthorizationResult` | Was this operation permitted? | decision |
+| `ExecutionGrant` | Which one authorized attempt may cross the boundary? | authority |
+| `ExecutionReceipt` | What happened when it crossed? | evidence |
+
+## Bounded execution
+
+Execution is synchronous within the capability's declared limits: `wall_clock_timeout_seconds`, `max_cpu_seconds`, `max_memory_bytes` and `max_output_bytes` (ADR-032 §9.4). The endpoint introduces no unbounded request.
+
+**Caller disconnect does not revoke or cancel an already-consumed execution grant.** Execution continues within the declared sandbox limits and produces terminal execution evidence independently of HTTP response delivery. The HTTP connection lifecycle is not the execution lifecycle: a client closing its socket must not be able to create ambiguous execution state. The receipt, not the HTTP response, is the durable record of the attempt — which is why evidence wiring is a precondition of this amendment rather than a follow-on.
+
+The lifecycle, in the order the executor already implements (ADR-032 §6, steps 7–8):
+
+```text
+verify grant → consume grant → STARTED receipt → sandbox execution
+    → terminal receipt → HTTP response
+```
+
+STARTED evidence is recorded before the sandbox is invoked, so a failure to record it prevents execution (ADR-032 N3-3). Execution is never followed by "record it later", which would reproduce the forensic gap NEW-003 exists to close.
+
+## Consequences
+
+- The platform guards a real agent execution rather than a reported one.
+- The executing path produces authoritative execution evidence, including an output digest. **This amendment does not feed post-execution output back into the existing detection decision**; post-execution detection would constitute a separate pipeline-stage decision. Detection, risk and response run before grant issuance and reach a final decision; execution and its receipt follow that decision and never retroactively change it.
+- The API surface becomes more privileged. It is contained by the v0.17 isolation boundary and by invariants 1–4 above; it does not become a generic executor.
+- NEW-003 becomes wiring with a real consumer rather than an abstract capability.
+- Receipt retention must be bounded before anything writes to the store in a long-running process.
+- **[ADR-013](ADR-013-scenario-runner-service-boundaries.md) Amendment M2a is unchanged.** Scenario execution stays synthetic and isolated and must not enter management state. This amendment creates the production execution surface M2a deliberately declined to make the scenario runner.
+
+  | Execution | Classification | Management state |
+  |---|---|---|
+  | Live runtime | Production | Yes |
+  | Scenario runner | Synthetic | No |
+
+- **F-007 is unchanged.** The in-process `ToolRegistry` → `BaseTool.execute()` surface remains a documented residual risk (see *Residual Risks* above); this amendment adds no new in-process caller.
+
+## Status of this amendment
+
+`Proposed`, deliberately. It establishes the architectural direction; it does not approve or scope a v0.17.2 implementation. The execution API contract and the evidence wiring are reviewed separately, and this amendment moves to `Accepted` at that point.
+
+---
+
 # Related Documents
 
 - [ADR-003: Runtime Security Orchestrator](ADR-003-runtime-security-orchestrator.md)
