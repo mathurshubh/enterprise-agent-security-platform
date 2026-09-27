@@ -2,7 +2,24 @@
 
 Invariants:
 - N3-5 (Reconciliation Authority): Only the reconciliation layer may transition an unresolved execution to UNKNOWN.
-- N3-11 (Per-Receipt Elapsed Time): Evaluates monotonic duration per execution receipt against execution SLA and recovery grace.
+- N3-11 (Per-Receipt Elapsed Time): Evaluates monotonic duration per execution receipt
+  against the execution budget the governing capability declared, plus recovery grace.
+
+Two distinct clocks
+-------------------
+    execution_deadline      = started + receipt.declared_timeout_seconds
+    reconciliation_deadline = execution_deadline + recovery_grace
+
+The execution timeout answers *how long may this execution legitimately run*; the
+recovery grace answers *how long after that limit before the outcome is unrecoverable*.
+They are never collapsed into one generic SLA.
+
+A single global SLA was authoritative here previously, and it could be shorter than a
+capability's declared ``wall_clock_timeout_seconds`` (30s + 10s grace against a limit of
+up to 600s). The reconciler would then declare a still-running execution UNKNOWN and
+attribute EXECUTION_TIMEOUT to it — a security platform manufacturing an execution
+outcome that had not happened. The deadline is therefore derived per receipt, from the
+limit that actually governed that execution.
 - M4-7 (Epistemic Preservation): Missing execution evidence must not be converted to SUCCEEDED or FAILED; it is preserved as UNKNOWN.
 """
 
@@ -16,7 +33,6 @@ from app.models.execution_receipt import (
 )
 from app.runtime.contracts import ExecutionEvidenceStoreProtocol
 
-DEFAULT_EXECUTION_SLA_SECONDS = 30.0
 DEFAULT_RECOVERY_GRACE_SECONDS = 10.0
 
 
@@ -26,12 +42,14 @@ class ExecutionReconciler:
     def __init__(
         self,
         evidence_store: ExecutionEvidenceStoreProtocol,
-        default_execution_sla_seconds: float = DEFAULT_EXECUTION_SLA_SECONDS,
         recovery_grace_seconds: float = DEFAULT_RECOVERY_GRACE_SECONDS,
         monotonic_clock: Callable[[], float] = time.monotonic,
     ) -> None:
+        # No global execution SLA: the execution budget belongs to the receipt, because
+        # it belongs to the capability that governed that execution. A configurable
+        # global value here would be a parameter that appears to control the deadline
+        # while being able to contradict the limit the platform actually enforced.
         self._store = evidence_store
-        self._default_sla = default_execution_sla_seconds
         self._grace = recovery_grace_seconds
         self._clock = monotonic_clock
 
@@ -58,17 +76,16 @@ class ExecutionReconciler:
         *,
         now_utc: datetime,
         monotonic_now: float | None = None,
-        sla_seconds: float | None = None,
     ) -> tuple[ExecutionReceipt, ...]:
-        """Reconcile in-flight receipts whose execution has exceeded the SLA and grace window.
+        """Reconcile in-flight receipts past their declared execution budget plus grace.
 
-        Evaluates each receipt independently using its recorded monotonic start time.
+        Evaluates each receipt independently, using its recorded monotonic start and the
+        execution budget declared by the capability that governed it. An execution still
+        within its own declared limit is never reconciled, however long that limit is.
         """
         current_monotonic = (
             monotonic_now if monotonic_now is not None else self._clock()
         )
-        effective_sla = sla_seconds if sla_seconds is not None else self._default_sla
-        deadline_threshold = effective_sla + self._grace
 
         open_receipts = self._store.list_open()
         reconciled = []
@@ -89,8 +106,13 @@ class ExecutionReconciler:
                 reconciled.append(rec)
                 continue
 
-            elapsed = current_monotonic - start_mono
-            if elapsed >= deadline_threshold:
+            # Two clocks, kept separate: the execution deadline is the limit the
+            # capability declared for this execution; the reconciliation deadline adds
+            # the allowance for observing an outcome after that limit has passed.
+            execution_deadline = start_mono + receipt.declared_timeout_seconds
+            reconciliation_deadline = execution_deadline + self._grace
+
+            if current_monotonic >= reconciliation_deadline:
                 rec = self._store.record_reconciled(
                     receipt_id=receipt.receipt_id,
                     reconciled_at=now_utc,
