@@ -19,7 +19,8 @@ ADR-032 execution isolation invariants:
 - Distinct Failure Categorization: Timeout, resource exhaustion, isolation failure, and tool failure
   are categorized distinctly in execution evidence receipts.
 
-NEW-003 invariants:
+Execution evidence invariants (ADR-032 §12.1; these were previously cited as
+"NEW-003 invariants", which named an open finding in ADR-026 rather than a document):
 - N3-1 (Provenance): Execution identity is derived exclusively from the verified grant.
   ``agent_id`` and ``session_id`` are read from ``RuntimeExecutionGrant``, whose signature
   covers them, so evidence attribution never depends on a caller's claim. A supplied
@@ -101,7 +102,7 @@ class DefaultToolExecutor:
     - Enforce physical runtime isolation via ToolExecutionSandboxProtocol (ADR-032)
     - Verify immutable capability binding against CapabilityProfileRegistryProtocol
     - Guarantee zero in-process fallback to direct tool invocation
-    - Record authoritative execution boundary evidence (NEW-003)
+    - Record authoritative execution boundary evidence (ADR-032 §12)
     - Translate sandbox outcomes into structured domain exceptions and results
     """
 

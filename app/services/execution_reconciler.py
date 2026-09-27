@@ -1,4 +1,4 @@
-"""ExecutionReconciler — Authoritative reconciliation layer for execution evidence (NEW-003).
+"""ExecutionReconciler — Authoritative reconciliation layer for execution evidence (ADR-032 §12).
 
 Invariants:
 - N3-5 (Reconciliation Authority): Only the reconciliation layer may transition an unresolved execution to UNKNOWN.

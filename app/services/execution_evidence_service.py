@@ -1,4 +1,4 @@
-"""ExecutionEvidenceService — Authoritative in-memory store for execution receipts (NEW-003).
+"""ExecutionEvidenceService — Authoritative in-memory store for execution receipts (ADR-032 §12).
 
 Invariants:
 - N3-1 (Receipt Provenance): Identity and binding derived exclusively from verified grant/context.

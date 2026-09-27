@@ -75,7 +75,11 @@ A binding carries no authority. Constructing one proves nothing.
 
 ### ExecutionGrant
 
-A frozen record of `grant_id`, `authority_id`, `binding`, `issued_at`, `expires_at` and an HMAC-SHA256 `signature` over the canonical serialisation of every other field. `decision` is typed as the literal `ALLOW`, so a grant cannot represent any other outcome.
+A frozen record of `grant_id`, `authority_id`, `agent_id`, `session_id`, `binding`, `issued_at`, `expires_at` and an HMAC-SHA256 `signature` over the canonical serialisation of every other field. `decision` is typed as the literal `ALLOW`, so a grant cannot represent any other outcome.
+
+`agent_id` and `session_id` are the authoritative execution identity (v0.17.1). They are supplied to `ExecutionAuthority.issue()` by the pipeline, which has already authenticated the agent and settled session ownership, and they are covered by the signature. Consumers therefore read execution identity from the verified grant rather than from a `RuntimeContext`, which is unsigned caller input and carries request correlation only. `verify_grant` additionally cross-checks the grant's identity against the authority's own issuance record, which holds independently of the signature.
+
+This brings the in-memory runtime grant to parity with the persisted `ExecutionGrant` of [ADR-031](ADR-031-execution-grant-approval-control-plane.md), which has always carried both fields. A caller context whose identity contradicts the grant is refused as `IDENTITY_MISMATCH` before the grant is consumed.
 
 ### ExecutionAuthority
 
@@ -130,6 +134,7 @@ Every refusal raises `ExecutionBindingError`, a `PermissionError` deliberately d
 | `TOOL_MISMATCH` | Requested tool differs from the binding | No |
 | `RESOURCE_MISMATCH` | Requested resource differs from the binding | No |
 | `PARAMETER_MISMATCH` | Requested parameters differ from the binding | No |
+| `IDENTITY_MISMATCH` | Caller context contradicts the grant's agent or session, or the grant's identity differs from the authority's issuance record | No |
 | `INVALID_REQUEST` | Requested parameters cannot form a binding | No |
 
 A disabled tool is rejected before the grant is examined. Once a grant has been verified and consumed, it stays consumed even if the tool then fails.

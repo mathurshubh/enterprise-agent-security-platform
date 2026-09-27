@@ -1,4 +1,4 @@
-"""ExecutionReceipt — Immutable evidence of observed tool execution boundary traversal (NEW-003).
+"""ExecutionReceipt — Immutable evidence of observed tool execution boundary traversal (ADR-032 §12).
 
 Invariants:
 - N3-1 (Provenance): Derives identity and binding exclusively from the validated ExecutionGrant

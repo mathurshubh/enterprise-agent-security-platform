@@ -158,7 +158,11 @@ class ToolExecutorProtocol(Protocol):
 
 @runtime_checkable
 class ExecutionEvidenceStoreProtocol(Protocol):
-    """Authoritative protocol for persisting and querying execution receipts (NEW-003).
+    """Authoritative protocol for persisting and querying execution receipts.
+
+    Invariants enumerated in ADR-032 §12.1. No production path supplies an evidence
+    store today, so these govern an implemented and tested capability that is not yet
+    on the production execution path (ADR-026, NEW-003).
 
     Transition semantics:
     - record_started(): Creates initial STARTED receipt. Rejects if receipt_id or
