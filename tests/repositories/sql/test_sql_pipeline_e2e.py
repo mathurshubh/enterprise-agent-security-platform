@@ -232,7 +232,7 @@ def test_e2e_case_1_allow_path_exactly_once_execution(sql_pipeline_setup) -> Non
     grant = env["execution_authority"].issue(
         binding,
         auth_result.decision,
-        agent_id=agent_id,
+        agent_id=agent_id, session_id="session-1",
         expected_epoch=0,
         capability_profile_id=env["caps"].capability_profile_id,
         capability_digest=env["caps"].compute_digest(),
@@ -279,7 +279,7 @@ def test_e2e_case_2_suspended_agent_halts_authorization_no_grant(sql_pipeline_se
     grant = env["execution_authority"].issue(
         binding,
         auth_result.decision,
-        agent_id=agent_id,
+        agent_id=agent_id, session_id="session-1",
         expected_epoch=1,
     )
     assert grant is None
@@ -314,7 +314,7 @@ def test_e2e_case_3_enforcement_interlock_stale_epoch_fails_issuance(sql_pipelin
     grant = env["execution_authority"].issue(
         binding,
         auth_result.decision,
-        agent_id=agent_id,
+        agent_id=agent_id, session_id="session-1",
         expected_epoch=0,  # Stale epoch (persisted epoch is now 1)
     )
     assert grant is None
@@ -332,7 +332,7 @@ def test_e2e_case_4_stale_issued_grant_rejected_after_containment(sql_pipeline_s
     grant = env["execution_authority"].issue(
         binding,
         Decision.ALLOW,
-        agent_id=agent_id,
+        agent_id=agent_id, session_id="session-1",
         expected_epoch=0,
         capability_profile_id=env["caps"].capability_profile_id,
         capability_digest=env["caps"].compute_digest(),

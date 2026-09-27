@@ -189,7 +189,7 @@ class StubRuntimeService(RuntimeExecutor):
                 authorization = self.execution_authority.issue(
                     binding,
                     self._decision,
-                    agent_id=agent_id,
+                    agent_id=agent_id, session_id="session-1",
                     capability_profile_id=profile_id,
                     capability_digest=caps.compute_digest(),
                 )

@@ -350,6 +350,8 @@ class TestExecutionGrantIntegration:
         grant = RuntimeExecutionGrant(
             grant_id="grant-r-1",
             authority_id="auth-1",
+            agent_id="agent-1",
+            session_id="session-1",
             decision=Decision.ALLOW,
             binding=binding,
             issued_at=100.0,

@@ -959,6 +959,7 @@ class RuntimeService:
                 binding,
                 final_decision,
                 agent_id=agent_id,
+                session_id=session_id,
                 expected_epoch=context_epoch,
                 capability_profile_id=cap_profile_id,
                 capability_digest=cap_digest,

@@ -155,7 +155,7 @@ def _grant_for(
     return authority.issue(
         ExecutionBinding.from_operation(tool_id, parameters),
         Decision.ALLOW,
-        agent_id="agent-1",
+        agent_id="agent-1", session_id="session-1",
         capability_profile_id=profile_id,
         capability_digest=digest,
     )
@@ -564,7 +564,7 @@ def test_executor_fails_closed_on_missing_capability_profile_in_registry():
     grant = authority.issue(
         ExecutionBinding.from_operation(tool.tool_id, {}),
         Decision.ALLOW,
-        agent_id="agent-1",
+        agent_id="agent-1", session_id="session-1",
         capability_profile_id="profile-unregistered",
         capability_digest=caps.compute_digest(),
     )
@@ -677,7 +677,7 @@ def test_adversarial_in_process_canary_not_invoked():
     grant = authority.issue(
         ExecutionBinding.from_operation(canary.tool_id, {"message": "hello"}),
         Decision.ALLOW,
-        agent_id="agent-1",
+        agent_id="agent-1", session_id="session-1",
         capability_profile_id=profile_id,
         capability_digest=caps.compute_digest(),
     )
@@ -732,7 +732,7 @@ def test_sandbox_pid_divergence():
     grant = authority.issue(
         ExecutionBinding.from_operation(tool.tool_id, {}),
         Decision.ALLOW,
-        agent_id="agent-1",
+        agent_id="agent-1", session_id="session-1",
         capability_profile_id=profile_id,
         capability_digest=caps.compute_digest(),
     )

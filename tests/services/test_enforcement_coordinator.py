@@ -84,7 +84,7 @@ class TestSuccessfulReinstatement:
 
         assert agent.status == AgentStatus.ACTIVE
         assert authority.issuance_suspended(AGENT_ID) is False
-        assert authority.issue(BINDING, Decision.ALLOW, agent_id=AGENT_ID) is not None
+        assert authority.issue(BINDING, Decision.ALLOW, agent_id=AGENT_ID, session_id="session-1") is not None
 
     def test_reinstatement_is_attributed(self) -> None:
         agents, authority, coordinator = build()
@@ -98,7 +98,7 @@ class TestSuccessfulReinstatement:
 
     def test_grants_revoked_during_containment_stay_revoked(self) -> None:
         agents, authority, coordinator = build()
-        revoked = authority.issue(BINDING, Decision.ALLOW, agent_id=AGENT_ID)
+        revoked = authority.issue(BINDING, Decision.ALLOW, agent_id=AGENT_ID, session_id="session-1")
         contain(agents, authority)
 
         coordinator.reinstate(AGENT_ID, actor="admin-1", reason="investigated")
@@ -161,7 +161,7 @@ class TestPartialFailureConverges:
         # Active to policy, but no execution authority can be obtained.
         assert agents.get_agent(AGENT_ID).status == AgentStatus.ACTIVE
         assert authority.issuance_suspended(AGENT_ID) is True
-        assert authority.issue(BINDING, Decision.ALLOW, agent_id=AGENT_ID) is None
+        assert authority.issue(BINDING, Decision.ALLOW, agent_id=AGENT_ID, session_id="session-1") is None
 
     def test_retry_repairs_the_asymmetry(self) -> None:
         authority = RefusingAuthority()
@@ -175,7 +175,7 @@ class TestPartialFailureConverges:
 
         assert repaired.status == AgentStatus.ACTIVE
         assert authority.issuance_suspended(AGENT_ID) is False
-        assert authority.issue(BINDING, Decision.ALLOW, agent_id=AGENT_ID) is not None
+        assert authority.issue(BINDING, Decision.ALLOW, agent_id=AGENT_ID, session_id="session-1") is not None
 
     def test_repair_cannot_recover_a_suspended_agent(self) -> None:
         """Repair reopens a gate; it is not a second route out of containment."""

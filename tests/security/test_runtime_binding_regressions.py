@@ -243,6 +243,8 @@ def test_exit_gate_hand_crafted_grant_is_rejected(
     forged = RuntimeExecutionGrant(
         grant_id="grant-forged",
         authority_id=env.execution_authority.authority_id,
+        agent_id="agent-1",
+        session_id="session-1",
         binding=ExecutionBinding.from_operation("file_read", {"path": PROTECTED_FILE}),
         issued_at=0.0,
         expires_at=1e12,
