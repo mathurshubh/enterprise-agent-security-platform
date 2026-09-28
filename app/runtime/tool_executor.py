@@ -223,7 +223,8 @@ class DefaultToolExecutor:
         4. Verify explicit capability profile binding on grant (fail closed if absent).
         5. Resolve capability profile from registry (fail closed if missing).
         6. Verify capability digest matches grant.capability_digest (fail closed if mismatch).
-        7. Atomically verify and consume grant via ExecutionAuthority (fail closed if invalid).
+        7. Atomically verify and claim the grant via ExecutionAuthority (fail closed if
+           invalid). Claiming is one indivisible operation, not verify-then-remove.
 
         Returns:
             The resolved and verified immutable ExecutionCapabilities.
@@ -285,8 +286,17 @@ class DefaultToolExecutor:
         capabilities = self._capability_registry.resolve_profile(profile_id)
         verify_capability_binding(grant, capabilities, tool_id=tool_id)
 
-        # 4. Atomically consume grant now that all pre-execution checks have passed
-        self._authority.consume_grant(grant)
+        # 4. Claim the grant now that all pre-execution checks have passed.
+        #
+        # The step-1 verification above is a fast pre-check, not the gate: it releases
+        # the authority lock before the capability checks run, so two callers can both
+        # pass it for the same grant. claim_grant re-validates and removes the grant
+        # inside a single lock hold, so exactly one caller proceeds and the rest are
+        # refused as CONSUMED.
+        #
+        # Claiming here rather than at step 1 preserves the documented refusal
+        # semantics: a capability or sandbox failure refuses without spending the grant.
+        self._authority.claim_grant(grant, requested)
 
         return capabilities
 
