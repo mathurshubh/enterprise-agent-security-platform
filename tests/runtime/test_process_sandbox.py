@@ -2,6 +2,7 @@
 
 import os
 import time
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -51,11 +52,12 @@ def _make_test_capabilities(
     timeout_seconds: float = 5.0,
     max_output_bytes: int = 64 * 1024,
     env: dict[str, str] | None = None,
+    workspace_root: str = "/tmp",
 ) -> ExecutionCapabilities:
     return ExecutionCapabilities(
         capability_profile_id="test-sandbox-profile",
         filesystem=FilesystemCapability(
-            workspace_root="/tmp",
+            workspace_root=workspace_root,
             read_only=True,
         ),
         environment_variables=env or {},
@@ -298,3 +300,105 @@ class TestProcessSandboxExecution:
         assert result.success is False
         assert result.error_type == "ImplementationNotFoundError"
         assert "is not packaged in the sandbox runtime execution registry" in result.error_message
+
+
+class TestTrustedRunnerBootstrap:
+    """The workspace must not decide which code becomes the sandbox runner.
+
+    The child is launched as ``python -m app.runtime.sandbox.runner`` with the working
+    directory pinned to the execution workspace. With ``-m``, CPython prepends the
+    working directory to ``sys.path`` ahead of ``PYTHONPATH`` — so a workspace holding
+    ``app/runtime/sandbox/runner.py`` was imported *as* the runner, and
+    workspace-controlled code executed as the sandbox bootstrap.
+
+    The ordering is what makes this serious: that code runs before the filesystem and
+    network guards are installed, so no check inside the runner can defend against it.
+    """
+
+    @staticmethod
+    def _plant_shadow_runner(workspace: Path) -> Path:
+        """Create a workspace package that would shadow the trusted runner."""
+        marker = workspace / "SHADOW_RUNNER_EXECUTED"
+        package = workspace / "app" / "runtime" / "sandbox"
+        package.mkdir(parents=True, exist_ok=True)
+        for directory in (
+            workspace / "app",
+            workspace / "app" / "runtime",
+            package,
+        ):
+            (directory / "__init__.py").write_text("", encoding="utf-8")
+        (package / "runner.py").write_text(
+            "import pathlib\n"
+            f"pathlib.Path({str(marker)!r}).write_text('shadow runner executed')\n",
+            encoding="utf-8",
+        )
+        return marker
+
+    @pytest.mark.security_invariant
+    def test_a_workspace_cannot_shadow_the_trusted_runner(self, tmp_path: Path) -> None:
+        """Asserted against a workspace that actively attempts the shadowing.
+
+        A test that merely exercises a benign workspace would pass against the
+        vulnerable implementation, so the shadow package is planted deliberately and its
+        marker must never appear.
+        """
+        marker = self._plant_shadow_runner(tmp_path)
+        sandbox = ProcessToolExecutionSandbox(enable_testing_handlers=True)
+        tool = MockTool(tool_id="test_echo", implementation_id="test_echo")
+
+        result = sandbox.execute(
+            tool=tool,
+            parameters={"message": "trusted"},
+            capabilities=_make_test_capabilities(workspace_root=str(tmp_path)),
+            provenance=_make_provenance(),
+        )
+
+        assert not marker.exists(), (
+            "workspace-controlled code executed as the sandbox runner"
+        )
+        assert result.success is True, "the trusted runner handled the execution"
+        assert result.output == "trusted"
+
+    @pytest.mark.security_invariant
+    def test_the_trusted_runner_is_resolved_independently_of_the_workspace(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The launch must not place the workspace on the child's import path.
+
+        Asserted on the argv the sandbox builds, because the defence has to operate at
+        launch: by the time any code inside the child could inspect ``sys.path``, the
+        shadowing import has already happened.
+        """
+        import app.runtime.sandbox.process_sandbox as module
+
+        captured: dict[str, object] = {}
+        real_popen = module.subprocess.Popen
+
+        def _capturing_popen(argv, **kwargs):
+            captured["argv"] = list(argv)
+            captured["cwd"] = kwargs.get("cwd")
+            captured["env"] = dict(kwargs.get("env") or {})
+            return real_popen(argv, **kwargs)
+
+        monkeypatch.setattr(module.subprocess, "Popen", _capturing_popen)
+
+        sandbox = ProcessToolExecutionSandbox(enable_testing_handlers=True)
+        tool = MockTool(tool_id="test_echo", implementation_id="test_echo")
+        sandbox.execute(
+            tool=tool,
+            parameters={"message": "hi"},
+            capabilities=_make_test_capabilities(workspace_root=str(tmp_path)),
+            provenance=_make_provenance(),
+        )
+
+        argv = captured["argv"]
+        assert "-P" in argv, (
+            "the child must not prepend its working directory to sys.path"
+        )
+        assert argv.index("-P") < argv.index("-m"), "-P must precede module resolution"
+        assert captured["cwd"] == str(tmp_path), (
+            "the workspace remains the working directory for containment"
+        )
+        assert captured["env"].get("PYTHONPATH"), (
+            "the trusted package is resolved through PYTHONPATH"
+        )
