@@ -226,7 +226,10 @@ class ResourceLimits(BaseModel):
             "implementation owns what it can enforce. Empty means no control is "
             "mandatory — but a control that is attempted and fails still refuses, "
             "because optional means the platform may operate without it, not that "
-            "failures while establishing it may be ignored."
+            "failures while establishing it may be ignored. The empty default is a "
+            "cross-platform development default rather than a security "
+            "recommendation: production profiles should declare the controls their "
+            "threat model mandates (ADR-032 §9.4)."
         ),
     )
 
