@@ -213,10 +213,20 @@ class ProcessToolExecutionSandbox:
         def _apply_rlimits() -> None:
             apply_resource_controls(effective_memory, effective_cpu)
 
-        # Launch isolated subprocess with CWD pinned to workspace_root and closed FDs
+        # Launch isolated subprocess with CWD pinned to workspace_root and closed FDs.
+        #
+        # -P is load-bearing, not hygiene. With `-m`, CPython prepends the current
+        # working directory to sys.path ahead of PYTHONPATH, and the working directory
+        # here is the execution workspace. A workspace containing app/runtime/sandbox/
+        # runner.py would therefore be imported *as* the runner: workspace-controlled
+        # code would execute as the sandbox bootstrap, before the filesystem and network
+        # guards exist. No check inside the runner can defend against that, because the
+        # shadowing code runs first. -P removes the automatically prepended path, so the
+        # runner resolves through PYTHONPATH (the platform root) alone, while the
+        # workspace stays pinned as the working directory for containment.
         try:
             proc = subprocess.Popen(
-                [sys.executable, "-m", "app.runtime.sandbox.runner"],
+                [sys.executable, "-P", "-m", "app.runtime.sandbox.runner"],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,

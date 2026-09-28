@@ -226,6 +226,7 @@ The sandbox enforces four independent isolation dimensions:
 - **Logical vs. Physical:** Logical path validation in `PolicyEngine` verifies *whether* a file access is authorized. The sandbox enforces *physical access restrictions*.
 - **Enforcement:** The tool process executes with its root or working directory restricted strictly to `workspace_root`. System paths (`/etc`, `/proc`, `/sys`, `/app`, `/home`) are physically unreachable.
 - **Immutability:** Default filesystem access is read-only. Temporary writes (if permitted) are directed to an isolated ephemeral scratch directory discarded upon execution completion.
+- **Trusted Bootstrap:** The working directory is pinned to `workspace_root`, so the child is launched with `-P` to keep that directory off `sys.path`. Without it, `python -m` prepends the working directory ahead of `PYTHONPATH`, and a workspace containing `app/runtime/sandbox/runner.py` would be imported *as* the runner — workspace-controlled code executing as the sandbox bootstrap, before the filesystem and network guards exist. The runner must resolve from the platform root alone; no check inside the runner can substitute, because the shadowing import happens first.
 
 ### 2. Environment & Secret Isolation
 - **Clean-Room Baseline:** The tool process does **not** inherit `os.environ` from the platform server.
