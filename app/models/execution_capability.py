@@ -217,6 +217,29 @@ class ResourceLimits(BaseModel):
     max_cpu_seconds: float = Field(default=5.0, gt=0.0, le=300.0)
     max_output_bytes: int = Field(default=1024 * 1024, ge=0, le=100 * 1024 * 1024)
     wall_clock_timeout_seconds: float = Field(default=10.0, gt=0.0, le=600.0)
+    required_controls: tuple[str, ...] = Field(
+        default=(),
+        description=(
+            "Controls this profile requires the sandbox to establish before the "
+            "workload starts. A required control that cannot be established refuses "
+            "the launch. The profile owns what execution requires; the sandbox "
+            "implementation owns what it can enforce. Empty means no control is "
+            "mandatory — but a control that is attempted and fails still refuses, "
+            "because optional means the platform may operate without it, not that "
+            "failures while establishing it may be ignored."
+        ),
+    )
+
+    @field_validator("required_controls", mode="after")
+    @classmethod
+    def _validate_required_controls(cls, v: tuple[str, ...]) -> tuple[str, ...]:
+        known = {"memory", "cpu"}
+        unknown = sorted(set(v) - known)
+        if unknown:
+            raise ValueError(
+                f"unknown required control(s): {unknown}; known controls are {sorted(known)}"
+            )
+        return tuple(sorted(set(v)))
 
 
 class ExecutionCapabilities(BaseModel):

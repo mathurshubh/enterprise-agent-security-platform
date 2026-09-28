@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import logging
 import os
 import select
 import shutil
@@ -22,7 +23,14 @@ from app.runtime.exceptions import (
     SandboxTimeoutError,
     SandboxUnavailableError,
 )
+from app.runtime.sandbox.resource_controls import (
+    ResourceControlOutcome,
+    apply_resource_controls,
+    assess_resource_controls,
+)
 from app.tools.base_tool import BaseTool
+
+logger = logging.getLogger(__name__)
 
 
 def _kill_process_group(pgid: int) -> None:
@@ -154,17 +162,56 @@ class ProcessToolExecutionSandbox:
             if k.lower() not in blocked_proxy:
                 env[k] = v
 
-        # OS resource limits preexec helper (best-effort)
-        def _apply_rlimits() -> None:
-            try:
-                import resource
+        # Establish the configured resource controls, or refuse to launch.
+        #
+        # A configured control is an execution precondition, not a best-effort
+        # optimisation. Each control is assessed independently and receives an explicit
+        # outcome, so there is no state in which one is neither established nor
+        # reported — which is what the previous blanket `except: pass` produced.
+        limits = capabilities.resources
+        assessments = assess_resource_controls(
+            limits.max_memory_bytes, limits.max_cpu_seconds
+        )
+        required = set(limits.required_controls)
 
-                mem_bytes = capabilities.resources.max_memory_bytes
-                resource.setrlimit(resource.RLIMIT_AS, (mem_bytes, mem_bytes))
-                cpu_secs = int(capabilities.resources.max_cpu_seconds) + 1
-                resource.setrlimit(resource.RLIMIT_CPU, (cpu_secs, cpu_secs + 1))
-            except (ImportError, ValueError, OSError):
-                pass
+        blocking = [
+            a
+            for a in assessments
+            # A control that was attempted and failed refuses regardless of whether the
+            # profile required it: "optional" means the platform may operate without the
+            # control, not that failures while establishing it may be ignored.
+            if a.outcome is ResourceControlOutcome.FAILED
+            or (a.outcome is ResourceControlOutcome.UNSUPPORTED and a.control in required)
+        ]
+        if blocking:
+            detail = "; ".join(
+                f"{a.control}={a.outcome.value}" + (f" ({a.detail})" if a.detail else "")
+                for a in blocking
+            )
+            raise SandboxUnavailableError(
+                "Required sandbox resource controls could not be established, so the "
+                f"workload was not started: {detail}",
+                tool_id=tool.tool_id,
+            )
+
+        enforced = {a.control for a in assessments if a.established}
+        degraded = [a for a in assessments if not a.established]
+        if degraded:
+            # Surfaced, never represented as enforced. The profile did not require these
+            # controls, so execution proceeds explicitly degraded rather than silently.
+            logger.warning(
+                "Sandbox executing with unenforced resource controls for tool %s: %s",
+                tool.tool_id,
+                ", ".join(f"{a.control}={a.outcome.value}" for a in degraded),
+            )
+
+        # Only controls assessed as enforceable are attempted in the child. Attempting
+        # one known to be unenforceable would abort a launch this gate already permitted.
+        effective_memory = limits.max_memory_bytes if "memory" in enforced else 0
+        effective_cpu = limits.max_cpu_seconds if "cpu" in enforced else 0.0
+
+        def _apply_rlimits() -> None:
+            apply_resource_controls(effective_memory, effective_cpu)
 
         # Launch isolated subprocess with CWD pinned to workspace_root and closed FDs
         try:

@@ -245,8 +245,10 @@ The sandbox enforces four independent isolation dimensions:
 - **DNS/Egress Abuse:** Standard Python socket-based DNS and network egress paths are subject to the process-level network guard. Native resolver behavior, native extensions, or raw syscalls remain outside the Level 2 security boundary and require Level 3 isolation.
 
 ### 4. Process & Resource Limits
-- **CPU Limits:** Hard limits on total CPU execution time.
-- **Memory Ceiling:** Memory allocation capped to prevent host memory exhaustion.
+- **CPU Limits:** Hard limits on total CPU execution time, established before the workload starts.
+- **Memory Ceiling:** When supported by the selected sandbox implementation and required by the execution capability profile, memory allocation is capped before workload execution. Failure to establish a required memory ceiling prevents workload launch. Unsupported enforcement is surfaced explicitly and is never represented as successfully enforced.
+- **Explicit Control State:** Every configured control resolves to `ENFORCED`, `UNSUPPORTED` or `FAILED` — never to an unreported state. A control that is attempted and fails refuses the launch whether or not the profile required it: *optional* means the platform may operate without the control, not that failures while establishing it may be ignored. A genuinely unsupported optional control permits explicitly degraded execution with the missing enforcement surfaced. Controls are established independently, so one failure cannot suppress another.
+- **Separation of Concerns:** The capability profile owns what execution *requires* (`ResourceLimits.required_controls`); the sandbox implementation owns what it can *enforce*. Platform limitations are explicit security state rather than inferred from `sys.platform` in the security policy.
 - **Hard Timeout:** Monotonic wall-clock deadline enforced via external timer.
 - **Output Buffering:** `stdout` and `stderr` streams capped to `max_output_bytes` to prevent memory flooding.
 - **Process Cleanup:** Tool execution spawns in a dedicated OS process group (`setpgrp` / `setsid`). Upon completion, timeout, or failure, the entire process hierarchy is terminated (`SIGTERM` followed by `SIGKILL`) to eliminate orphaned background processes.
