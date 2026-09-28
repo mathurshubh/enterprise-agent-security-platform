@@ -499,6 +499,26 @@ reconciliation finds nothing to resolve. Relational persistence of execution evi
 [ADR-030](ADR-030-durable-state-repository-architecture.md), which governs the durable
 security state plane. Production-wired does not mean durable across restart.
 
+### 12.11 Composition and ingress scope
+
+The live composition root wires a complete evidence-aware execution chain —
+`bootstrap_runtime_service` → `RuntimeService.evidence_store` → `AgentRuntimeService` →
+`DefaultToolExecutor` → `ExecutionEvidenceService`, with `ProcessToolExecutionSandbox` as
+the boundary — and the corpus exercises it end to end against an externally supplied
+store.
+
+There is currently **no HTTP ingress that reaches live tool execution.**
+`POST /agents/{agent_id}/execute` is decision-only ([ADR-023](ADR-023-execution-authorization-grants.md));
+`POST /agents/{agent_id}/executions` is proposed under the ADR-023 amendment and not
+implemented. The only HTTP route that reaches an executor is scenario execution, which
+runs against an isolated per-run evidence store and does not represent live production
+execution state ([ADR-013](ADR-013-scenario-runner-service-boundaries.md) M2a, §12.7).
+
+"Wired" therefore means the chain exists and is verified, not that live HTTP executions
+are being recorded. The live evidence store is legitimately empty until an execution
+ingress exists; that absence is the state of the API surface, not a gap in the evidence
+plane.
+
 ---
 
 ## 13. Security Threats & Threat-Model Updates

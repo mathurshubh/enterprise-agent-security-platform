@@ -374,5 +374,14 @@ Execution evidence is not part of the durable security state plane governed by
 execution receipts remains an open question rather than an implied consequence of this
 closure. See [ADR-032 §12.10](ADR-032-runtime-tool-execution-isolation.md).
 
+**Nor should it be read as "live HTTP executions are being recorded".** The live
+composition root wires the chain and the corpus verifies it, but no HTTP ingress reaches
+live tool execution: `POST /agents/{agent_id}/execute` is decision-only, and
+`/agents/{agent_id}/executions` is proposed rather than implemented. The one HTTP route
+that reaches an executor is scenario execution, which writes to an isolated per-run store
+and does not represent live production execution state. The live store is therefore
+legitimately empty until an execution ingress exists — a property of the API surface, not
+of the evidence plane. See [ADR-032 §12.11](ADR-032-runtime-tool-execution-isolation.md).
+
 Also unchanged by this closure: M-4, the ADR-023 in-process `ToolRegistry` residual risk,
 and the execution API proposed under the ADR-023 amendment, which remains `Proposed`.
