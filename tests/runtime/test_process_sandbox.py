@@ -419,6 +419,34 @@ class TestResourceControlsFailClosed:
     There is no state in which a control is neither established nor reported.
     """
 
+    @pytest.fixture(autouse=True)
+    def _resource_limits_unchanged(self):
+        """No test in this class may mutate the limits of the process running it.
+
+        These tests exercise resource-limit establishment, so a stub that delegates to
+        the real ``setrlimit`` silently narrows pytest's own limits. On Darwin that has
+        no visible effect; on Linux it kills the run with SIGKILL and no failing
+        assertion. The leak is therefore invisible on the development platform and must
+        be caught structurally rather than by observation.
+        """
+        import resource
+
+        watched = [
+            getattr(resource, name)
+            for name in ("RLIMIT_AS", "RLIMIT_CPU", "RLIMIT_DATA")
+            if hasattr(resource, name)
+        ]
+        before = {rid: resource.getrlimit(rid) for rid in watched}
+
+        yield
+
+        after = {rid: resource.getrlimit(rid) for rid in watched}
+        leaked = {rid: (before[rid], after[rid]) for rid in watched if before[rid] != after[rid]}
+        assert not leaked, (
+            f"test mutated the resource limits of the test process: {leaked}; "
+            "child-side establishment must be stubbed, never delegated"
+        )
+
     @staticmethod
     def _clear_cache() -> None:
         from app.runtime.sandbox import resource_controls
@@ -573,29 +601,44 @@ class TestResourceControlsFailClosed:
             "the missing control must be surfaced, never silently omitted"
         )
 
-    def test_a_memory_failure_does_not_suppress_the_cpu_attempt(self) -> None:
+    def test_a_memory_failure_does_not_suppress_the_cpu_attempt(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """The second defect: memory was attempted first inside a shared try, so its
-        failure meant the CPU limit was never attempted at all."""
+        failure meant the CPU limit was never attempted at all.
+
+        The invariant is that both controls are *attempted*, which needs no real limit
+        to be imposed. Both calls are therefore stubbed.
+
+        An earlier version of this test delegated the CPU call to the real
+        ``setrlimit``. ``apply_resource_controls`` is a child-side function, designed to
+        run in a forked child before exec, so calling it in the parent applied a
+        six-second CPU ceiling to the pytest process itself. By the time the suite
+        reached this test it had already consumed more CPU than that, so on Linux the
+        kernel killed pytest immediately — SIGKILL, exit 137, with no failing assertion
+        to point at. macOS does not enforce RLIMIT_CPU, so the local suite passed and
+        hid it entirely.
+        """
         import resource as resource_module
 
         from app.runtime.sandbox.resource_controls import apply_resource_controls
 
         attempted: list[int] = []
-        original = resource_module.setrlimit
 
         def _recording(rid, limits):
             attempted.append(rid)
             if rid == resource_module.RLIMIT_AS:
                 raise ValueError("memory refused")
-            return original(rid, limits)
+            # Deliberately does not delegate: no real limit may be imposed on the
+            # process running the tests.
+            return None
 
-        resource_module.setrlimit = _recording
-        try:
-            with pytest.raises(RuntimeError, match="memory"):
-                apply_resource_controls(256 * 1024 * 1024, 5.0)
-        finally:
-            resource_module.setrlimit = original
+        monkeypatch.setattr(resource_module, "setrlimit", _recording)
 
+        with pytest.raises(RuntimeError, match="memory"):
+            apply_resource_controls(256 * 1024 * 1024, 5.0)
+
+        assert resource_module.RLIMIT_AS in attempted, "memory must be attempted"
         assert resource_module.RLIMIT_CPU in attempted, (
             "the CPU control must be attempted even after the memory control fails"
         )
