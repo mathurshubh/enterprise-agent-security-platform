@@ -479,9 +479,14 @@ def test_invariant_an_authority_that_cannot_verify_is_refused_at_wiring() -> Non
 
 
 @pytest.mark.security_invariant
-def test_invariant_verification_precedes_consumption_and_execution() -> None:
-    """Ordering, asserted rather than assumed: a grant refused at verification is not
-    consumed and nothing executes."""
+def test_invariant_verification_precedes_the_claim_and_execution() -> None:
+    """Ordering, asserted rather than assumed: a grant refused at verification is never
+    claimed and nothing executes.
+
+    The executor claims through ``claim_grant`` rather than ``consume_grant``: the claim
+    is the single-use gate, and it re-validates under the same lock hold that removes
+    the grant.
+    """
     calls: list[str] = []
 
     class _RecordingAuthority(ExecutionAuthority):
@@ -489,7 +494,11 @@ def test_invariant_verification_precedes_consumption_and_execution() -> None:
             calls.append("verify")
             super().verify_grant(grant, requested)
 
-        def consume_grant(self, grant) -> None:
+        def claim_grant(self, grant, requested) -> None:
+            calls.append("claim")
+            super().claim_grant(grant, requested)
+
+        def consume_grant(self, grant) -> None:  # pragma: no cover - not the gate
             calls.append("consume")
             super().consume_grant(grant)
 
@@ -508,7 +517,9 @@ def test_invariant_verification_precedes_consumption_and_execution() -> None:
 
     executor.execute_descriptor(descriptor, {}, grant=grant)
 
-    assert calls == ["verify", "consume"]
+    assert calls == ["verify", "claim"], (
+        "the executor claims the grant; it must not fall back to bare consumption"
+    )
     assert len(sandbox.provenance) == 1
 
 
@@ -626,3 +637,235 @@ def test_the_receipt_carries_the_request_id_as_correlation_not_authority() -> No
     assert receipt.request_id == "req-correlation"
     assert receipt.grant_id == grant.grant_id
     assert receipt.request_id != receipt.grant_id
+
+
+# ---------------------------------------------------------------------------
+# F-001 — a grant authorizes exactly one execution attempt, under concurrency
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.security_invariant
+def test_invariant_two_concurrent_executions_of_one_grant_yield_one_execution() -> None:
+    """Single-use is a property of the executor boundary, not just of replay.
+
+    The executor verified the grant, ran the capability checks, then removed it — two
+    separate lock holds. Between them the grant was observable as outstanding, so two
+    callers could both pass verification and both reach removal. Removal is idempotent,
+    so the second was a silent no-op and **both executed**. Sequential replay tests
+    could not see this: they only ever presented the grant again after the first attempt
+    had finished.
+
+    The threads are synchronised at the claim boundary so both are inside it together,
+    which is precisely the interleaving the old ordering permitted.
+    """
+    import threading
+
+    authority, store, sandbox, executor = _harness()
+    tool = _Tool()
+    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    grant = _grant(authority, tool.tool_id, {})
+
+    barrier = threading.Barrier(2, timeout=10)
+    original_claim = authority.claim_grant
+
+    def _synchronised_claim(g, requested):
+        barrier.wait()
+        return original_claim(g, requested)
+
+    authority.claim_grant = _synchronised_claim  # type: ignore[method-assign]
+
+    results: list[str] = []
+    lock = threading.Lock()
+
+    def _attempt() -> None:
+        try:
+            executor.execute_descriptor(descriptor, {}, grant=grant)
+            outcome = "executed"
+        except ExecutionBindingError as exc:
+            outcome = f"refused:{exc.reason.value}"
+        except Exception as exc:  # pragma: no cover - surfaced if it ever happens
+            outcome = f"error:{type(exc).__name__}"
+        with lock:
+            results.append(outcome)
+
+    threads = [threading.Thread(target=_attempt) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=15)
+
+    assert sorted(results) == ["executed", f"refused:{ExecutionRefusalReason.CONSUMED.value}"], (
+        f"exactly one attempt may execute; got {results}"
+    )
+    assert len(sandbox.provenance) == 1, "the sandbox ran exactly once"
+    assert len(store.list_receipts()) == 1, "and exactly one execution was recorded"
+    assert authority.outstanding_grant_count == 0
+
+
+@pytest.mark.security_invariant
+def test_invariant_a_claim_is_indivisible_from_its_validation() -> None:
+    """The authority-level property the executor relies on.
+
+    Verifying and then removing as separate operations does not claim a grant, even
+    when both take the lock: the grant is observable as outstanding in between. Only one
+    of many concurrent claims may succeed.
+    """
+    import threading
+
+    authority = ExecutionAuthority()
+    binding = ExecutionBinding.from_operation("provenance_tool", {})
+    caps = _capabilities()
+    grant = authority.issue(
+        binding,
+        Decision.ALLOW,
+        agent_id="agent-1",
+        session_id="session-1",
+        capability_profile_id=PROFILE_ID,
+        capability_digest=caps.compute_digest(),
+    )
+
+    workers = 8
+    barrier = threading.Barrier(workers, timeout=10)
+    claimed: list[bool] = []
+    lock = threading.Lock()
+
+    def _claim() -> None:
+        barrier.wait()
+        try:
+            authority.claim_grant(grant, binding)
+            ok = True
+        except ExecutionBindingError:
+            ok = False
+        with lock:
+            claimed.append(ok)
+
+    threads = [threading.Thread(target=_claim) for _ in range(workers)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=15)
+
+    assert claimed.count(True) == 1, f"exactly one claim may succeed; got {claimed}"
+    assert claimed.count(False) == workers - 1
+    assert authority.outstanding_grant_count == 0
+
+
+@pytest.mark.security_regression
+def test_a_refused_claim_does_not_spend_the_grant() -> None:
+    """Refusal semantics are unchanged: a mismatched request leaves the grant usable."""
+    authority, _, _, executor = _harness()
+    tool = _Tool()
+    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    grant = _grant(authority, tool.tool_id, {"msg": "authorized"})
+
+    with pytest.raises(ExecutionBindingError) as exc_info:
+        executor.execute_descriptor(descriptor, {"msg": "substituted"}, grant=grant)
+
+    assert exc_info.value.reason is ExecutionRefusalReason.PARAMETER_MISMATCH
+    assert authority.outstanding_grant_count == 1, "a refusal must not spend the grant"
+
+    executor.execute_descriptor(descriptor, {"msg": "authorized"}, grant=grant)
+    assert authority.outstanding_grant_count == 0
+
+
+@pytest.mark.security_regression
+def test_a_revoked_grant_cannot_be_claimed() -> None:
+    """Revocation participates in the same authority decision as the claim."""
+    authority, _, sandbox, executor = _harness()
+    tool = _Tool()
+    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    grant = _grant(authority, tool.tool_id, {}, agent_id="agent-revoked")
+
+    authority.suspend_issuance("agent-revoked")
+
+    with pytest.raises(ExecutionBindingError) as exc_info:
+        executor.execute_descriptor(descriptor, {}, grant=grant)
+
+    assert exc_info.value.reason is ExecutionRefusalReason.REVOKED
+    assert sandbox.provenance == []
+
+
+class _CountingLock:
+    """Wraps the authority lock to count acquisitions."""
+
+    def __init__(self, inner) -> None:
+        self._inner = inner
+        self.acquisitions = 0
+
+    def __enter__(self):
+        self.acquisitions += 1
+        return self._inner.__enter__()
+
+    def __exit__(self, *exc):
+        return self._inner.__exit__(*exc)
+
+
+@pytest.mark.security_invariant
+@pytest.mark.parametrize("method", ["claim_grant", "verify_and_consume"])
+def test_invariant_a_claim_validates_and_removes_in_one_lock_hold(method: str) -> None:
+    """Atomicity asserted structurally, because concurrency cannot assert it reliably.
+
+    A split implementation — validate under the lock, release, remove under the lock
+    again — is racy, but the window between the two holds is so small that a thread
+    barrier almost never lands inside it. The end-to-end concurrency test above passes
+    against such an implementation by luck, so it cannot be the only guard.
+
+    One acquisition is the property that makes the claim indivisible: nothing can
+    observe the grant as outstanding between its validation and its removal.
+    """
+    authority = ExecutionAuthority()
+    binding = ExecutionBinding.from_operation("provenance_tool", {})
+    caps = _capabilities()
+    grant = authority.issue(
+        binding,
+        Decision.ALLOW,
+        agent_id="agent-1",
+        session_id="session-1",
+        capability_profile_id=PROFILE_ID,
+        capability_digest=caps.compute_digest(),
+    )
+
+    counting = _CountingLock(authority._lock)
+    authority._lock = counting  # type: ignore[assignment]
+
+    getattr(authority, method)(grant, binding)
+
+    assert counting.acquisitions == 1, (
+        f"{method} acquired the authority lock {counting.acquisitions} times; "
+        "validation and removal must occur inside a single hold"
+    )
+
+
+@pytest.mark.security_invariant
+def test_invariant_the_executor_claims_rather_than_consuming() -> None:
+    """The gate the executor uses is the atomic one.
+
+    Bare consumption is idempotent, so it cannot report whether this caller was the one
+    that claimed the grant — an executor calling it would admit every concurrent caller.
+    """
+    authority, _, sandbox, executor = _harness()
+    tool = _Tool()
+    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    grant = _grant(authority, tool.tool_id, {})
+
+    claimed: list[str] = []
+    consumed: list[str] = []
+    original_claim = authority.claim_grant
+    original_consume = authority.consume_grant
+
+    def _claim(g, requested):
+        claimed.append(g.grant_id)
+        return original_claim(g, requested)
+
+    def _consume(g):  # pragma: no cover - asserted absent
+        consumed.append(g.grant_id)
+        return original_consume(g)
+
+    authority.claim_grant = _claim  # type: ignore[method-assign]
+    authority.consume_grant = _consume  # type: ignore[method-assign]
+
+    executor.execute_descriptor(descriptor, {}, grant=grant)
+
+    assert claimed == [grant.grant_id]
+    assert consumed == [], "the executor must not spend grants through bare consumption"
+    assert len(sandbox.provenance) == 1

@@ -55,8 +55,17 @@ class ExecutionAuthorityProtocol(Protocol):
         """Verify that ``grant`` authorizes exactly ``requested`` without consuming it."""
         ...
 
+    def claim_grant(self, grant: object, requested: ExecutionBinding) -> None:
+        """Atomically verify and claim a grant: the single-use execution gate.
+
+        Validation and the claim must occur as one indivisible operation. An
+        implementation that verifies and then removes as separate steps leaves the
+        grant observable as outstanding in between, so two callers can both proceed.
+        """
+        ...
+
     def consume_grant(self, grant: RuntimeExecutionGrant) -> None:
-        """Atomically consume an outstanding grant."""
+        """Remove an outstanding grant without verifying it. Not the single-use gate."""
         ...
 
     def verify_and_consume(self, grant: object, requested: ExecutionBinding) -> None:

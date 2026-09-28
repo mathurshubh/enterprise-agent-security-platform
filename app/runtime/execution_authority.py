@@ -233,19 +233,17 @@ class ExecutionAuthority:
             capability_digest=capability_digest,
         )
 
-    def verify_grant(
+    def _verify_authenticity(
         self,
         grant: object,
-        requested: ExecutionBinding,
-    ) -> None:
-        """Verify that ``grant`` authorizes exactly ``requested`` without consuming it.
+        tool_id: str,
+    ) -> RuntimeExecutionGrant:
+        """Structural and cryptographic checks, which read no authority state.
 
-        Raises:
-            ExecutionBindingError: for any reason the grant cannot authorize the
-                requested operation.
+        Deliberately lock-free: these depend only on the grant and the signing key, so
+        holding the lock across them would widen the critical section without making
+        anything more atomic.
         """
-        tool_id = requested.tool_id
-
         if grant is None:
             raise ExecutionBindingError(ExecutionRefusalReason.MISSING_GRANT, tool_id)
 
@@ -287,48 +285,117 @@ class ExecutionAuthority:
                 "grant signature does not verify",
             )
 
+        return grant
+
+    def _require_claimable_locked(
+        self,
+        grant: RuntimeExecutionGrant,
+        requested: ExecutionBinding,
+        tool_id: str,
+    ) -> None:
+        """Authority-state checks. The caller must already hold ``self._lock``.
+
+        Separated so that validation and the claim itself occur inside a single lock
+        hold. A caller that validates, releases the lock, then removes the grant has not
+        claimed it: two callers can both observe it outstanding and both proceed.
+        """
+        now = self._clock()
+        self._prune(now)
+
+        if now >= grant.expires_at:
+            self._outstanding.pop(grant.grant_id, None)
+            raise ExecutionBindingError(ExecutionRefusalReason.EXPIRED, tool_id)
+
+        if grant.grant_id in self._revoked:
+            raise ExecutionBindingError(
+                ExecutionRefusalReason.REVOKED,
+                tool_id,
+                "grant was revoked before use",
+            )
+
+        outstanding = self._outstanding.get(grant.grant_id)
+        if outstanding is None:
+            raise ExecutionBindingError(
+                ExecutionRefusalReason.CONSUMED,
+                tool_id,
+                "grant has already been used",
+            )
+
+        # The signature already covers identity, so a tampered grant is refused as
+        # INVALID_SIGNATURE before reaching here. This cross-check is independent of
+        # the signature: it holds the invariant that a grant's identity is the
+        # identity this authority issued it for, even if a future code path were to
+        # construct a grant outside _create_grant.
+        if (
+            outstanding.agent_id != grant.agent_id
+            or outstanding.session_id != grant.session_id
+        ):
+            raise ExecutionBindingError(
+                ExecutionRefusalReason.IDENTITY_MISMATCH,
+                tool_id,
+                "grant identity does not match the identity it was issued for",
+            )
+
+        self._require_exact_match(grant.binding, requested)
+
+    def verify_grant(
+        self,
+        grant: object,
+        requested: ExecutionBinding,
+    ) -> None:
+        """Verify that ``grant`` authorizes exactly ``requested`` without consuming it.
+
+        A non-consuming pre-check. It answers "could this grant authorize this
+        operation now", which is a strictly weaker statement than "this caller holds
+        the right to execute it" — another caller may claim the grant immediately
+        afterwards. Only ``claim_grant`` establishes the exclusive right.
+
+        Raises:
+            ExecutionBindingError: for any reason the grant cannot authorize the
+                requested operation.
+        """
+        tool_id = requested.tool_id
+        checked = self._verify_authenticity(grant, tool_id)
         with self._lock:
-            now = self._clock()
-            self._prune(now)
+            self._require_claimable_locked(checked, requested, tool_id)
 
-            if now >= grant.expires_at:
-                self._outstanding.pop(grant.grant_id, None)
-                raise ExecutionBindingError(ExecutionRefusalReason.EXPIRED, tool_id)
+    def claim_grant(
+        self,
+        grant: object,
+        requested: ExecutionBinding,
+    ) -> None:
+        """Atomically verify ``grant`` against ``requested`` and claim it.
 
-            if grant.grant_id in self._revoked:
-                raise ExecutionBindingError(
-                    ExecutionRefusalReason.REVOKED,
-                    tool_id,
-                    "grant was revoked before use",
-                )
+        This is the execution trust boundary's single-use gate. Validation and removal
+        happen inside one lock hold, so no other caller can observe the grant as
+        outstanding between the two: exactly one claim succeeds and every other attempt
+        is refused as ``CONSUMED``.
 
-            outstanding = self._outstanding.get(grant.grant_id)
-            if outstanding is None:
-                raise ExecutionBindingError(
-                    ExecutionRefusalReason.CONSUMED,
-                    tool_id,
-                    "grant has already been used",
-                )
+        Verifying and then consuming as separate operations does not achieve this, even
+        when both take the lock, because the grant is observable as outstanding in the
+        window between them. Nor does removal alone, which is idempotent and therefore
+        cannot report whether this caller was the one that claimed it.
 
-            # The signature already covers identity, so a tampered grant is refused as
-            # INVALID_SIGNATURE before reaching here. This cross-check is independent of
-            # the signature: it holds the invariant that a grant's identity is the
-            # identity this authority issued it for, even if a future code path were to
-            # construct a grant outside _create_grant.
-            if (
-                outstanding.agent_id != grant.agent_id
-                or outstanding.session_id != grant.session_id
-            ):
-                raise ExecutionBindingError(
-                    ExecutionRefusalReason.IDENTITY_MISMATCH,
-                    tool_id,
-                    "grant identity does not match the identity it was issued for",
-                )
+        Revocation and suspension serialize against this through the same lock, so a
+        grant cannot be claimed after ``suspend_issuance`` has revoked it.
 
-            self._require_exact_match(grant.binding, requested)
+        Raises:
+            ExecutionBindingError: for any reason the grant cannot authorize the
+                requested operation. A refused attempt never claims the grant.
+        """
+        tool_id = requested.tool_id
+        checked = self._verify_authenticity(grant, tool_id)
+        with self._lock:
+            self._require_claimable_locked(checked, requested, tool_id)
+            del self._outstanding[checked.grant_id]
 
     def consume_grant(self, grant: RuntimeExecutionGrant) -> None:
-        """Atomically consume an outstanding grant."""
+        """Remove an outstanding grant without verifying it.
+
+        Not the single-use gate: removal is idempotent, so it cannot distinguish the
+        caller that claimed the grant from one that arrived after. ``claim_grant`` is
+        the boundary the executor uses; this remains for administrative removal.
+        """
         with self._lock:
             if grant.grant_id in self._outstanding:
                 del self._outstanding[grant.grant_id]
@@ -338,15 +405,16 @@ class ExecutionAuthority:
         grant: object,
         requested: ExecutionBinding,
     ) -> None:
-        """Verify that ``grant`` authorizes exactly ``requested``, then consume it.
+        """Verify that ``grant`` authorizes exactly ``requested``, then claim it.
+
+        Delegates to ``claim_grant``: the two steps its name implies are performed as
+        one atomic operation, not sequentially.
 
         Raises:
             ExecutionBindingError: for any reason the grant cannot authorize the
                 requested operation. A refused attempt does not consume the grant.
         """
-        self.verify_grant(grant, requested)
-        assert isinstance(grant, RuntimeExecutionGrant)
-        self.consume_grant(grant)
+        self.claim_grant(grant, requested)
 
     def suspend_issuance(self, agent_id: str) -> int:
         """Close grant issuance for an agent and revoke its outstanding grants.
