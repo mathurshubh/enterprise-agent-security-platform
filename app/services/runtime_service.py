@@ -66,7 +66,7 @@ from app.services.response_service import ResponseService
 from app.services.risk_aggregator import RiskAggregator
 from app.services.risk_service import RiskService
 from app.services.session_service import SessionBindingError, SessionService
-from app.services.tool_service import ToolService
+from app.services.tool_service import ToolNotFoundError, ToolService
 from app.telemetry.contracts import TelemetryEmitter
 
 # Telemetry error code for a request that named a session owned by another agent.
@@ -115,6 +115,7 @@ class RuntimeService:
         lock_manager: AgentLockManager | None = None,
         capability_registry: CapabilityProfileRegistryProtocol | None = None,
         evidence_store: ExecutionEvidenceStoreProtocol | None = None,
+        tool_service: ToolService | None = None,
     ) -> None:
         self._authorization_service = authorization_service
         self._session_service = session_service
@@ -123,6 +124,10 @@ class RuntimeService:
         self._risk_service = risk_service
         self._response_service = response_service
         self._tool_registry = tool_registry
+        # Governance authority for tool enablement. The registry answers whether an
+        # executable exists; whether that version is permitted to run is declared here
+        # and the two can disagree, so containment reads this one.
+        self._tool_service = tool_service
         self._findings_service = findings_service
         self._telemetry_emitter = telemetry_emitter
         self._execution_authority = execution_authority
@@ -176,6 +181,23 @@ class RuntimeService:
             lock_manager if lock_manager is not None else AgentLockManager()
         )
         self._last_result = None
+
+    def _version_is_enabled(self, tool_id: str, version: str) -> bool:
+        """Whether governance permits this concrete version to execute.
+
+        Fails closed without a tool service: governance state is what makes a disablement
+        effective, and a composition that cannot consult it cannot establish that the
+        version is permitted. Refusing yields no binding and therefore no grant, which is
+        the same outcome as an unresolvable implementation.
+        """
+        if self._tool_service is None:
+            return False
+        try:
+            return self._tool_service.get_tool(tool_id, version).enabled
+        except ToolNotFoundError:
+            # Registered as executable but absent from the governance plane: nothing
+            # declares it permitted, so it is not.
+            return False
 
     def _create_default_capability_registry(self) -> InMemoryCapabilityProfileRegistry:
         """Derive a capability profile per registered tool from the tool's own workspace.
@@ -742,12 +764,31 @@ class RuntimeService:
         binding: ExecutionBinding | None = None
         operation_is_malformed = False
 
+        # Containment resolves the concrete implementation and asks whether it may run.
+        # Two authorities answer, and they are not the same one:
+        #
+        #   ToolRegistry   does an executable exist for this version
+        #   ToolService    is this version governance-enabled
+        #
+        # They can disagree. `ToolDescriptor.enabled` is set to True at registration and
+        # nothing syncs it, so an executable registered after a version was disabled
+        # presents as enabled. Governance is authoritative, so the repository decides.
+        #
+        # This is also the only gate that makes a disablement effective. Authorization is
+        # family-scoped and does not read enablement, and the executor's own check is
+        # reached only on the executing path — a decision-only request would otherwise
+        # obtain a grant for an implementation not permitted to run.
         tool_version: str | None = None
         if self._tool_registry is not None:
             try:
-                tool_version = self._tool_registry.resolve(tool_id).version
+                descriptor = self._tool_registry.resolve(tool_id)
             except (ToolNotRegisteredError, ToolVersionMismatchError):
-                tool_version = None
+                descriptor = None
+
+            if descriptor is not None and self._version_is_enabled(
+                tool_id, descriptor.version
+            ):
+                tool_version = descriptor.version
 
         if tool_version is None:
             # Unresolved implementation: authorization still evaluates below.

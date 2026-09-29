@@ -135,6 +135,7 @@ def build_runtime(
         # runtime without it issues no executable grants. Production passes it
         # (runtime_bootstrap), and this factory claims to wire one the same way.
         tool_registry=tool_registry,
+        tool_service=tool_service,
         execution_authority=ExecutionAuthority(),
         findings_service=findings,
         agent_service=agent_service,

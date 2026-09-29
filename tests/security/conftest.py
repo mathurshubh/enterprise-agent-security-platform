@@ -131,6 +131,7 @@ def build_runtime():
             response_service=ResponseService(),
             audit_service=audit_service,
             tool_registry=tool_registry,
+            tool_service=tool_service,
             findings_service=findings_service,
             execution_authority=authority,
             # M2b: enforcement posture is agent-scoped, so the fixture mirrors
@@ -156,6 +157,7 @@ def build_runtime():
             findings_service=findings_service,
             risk_service=risk_service,
             tool_registry=tool_registry,
+            tool_service=tool_service,
             execution_authority=authority,
             evidence_store=evidence_store,
             retention_policy=session_service.retention_policy,

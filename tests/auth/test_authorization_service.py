@@ -462,85 +462,6 @@ def test_authorization_result_and_check_immutability():
     assert check.details["original_key"] == "original_val"
 
 
-def test_evaluate_disabled_tool_short_circuits_with_structured_evidence():
-    """Verify that an operationally disabled tool fails closed at the authorization gate."""
-    from app.models.authorization_result import AuthorizationCheckStatus
-
-    agent_service = create_test_agent_service()
-    tool_service = create_test_tool_service()
-
-    agent_service.register_agent(create_agent(["file_read"]))
-
-    # Tool is registered but disabled in operational configuration
-    disabled_tool = Tool(
-        metadata=ToolMetadata(
-            identity=ToolIdentity(
-                tool_id="file_read",
-                name="File Read",
-                description="Read files",
-            ),
-            governance=ToolGovernance(
-                risk_level=ToolRiskLevel.LOW,
-                required_permissions=["files:read"],
-                approval_required=False,
-            ),
-            capability=ToolCapability(
-                category="filesystem",
-                reads_files=True,
-            ),
-            operational=ToolOperational(enabled=False),
-        )
-    )
-    tool_service.register_tool(disabled_tool)
-
-    service = AuthorizationService(agent_service, tool_service, PolicyEngine())
-
-    assert service.authorize("soc-agent", "file_read") == Decision.DENY
-
-    result = service.evaluate("soc-agent", "file_read")
-    assert result.decision == Decision.DENY
-    assert result.agent_check.status == AuthorizationCheckStatus.PASSED
-    assert result.tool_check.status == AuthorizationCheckStatus.FAILED
-    assert result.tool_check.reason == "Tool 'file_read' is disabled"
-    assert result.approved_tool_check.status == AuthorizationCheckStatus.NOT_EVALUATED
-    assert result.status_check.status == AuthorizationCheckStatus.NOT_EVALUATED
-    assert result.risk_tier_check.status == AuthorizationCheckStatus.NOT_EVALUATED
-    assert result.resource_check.status == AuthorizationCheckStatus.NOT_EVALUATED
-    assert result.reason == "Tool 'file_read' is disabled"
-
-
-def test_executable_registry_cannot_override_disabled_repository_state():
-    """Verify that executable presence in ToolRegistry cannot override ToolRepository governance state."""
-    from pathlib import Path
-
-    from app.registry.tool_registry import ToolRegistry
-    from app.repositories.in_memory.tool_repository import InMemoryToolRepository
-    from app.services.tool_service import ToolService
-    from app.tools.file_read_tool import FileReadTool
-
-    agent_service = create_test_agent_service()
-    tool_repo = InMemoryToolRepository()
-    tool_service = ToolService(tool_repository=tool_repo)
-
-    agent_service.register_agent(create_agent(["file_read"]))
-
-    # Register active tool in repository, then disable it
-    tool_service.register_tool(create_tool("file_read"))
-    tool_service.disable_tool("file_read")
-    assert tool_repo.get("file_read").enabled is False
-
-    # ToolRegistry has an active, executable implementation
-    tool_registry = ToolRegistry()
-    tool_registry.register(FileReadTool(Path("demo_workspace")))
-    assert tool_registry.resolve("file_read") is not None
-
-    service = AuthorizationService(agent_service, tool_service, PolicyEngine())
-
-    # Authorization must fail closed based on repository governance authority
-    result = service.evaluate("soc-agent", "file_read")
-    assert result.decision == Decision.DENY
-    assert result.reason == "Tool 'file_read' is disabled"
-    assert result.tool_check.status.value == "failed"
 
 
 def test_authorization_fails_closed_when_enforcement_state_unavailable():
@@ -611,3 +532,31 @@ def test_authorization_succeeds_for_pristine_agent_without_dynamic_enforcement_s
     assert result.decision == Decision.ALLOW
     assert result.agent_check.status == AuthorizationCheckStatus.PASSED
     assert result.status_check.status == AuthorizationCheckStatus.PASSED
+
+
+def test_authorization_is_family_scoped_and_ignores_version_enablement():
+    """A disabled version does not read as a revoked authorization (D-1).
+
+    Enablement is version-scoped and authorization is family-scoped, so this decision
+    establishes that the family exists and the agent may ask for it. Whether a concrete
+    implementation may run is settled at containment, where the version is known — see
+    the containment invariants in tests/security/test_runtime_binding_regressions.py.
+    """
+    from app.registry.tool_registry import ToolRegistry
+    from app.repositories.in_memory.tool_repository import InMemoryToolRepository
+    from app.services.tool_service import ToolService
+
+    agent_service = create_test_agent_service()
+    tool_service = ToolService(tool_repository=InMemoryToolRepository())
+    agent_service.register_agent(create_agent(["file_read"]))
+
+    tool_service.register_tool(create_tool("file_read"))
+    tool_service.disable_tool("file_read", "1.0.0")
+    assert tool_service.get_tool("file_read", "1.0.0").enabled is False
+
+    service = AuthorizationService(agent_service, tool_service, PolicyEngine())
+    result = service.evaluate("soc-agent", "file_read")
+
+    assert result.decision == Decision.ALLOW
+    assert result.tool_check.status.value == "passed"
+    assert ToolRegistry is not None  # registry plays no part in this decision

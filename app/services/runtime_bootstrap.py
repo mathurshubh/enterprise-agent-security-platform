@@ -33,7 +33,7 @@ from app.services.runtime_service import (
     RuntimeService,
 )
 from app.services.session_service import SessionService
-from app.services.tool_service import ToolNotFoundError, ToolService
+from app.services.tool_service import ToolService
 from app.telemetry.contracts import TelemetryEmitter
 from app.tools.directory_list_tool import DirectoryListTool
 from app.tools.file_read_tool import FileReadTool
@@ -80,9 +80,7 @@ def register_default_tools(
     tool_registry: ToolRegistry | None = None,
 ) -> None:
     """Register default filesystem security tools metadata and executable tool instances."""
-    try:
-        tool_service.get_tool("file_read")
-    except ToolNotFoundError:
+    if not tool_service.family_exists("file_read"):
         tool_service.register_tool(
             Tool(
                 metadata=ToolMetadata(
@@ -104,9 +102,7 @@ def register_default_tools(
             )
         )
 
-    try:
-        tool_service.get_tool("directory_list")
-    except ToolNotFoundError:
+    if not tool_service.family_exists("directory_list"):
         tool_service.register_tool(
             Tool(
                 metadata=ToolMetadata(
@@ -191,6 +187,9 @@ def bootstrap_runtime_service(
         response_service=ResponseService(),
         audit_service=audit_service,
         tool_registry=registry,
+        # Governance authority for tool enablement. Containment refuses without it, so a
+        # pipeline built here always carries the service that declares what may run.
+        tool_service=active_tool_service,
         findings_service=findings_service,
         telemetry_emitter=telemetry_emitter,
         execution_authority=active_execution_authority,

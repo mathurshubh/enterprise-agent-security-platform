@@ -724,3 +724,79 @@ def test_invariant_an_ambiguous_tool_version_never_becomes_executable_authority(
     assert result.event.decision == Decision.ALLOW
     assert result.event.final_decision == Decision.DENY
     assert result.authorization is None
+
+
+class TestGovernanceDisablementIsEnforcedAtContainment:
+    """A disabled version is refused before a grant exists, not only inside the executor.
+
+    Enablement is version-scoped and authorization is family-scoped, so authorization
+    reports ALLOW: the agent may ask for the tool. Whether this implementation may run is
+    an enforceability question, and answering it at containment keeps an operational
+    disablement from reading as a revoked authorization.
+
+    The gate has to sit before grant issuance. The executor's own check is reached only on
+    the executing path, so a decision-only request would otherwise obtain authority for an
+    execution that is not permitted to happen.
+    """
+
+    @staticmethod
+    def _execute(env):
+        return env.runtime.execute(
+            session_id="session-disabled",
+            agent_id=env.agent_id,
+            tool_id="file_read",
+            resource=BENIGN_FILE,
+            parameters={"path": BENIGN_FILE},
+        )
+
+    def test_a_disabled_version_is_authorized_but_not_enforceable(
+        self, build_runtime, security_workspace: Path
+    ) -> None:
+        env = build_runtime(workspace=security_workspace)
+        assert self._execute(env).event.final_decision == Decision.ALLOW
+
+        env.tool_service.disable_tool("file_read", "1.0.0")
+        result = self._execute(env)
+
+        assert result.event.decision == Decision.ALLOW, "the agent may still ask"
+        assert result.event.final_decision == Decision.DENY, "but it cannot be enforced"
+        assert result.authorization is None, "no grant may be produced"
+
+    def test_an_executable_registry_cannot_override_disabled_governance(
+        self, build_runtime, security_workspace: Path
+    ) -> None:
+        """The two authorities disagree, and governance wins.
+
+        ``ToolDescriptor.enabled`` is set True at registration and nothing syncs it, so an
+        executable stays "enabled" in the registry after its version is disabled in the
+        repository. Reading the registry here would let a stale flag re-enable a tool
+        governance had withdrawn.
+        """
+        env = build_runtime(workspace=security_workspace)
+        env.tool_service.disable_tool("file_read", "1.0.0")
+
+        descriptor = env.tool_registry.resolve("file_read")
+        assert descriptor.enabled is True, "the registry still presents it as executable"
+
+        result = self._execute(env)
+
+        assert result.event.decision == Decision.ALLOW
+        assert result.event.final_decision == Decision.DENY
+        assert result.authorization is None
+
+    def test_containment_fails_closed_without_a_governance_authority(
+        self, build_runtime, security_workspace: Path
+    ) -> None:
+        """No tool service means governance cannot be established, so nothing is permitted.
+
+        A composition that cannot consult the plane declaring what may run must not treat
+        silence as permission.
+        """
+        env = build_runtime(workspace=security_workspace)
+        env.runtime._tool_service = None
+
+        result = self._execute(env)
+
+        assert result.event.decision == Decision.ALLOW
+        assert result.event.final_decision == Decision.DENY
+        assert result.authorization is None
