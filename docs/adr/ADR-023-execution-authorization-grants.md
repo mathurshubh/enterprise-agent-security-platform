@@ -65,11 +65,15 @@ Grants key on the *final decision*, not the response type. Response types map on
 
 ### ExecutionBinding
 
-An immutable, canonical description of one operation: `tool_id`, `resource`, and parameters.
+An immutable, canonical description of one operation: `tool_id`, `tool_version`, `resource`, and parameters.
 
 - Parameters are held as `(name, value)` pairs sorted by name, however the model is constructed, so operations that differ only in mapping order are equal.
 - Names must be non-empty and unique; values must be strings. Anything else is rejected rather than coerced, so two different operations cannot share a binding.
 - `resource` is the `path` parameter when present. An explicit resource that contradicts it is rejected, and `RuntimeService` records that request as `DENY` with telemetry error code `EXECUTION_BINDING_INVALID` rather than authorizing an ambiguous target.
+- `tool_version` is the version of the **resolved tool descriptor**, never a value a caller supplies. A tool's identity is its id together with its version, so a binding names one concrete implementation rather than a tool by name. `ToolRegistry.resolve()` yields exactly one version: an omitted version resolves only when a single version is registered, and otherwise refuses rather than selecting one by registration order.
+- A tool that cannot be resolved to one concrete version produces no binding. That is an enforceability fact, not a permission one, so authorization is still evaluated and recorded; the request is refused at the containment gate with `final_decision = DENY` and no grant is issued. Approval of a `tool_id` and the existence of a registered executable implementation of it are different facts.
+
+Every field of the binding is security-relevant, so every field participates both in the signed canonical serialisation and in exact-match verification. Signing coverage and verification coverage are separate properties: a field present in the signature but absent from the match check would defeat a forged binding while still admitting a genuinely issued grant presented against a different operation. A version mismatch is refused as `TOOL_MISMATCH` — the requested tool identity differs from the authorized one.
 
 A binding carries no authority. Constructing one proves nothing.
 
