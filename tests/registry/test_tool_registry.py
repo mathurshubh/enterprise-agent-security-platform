@@ -10,6 +10,7 @@ from app.models.tool_metadata import ToolMetadata
 from app.models.tool_operational import ToolOperational
 from app.models.tool_risk_level import ToolRiskLevel
 from app.registry.tool_registry import (
+    AmbiguousToolVersionError,
     DuplicateToolRegistrationError,
     ToolMetadataValidationError,
     ToolNotRegisteredError,
@@ -356,3 +357,66 @@ def test_concurrent_tool_registrations_thread_safety():
 
     assert len(errors) == 0
     assert len(registry.list_tools()) == 20
+
+
+class TestVersionResolutionIsUnambiguous:
+    """An omitted version may be resolved only when the registry holds one candidate.
+
+    Resolution feeds ``ExecutionBinding.tool_version``, so "whatever version this
+    resolves to" becomes part of what an execution grant authorises. Picking one by
+    insertion order would let registration sequence decide which implementation a grant
+    covers, which is why ambiguity refuses instead of guessing.
+    """
+
+    def test_a_single_registered_version_resolves_without_being_named(self) -> None:
+        registry = ToolRegistry()
+        registry.register(ExampleTool("solo_tool", version="3.4.5"))
+
+        assert registry.resolve("solo_tool").version == "3.4.5"
+
+    def test_an_omitted_version_is_refused_when_several_are_registered(self) -> None:
+        registry = ToolRegistry()
+        registry.register(ExampleTool("multi_tool", version="1.0.0"))
+        registry.register(ExampleTool("multi_tool", version="2.0.0"))
+
+        with pytest.raises(AmbiguousToolVersionError, match="explicit version is required"):
+            registry.resolve("multi_tool")
+
+    def test_an_explicit_version_still_resolves_when_several_are_registered(self) -> None:
+        registry = ToolRegistry()
+        registry.register(ExampleTool("multi_tool", version="1.0.0"))
+        registry.register(ExampleTool("multi_tool", version="2.0.0"))
+
+        assert registry.resolve("multi_tool", version="1.0.0").version == "1.0.0"
+        assert registry.resolve("multi_tool", version="2.0.0").version == "2.0.0"
+
+    def test_an_explicit_unregistered_version_keeps_its_existing_failure(self) -> None:
+        registry = ToolRegistry()
+        registry.register(ExampleTool("multi_tool", version="1.0.0"))
+        registry.register(ExampleTool("multi_tool", version="2.0.0"))
+
+        with pytest.raises(ToolVersionMismatchError, match="does not match registered versions"):
+            registry.resolve("multi_tool", version="9.9.9")
+
+    def test_registration_order_does_not_decide_the_ambiguous_case(self) -> None:
+        """Both orders refuse. A rule that returned "the first one" would pass only one."""
+        ascending = ToolRegistry()
+        ascending.register(ExampleTool("ordered_tool", version="1.0.0"))
+        ascending.register(ExampleTool("ordered_tool", version="2.0.0"))
+
+        descending = ToolRegistry()
+        descending.register(ExampleTool("ordered_tool", version="2.0.0"))
+        descending.register(ExampleTool("ordered_tool", version="1.0.0"))
+
+        for registry in (ascending, descending):
+            with pytest.raises(AmbiguousToolVersionError):
+                registry.resolve("ordered_tool")
+
+    def test_ambiguity_is_catchable_as_a_version_mismatch(self) -> None:
+        """Existing handlers of an unresolvable version keep working."""
+        registry = ToolRegistry()
+        registry.register(ExampleTool("multi_tool", version="1.0.0"))
+        registry.register(ExampleTool("multi_tool", version="2.0.0"))
+
+        with pytest.raises(ToolVersionMismatchError):
+            registry.resolve("multi_tool")
