@@ -43,8 +43,14 @@ class ToolRegistry:
 
     Internal Storage Architecture:
         Tools are stored internally in a two-level dictionary: `_descriptors[tool_id][version] -> ToolDescriptor`.
-        This isolates version comparison logic and prepares the registry for seamless future multi-version
-        loading without breaking existing single-version resolution behavior.
+        This isolates version comparison logic and supports multi-version registration.
+
+        Resolution always yields one concrete version, because the resolved version
+        becomes part of the execution binding a grant authorizes. An omitted version is
+        resolved only where a single version is registered; several registered versions
+        refuse rather than selecting one, so registration order never decides which
+        implementation a grant covers. Establishing a version-selection policy is a
+        separate decision this registry deliberately does not make.
 
     Tool Execution Separation:
         The ToolRegistry resolves passive `ToolDescriptor` objects. Tool instantiation and execution
