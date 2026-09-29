@@ -49,6 +49,8 @@ Enforcement state belongs to the **agent**, is **monotonic** from the runtime's 
 9. **Atomic compare-and-set state and ledger commit.** State mutation and transition ledger append occur in a single atomic transaction. Stale epochs (`persisted_epoch != expected_epoch`) or invalid increments (`new_state.epoch != expected_epoch + 1`) reject the transition and commit neither state nor transition.
 10. **Fail-closed posture authority.** If the enforcement state repository is unavailable or partitioned, upstream authorization fails closed (`Decision.DENY`), records structured audit failure, short-circuits downstream checks, and issues no execution grant.
 
+> **Namespace integrity.** The monotonic values named here belong to distinct security namespaces, each with one authoritative allocator. They are never compared with, or substituted for, one another. See *Monotonic Security-State Namespace Integrity* in [docs/ai/ARCHITECTURE_PRINCIPLES.md](../ai/ARCHITECTURE_PRINCIPLES.md), which is authoritative for this rule.
+
 ## Components
 
 | Component | Answers | Location |
