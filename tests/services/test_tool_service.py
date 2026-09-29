@@ -49,8 +49,8 @@ def test_register_tool() -> None:
     registered = service.register_tool(tool)
 
     assert registered == tool
-    assert service.get_tool("file_read") == tool
-    assert repo.get("file_read") == tool
+    assert service.get_tool("file_read", "1.0.0") == tool
+    assert repo.get("file_read", "1.0.0") == tool
     assert not hasattr(service, "_tools")
 
 
@@ -69,7 +69,7 @@ def test_get_unknown_tool() -> None:
     service = ToolService(tool_repository=repo)
 
     with pytest.raises(ToolNotFoundError):
-        service.get_tool("missing-tool")
+        service.get_tool("missing-tool", "1.0.0")
 
 
 def test_list_tools() -> None:
@@ -89,14 +89,14 @@ def test_disable_tool() -> None:
     service = ToolService(tool_repository=repo)
     service.register_tool(create_tool("file_read"))
 
-    assert service.get_tool("file_read").enabled is True
+    assert service.get_tool("file_read", "1.0.0").enabled is True
 
-    disabled = service.disable_tool("file_read")
+    disabled = service.disable_tool("file_read", "1.0.0")
     assert disabled.enabled is False
     assert disabled.metadata.operational.enabled is False
 
     # Check persistence in repository
-    persisted = repo.get("file_read")
+    persisted = repo.get("file_read", "1.0.0")
     assert persisted is not None
     assert persisted.enabled is False
 
@@ -105,14 +105,14 @@ def test_enable_tool() -> None:
     repo = InMemoryToolRepository()
     service = ToolService(tool_repository=repo)
     service.register_tool(create_tool("file_read"))
-    service.disable_tool("file_read")
-    assert service.get_tool("file_read").enabled is False
+    service.disable_tool("file_read", "1.0.0")
+    assert service.get_tool("file_read", "1.0.0").enabled is False
 
-    enabled = service.enable_tool("file_read")
+    enabled = service.enable_tool("file_read", "1.0.0")
     assert enabled.enabled is True
     assert enabled.metadata.operational.enabled is True
 
-    persisted = repo.get("file_read")
+    persisted = repo.get("file_read", "1.0.0")
     assert persisted is not None
     assert persisted.enabled is True
 
@@ -122,7 +122,7 @@ def test_disable_nonexistent_tool_raises_not_found() -> None:
     service = ToolService(tool_repository=repo)
 
     with pytest.raises(ToolNotFoundError):
-        service.disable_tool("missing-tool")
+        service.disable_tool("missing-tool", "1.0.0")
 
 
 def test_enable_nonexistent_tool_raises_not_found() -> None:
@@ -130,7 +130,7 @@ def test_enable_nonexistent_tool_raises_not_found() -> None:
     service = ToolService(tool_repository=repo)
 
     with pytest.raises(ToolNotFoundError):
-        service.enable_tool("missing-tool")
+        service.enable_tool("missing-tool", "1.0.0")
 
 
 def test_defensive_copying_on_read() -> None:
@@ -138,8 +138,8 @@ def test_defensive_copying_on_read() -> None:
     service = ToolService(tool_repository=repo)
     service.register_tool(create_tool("file_read"))
 
-    tool_1 = service.get_tool("file_read")
-    tool_2 = service.get_tool("file_read")
+    tool_1 = service.get_tool("file_read", "1.0.0")
+    tool_2 = service.get_tool("file_read", "1.0.0")
     assert tool_1 == tool_2
     assert tool_1 is not tool_2
 
@@ -150,6 +150,116 @@ def test_defensive_copying_on_write() -> None:
     original_tool = create_tool("file_read")
     service.register_tool(original_tool)
 
-    stored = service.get_tool("file_read")
+    stored = service.get_tool("file_read", "1.0.0")
     assert stored == original_tool
     assert stored is not original_tool
+
+
+class TestVersionedToolIdentity:
+    """``(tool_id, version)`` identifies an implementation; ``tool_id`` names a family (D-1)."""
+
+    @staticmethod
+    def _service() -> ToolService:
+        return ToolService(tool_repository=InMemoryToolRepository())
+
+    @staticmethod
+    def _tool(version: str, risk: ToolRiskLevel = ToolRiskLevel.LOW) -> Tool:
+        return Tool(
+            metadata=ToolMetadata(
+                identity=ToolIdentity(
+                    tool_id="file_read",
+                    name="File Read",
+                    version=version,
+                    description="Read files",
+                ),
+                governance=ToolGovernance(
+                    risk_level=risk, required_permissions=["files:read"]
+                ),
+                capability=ToolCapability(category="filesystem", reads_files=True),
+                operational=ToolOperational(),
+            )
+        )
+
+    def test_a_second_version_is_a_new_record_not_a_conflict(self) -> None:
+        service = self._service()
+        service.register_tool(self._tool("1.0.0"))
+        service.register_tool(self._tool("2.0.0"))
+
+        assert service.get_tool("file_read", "1.0.0").version == "1.0.0"
+        assert service.get_tool("file_read", "2.0.0").version == "2.0.0"
+
+    def test_an_exact_duplicate_is_rejected(self) -> None:
+        service = self._service()
+        service.register_tool(self._tool("1.0.0"))
+
+        with pytest.raises(ToolAlreadyExistsError, match="version '1.0.0'"):
+            service.register_tool(self._tool("1.0.0"))
+
+    def test_enablement_is_version_scoped(self) -> None:
+        """Disabling one version leaves its siblings alone; a family has no flag."""
+        service = self._service()
+        service.register_tool(self._tool("1.0.0"))
+        service.register_tool(self._tool("2.0.0"))
+
+        service.disable_tool("file_read", "2.0.0")
+
+        assert service.get_tool("file_read", "1.0.0").enabled is True
+        assert service.get_tool("file_read", "2.0.0").enabled is False
+
+    def test_family_existence_ignores_enablement(self) -> None:
+        """Authorization asks this; it must not move when a version is disabled."""
+        service = self._service()
+        service.register_tool(self._tool("1.0.0"))
+
+        assert service.family_exists("file_read") is True
+        service.disable_tool("file_read", "1.0.0")
+        assert service.family_exists("file_read") is True
+        assert service.family_exists("never_registered") is False
+
+
+class TestFamilyGovernanceProjection:
+    """Policy evaluates the family's most restrictive risk, without selecting a version."""
+
+    @staticmethod
+    def _service_with(*versions: tuple[str, ToolRiskLevel]) -> ToolService:
+        service = ToolService(tool_repository=InMemoryToolRepository())
+        for version, risk in versions:
+            service.register_tool(TestVersionedToolIdentity._tool(version, risk))
+        return service
+
+    def test_the_most_restrictive_version_sets_the_family_risk(self) -> None:
+        service = self._service_with(
+            ("1.0.0", ToolRiskLevel.LOW),
+            ("2.0.0", ToolRiskLevel.HIGH),
+            ("3.0.0", ToolRiskLevel.CRITICAL),
+        )
+
+        assert service.get_family_governance("file_read").risk_level is ToolRiskLevel.CRITICAL
+
+    def test_registration_order_does_not_change_the_projection(self) -> None:
+        ascending = self._service_with(
+            ("1.0.0", ToolRiskLevel.LOW), ("2.0.0", ToolRiskLevel.CRITICAL)
+        )
+        descending = self._service_with(
+            ("1.0.0", ToolRiskLevel.CRITICAL), ("2.0.0", ToolRiskLevel.LOW)
+        )
+
+        assert ascending.get_family_governance("file_read").risk_level is ToolRiskLevel.CRITICAL
+        assert descending.get_family_governance("file_read").risk_level is ToolRiskLevel.CRITICAL
+
+    def test_the_projection_aggregates_registered_versions_not_enabled_ones(self) -> None:
+        """Disabling the risky version must not lower what the agent is authorized against.
+
+        Enablement is a containment concern. If it moved this value, an operational action
+        would silently change an authorization outcome.
+        """
+        service = self._service_with(
+            ("1.0.0", ToolRiskLevel.LOW), ("2.0.0", ToolRiskLevel.CRITICAL)
+        )
+        service.disable_tool("file_read", "2.0.0")
+
+        assert service.get_family_governance("file_read").risk_level is ToolRiskLevel.CRITICAL
+
+    def test_an_unknown_family_has_no_projection(self) -> None:
+        with pytest.raises(ToolNotFoundError):
+            self._service_with().get_family_governance("never_registered")

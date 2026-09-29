@@ -1,4 +1,4 @@
-from typing import ClassVar
+from typing import ClassVar, Protocol
 
 from pydantic import BaseModel, ConfigDict
 
@@ -9,8 +9,23 @@ from app.models.authorization_result import (
     AuthorizationCheckStatus,
     not_evaluated_check,
 )
-from app.models.tool import Tool
 from app.models.tool_risk_level import ToolRiskLevel
+
+
+class ToolGovernanceView(Protocol):
+    """What policy needs to know about the tool being evaluated.
+
+    Authorization is family-scoped, so what policy receives is the family's governance
+    projection rather than one version. Declared as a Protocol because the attributes are
+    all it uses, and because naming a concrete model here would invite this decision to
+    start reading version-level state.
+    """
+
+    @property
+    def tool_id(self) -> str: ...
+
+    @property
+    def risk_level(self) -> ToolRiskLevel: ...
 
 
 class PolicyEvaluationResult(BaseModel):
@@ -33,7 +48,7 @@ class PolicyEngine:
     def evaluate_policy(
         self,
         agent: Agent,
-        tool: Tool,
+        tool: ToolGovernanceView,
         resource: str | None = None,
     ) -> PolicyEvaluationResult:
         if agent.status in {
@@ -153,7 +168,7 @@ class PolicyEngine:
     def evaluate(
         self,
         agent: Agent,
-        tool: Tool,
+        tool: ToolGovernanceView,
         resource: str | None = None,
     ) -> Decision:
         return self.evaluate_policy(agent, tool, resource).decision

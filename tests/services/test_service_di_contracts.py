@@ -317,8 +317,8 @@ class TestPR180BehaviorNeutrality:
         )
         service.register_tool(tool)
 
-        assert service.get_tool("tool-test").tool_id == "tool-test"
-        stored = tool_repo.get("tool-test")
+        assert service.get_tool("tool-test", "1.0.0").tool_id == "tool-test"
+        stored = tool_repo.get("tool-test", "1.0.0")
         assert stored is not None
         assert stored.tool_id == "tool-test"
         assert not hasattr(service, "_tools")

@@ -12,7 +12,6 @@ from app.services.agent_service import (
     EnforcementStateUnavailableError,
 )
 from app.services.tool_service import (
-    ToolNotFoundError,
     ToolService,
 )
 
@@ -81,9 +80,16 @@ class AuthorizationService:
             details={"agent_id": agent_id},
         )
 
-        try:
-            tool = self._tool_service.get_tool(tool_id)
-        except ToolNotFoundError:
+        # Authorization is family-scoped (D-1): an agent is approved for a tool, not for
+        # one of its versions. So this establishes that the family exists and that the
+        # agent may ask for it, and reads no version-level state.
+        #
+        # Enablement in particular is deliberately not read here. Whether a concrete
+        # implementation may run is an enforceability question, settled at containment
+        # where the version is known; answering it here would report an operational
+        # disablement as though the agent's authorization had been revoked, and would
+        # require this decision to pick a version, which nothing may do implicitly.
+        if not self._tool_service.family_exists(tool_id):
             tool_check = AuthorizationCheck(
                 status=AuthorizationCheckStatus.FAILED,
                 reason=f"Tool '{tool_id}' is not registered",
@@ -101,26 +107,6 @@ class AuthorizationService:
                 risk_tier_check=not_evaluated_check("tool_check"),
                 resource_check=not_evaluated_check("tool_check"),
                 reason=f"Tool '{tool_id}' is not registered",
-            )
-
-        if not tool.metadata.operational.enabled:
-            tool_check = AuthorizationCheck(
-                status=AuthorizationCheckStatus.FAILED,
-                reason=f"Tool '{tool_id}' is disabled",
-                details={"tool_id": tool_id},
-            )
-            return AuthorizationResult(
-                decision=Decision.DENY,
-                agent_id=agent_id,
-                tool_id=tool_id,
-                resource=resource,
-                agent_check=agent_check,
-                tool_check=tool_check,
-                approved_tool_check=not_evaluated_check("tool_check"),
-                status_check=not_evaluated_check("tool_check"),
-                risk_tier_check=not_evaluated_check("tool_check"),
-                resource_check=not_evaluated_check("tool_check"),
-                reason=f"Tool '{tool_id}' is disabled",
             )
 
         tool_check = AuthorizationCheck(
@@ -155,9 +141,12 @@ class AuthorizationService:
             details={"tool_id": tool_id, "agent_id": agent_id},
         )
 
+        # Policy evaluates the family's governance projection, not a version. The
+        # projection is deterministic and most-restrictive, so it neither selects an
+        # implementation nor lets one version's classification be the family's.
         policy_result = self._policy_engine.evaluate_policy(
             agent=agent,
-            tool=tool,
+            tool=self._tool_service.get_family_governance(tool_id),
             resource=resource,
         )
 
