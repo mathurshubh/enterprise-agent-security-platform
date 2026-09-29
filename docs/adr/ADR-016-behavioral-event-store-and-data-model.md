@@ -93,6 +93,10 @@ The Behavioral Event Store acts as an append-only historical record and security
 4. **Separation of History and Current State:** The Behavioral Event Store records historical behavioral transitions. It does not manage transient agent credentials, active runtime memory, or policy configuration state.
 5. **Tamper-Evident Integrity & Provenance:** Stored events preserve origin provenance (`trace_id`, `producer_id`) and structural integrity, guaranteeing that historical security evidence remains verifiable.
 
+> **Namespace integrity.** The monotonic values named here belong to distinct security namespaces, each with one authoritative allocator. They are never compared with, or substituted for, one another. See *Monotonic Security-State Namespace Integrity* in [docs/ai/ARCHITECTURE_PRINCIPLES.md](../ai/ARCHITECTURE_PRINCIPLES.md), which is authoritative for this rule.
+
+---
+
 > **Event Store Availability Philosophy**  
 > Event Store availability supports Behavioral Intelligence, stateful detection, and forensic analytics. The Runtime Security Pipeline continues deterministic security enforcement even if Event Store persistence becomes temporarily degraded or unavailable. Behavioral capabilities may degrade gracefully, but request-level authorization and policy enforcement remain fully functional.
 

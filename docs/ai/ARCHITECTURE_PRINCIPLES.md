@@ -12,6 +12,44 @@ Never duplicate runtime orchestration.
 
 ---
 
+# Monotonic Security-State Namespace Integrity
+
+Monotonic security-state values are namespace-specific and governed by a single
+authoritative allocator. A value may only be compared with, persisted as a watermark for,
+or used for idempotency or freshness **within the semantic namespace governed by that
+allocator**.
+
+The platform currently distinguishes four:
+
+| Namespace | Allocator | Meaning | Consumers |
+|---|---|---|---|
+| `SessionEvent.sequence_number` | session event repository | session-local event ordering | session queries, event finalization |
+| `SessionEvent.agent_sequence` | agent sequence counter | agent-wide event ordering | detection horizon, enforcement baseline |
+| `Finding.evidence_sequence` | `FindingsService` | finding ordering and projection cursor | risk aggregate, enforcement baseline |
+| `AgentEnforcementState.epoch` | enforcement state repository (CAS, +1 per committed transition) | enforcement generation and freshness | grant issuance, findings, transition ledger |
+
+These are **not interchangeable merely because they are monotonically increasing
+integers**. Event ordering, finding ordering, and enforcement generation are different
+security semantics, and each must retain explicit namespace identity at the domain,
+persistence and consumer boundaries.
+
+Generation counters are not event-ordering sequences. `epoch` answers *which enforcement
+generation is this* and does not order records; comparing it against a sequence, or a
+sequence against it, is a category error even though both are per-agent and both increase.
+`UNIQUE(agent_id, epoch)` is the persistence-level expression of the generation
+namespace's identity: no two committed enforcement generations for one agent may occupy
+the same epoch.
+
+Name fields for the namespace they belong to. A generic name such as `baseline_sequence`
+makes two orderings look interchangeable and is how they come to be conflated.
+
+Cross-repository capture of independent namespaces need not be globally atomic unless a
+domain invariant requires a common snapshot boundary. Each watermark or generation value
+must, however, be obtained from its authoritative allocator and consumed only within its
+own namespace.
+
+---
+
 # Trust Boundary
 
 User

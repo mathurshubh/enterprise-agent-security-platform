@@ -84,6 +84,8 @@ They are one value because they are one boundary. Held separately, a timestamp a
 
 Findings before the baseline **remain authoritative evidence and stay readable**; they simply no longer enforce. That is what makes reinstatement possible without erasing history: an agent returns to service without the evidence that contained it immediately containing it again, and without that evidence being destroyed.
 
+> **Namespace integrity.** The monotonic values named here belong to distinct security namespaces, each with one authoritative allocator. They are never compared with, or substituted for, one another. See *Monotonic Security-State Namespace Integrity* in [docs/ai/ARCHITECTURE_PRINCIPLES.md](../ai/ARCHITECTURE_PRINCIPLES.md), which is authoritative for this rule.
+
 ## 5. `evidence_sequence` is authoritative for ordering, and gaps are failures
 
 `FindingsService` assigns every accepted finding a strictly monotonic per-agent sequence, and is the only component permitted to do so. Sequence `0` means unassigned and is never valid input to the projection.
