@@ -15,8 +15,8 @@ from app.runtime.execution_authority import (
     ExecutionRefusalReason,
 )
 
-NOTES = ExecutionBinding.from_operation("file_read", {"path": "notes.txt"})
-SECRETS = ExecutionBinding.from_operation("file_read", {"path": "secrets.txt"})
+NOTES = ExecutionBinding.from_operation("file_read", "1.0.0", {"path": "notes.txt"})
+SECRETS = ExecutionBinding.from_operation("file_read", "1.0.0", {"path": "secrets.txt"})
 
 
 class FakeClock:
@@ -100,10 +100,10 @@ class TestVerification:
     def test_equivalent_parameter_ordering_matches(self) -> None:
         authority = ExecutionAuthority()
         authorized = ExecutionBinding.from_operation(
-            "file_read", {"path": "notes.txt", "mode": "r"}
+            "file_read", "1.0.0", {"path": "notes.txt", "mode": "r"}
         )
         requested = ExecutionBinding.from_operation(
-            "file_read", {"mode": "r", "path": "notes.txt"}
+            "file_read", "1.0.0", {"mode": "r", "path": "notes.txt"}
         )
         grant = authority.issue(authorized, Decision.ALLOW, agent_id="agent-1", session_id="session-1")
 
@@ -134,7 +134,7 @@ class TestVerification:
         authority = ExecutionAuthority()
         grant = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1", session_id="session-1")
         requested = ExecutionBinding.from_operation(
-            "directory_list", {"path": "notes.txt"}
+            "directory_list", "1.0.0", {"path": "notes.txt"}
         )
 
         _refused(
@@ -146,7 +146,7 @@ class TestVerification:
         authority = ExecutionAuthority()
         grant = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1", session_id="session-1")
         requested = ExecutionBinding.from_operation(
-            "file_read", {"path": "notes.txt", "mode": "raw"}
+            "file_read", "1.0.0", {"path": "notes.txt", "mode": "raw"}
         )
 
         _refused(
@@ -162,6 +162,26 @@ class TestVerification:
         _refused(
             ExecutionRefusalReason.INVALID_SIGNATURE,
             lambda: authority.verify_and_consume(tampered, SECRETS),
+        )
+
+    def test_a_swapped_tool_version_invalidates_the_signature(self) -> None:
+        """The signed form covers the version, so it cannot be swapped under the signature.
+
+        Field comparison at verification refuses a mismatched version on its own, but
+        only for a binding the authority still holds intact. Signing the version is what
+        makes the substitution detectable on a grant whose binding was altered: without
+        it, a binding differing only by version would verify as authentic.
+        """
+        authority = ExecutionAuthority()
+        grant = authority.issue(NOTES, Decision.ALLOW, agent_id="agent-1", session_id="session-1")
+        other_version = ExecutionBinding.from_operation(
+            "file_read", "2.0.0", {"path": "notes.txt"}
+        )
+        tampered = grant.model_copy(update={"binding": other_version})
+
+        _refused(
+            ExecutionRefusalReason.INVALID_SIGNATURE,
+            lambda: authority.verify_and_consume(tampered, other_version),
         )
 
     def test_extended_expiry_invalidates_the_signature(self) -> None:

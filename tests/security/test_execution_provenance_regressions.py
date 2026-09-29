@@ -150,7 +150,7 @@ def _grant(authority: ExecutionAuthority, tool_id: str, params: dict[str, str], 
     caps = _capabilities()
     digest = caps.compute_digest() if capability_digest is _OMITTED else capability_digest
     return authority.issue(
-        ExecutionBinding.from_operation(tool_id, params),
+        ExecutionBinding.from_operation(tool_id, "1.0.0", params),
         Decision.ALLOW,
         agent_id=agent_id,
         session_id=session_id,
@@ -713,7 +713,7 @@ def test_invariant_a_claim_is_indivisible_from_its_validation() -> None:
     import threading
 
     authority = ExecutionAuthority()
-    binding = ExecutionBinding.from_operation("provenance_tool", {})
+    binding = ExecutionBinding.from_operation("provenance_tool", "1.0.0", {})
     caps = _capabilities()
     grant = authority.issue(
         binding,
@@ -814,7 +814,7 @@ def test_invariant_a_claim_validates_and_removes_in_one_lock_hold(method: str) -
     observe the grant as outstanding between its validation and its removal.
     """
     authority = ExecutionAuthority()
-    binding = ExecutionBinding.from_operation("provenance_tool", {})
+    binding = ExecutionBinding.from_operation("provenance_tool", "1.0.0", {})
     caps = _capabilities()
     grant = authority.issue(
         binding,

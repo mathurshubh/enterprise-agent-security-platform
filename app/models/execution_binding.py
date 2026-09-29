@@ -67,6 +67,10 @@ class ExecutionBinding(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     tool_id: str = Field(min_length=1, description="Tool the operation targets.")
+    tool_version: str = Field(
+        min_length=1,
+        description="Concrete version of the tool implementation the operation targets.",
+    )
     resource: str | None = Field(
         default=None,
         description="Resource the operation acts on, evaluated by resource-aware policy.",
@@ -102,10 +106,15 @@ class ExecutionBinding(BaseModel):
     def from_operation(
         cls,
         tool_id: str,
+        tool_version: str,
         parameters: Mapping[str, Any] | None = None,
         resource: str | None = None,
     ) -> "ExecutionBinding":
         """Build the canonical binding for a requested operation.
+
+        ``tool_version`` is the version of the resolved tool descriptor, not a value
+        a caller supplies. A binding names one concrete implementation, so that the
+        grant covering it cannot later be satisfied by a different one.
 
         Raises:
             ExecutionBindingValidationError: if the operation is malformed or its
@@ -122,6 +131,7 @@ class ExecutionBinding(BaseModel):
         try:
             return cls(
                 tool_id=tool_id,
+                tool_version=tool_version,
                 resource=resource if resource is not None else declared,
                 parameters=canonical,
             )
@@ -141,6 +151,7 @@ class ExecutionBinding(BaseModel):
                 "parameters": [list(pair) for pair in self.parameters],
                 "resource": self.resource,
                 "tool_id": self.tool_id,
+                "tool_version": self.tool_version,
             },
             sort_keys=True,
             separators=(",", ":"),

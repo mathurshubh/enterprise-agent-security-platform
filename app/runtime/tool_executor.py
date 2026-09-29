@@ -176,7 +176,7 @@ class DefaultToolExecutor:
             raise ToolDisabledError(f"Tool '{descriptor.tool_id}' is disabled")
 
         capabilities = self._verify_and_prepare(
-            descriptor.tool_id, parameters, grant, context
+            descriptor.tool_id, descriptor.version, parameters, grant, context
         )
         assert grant is not None
         tool = self.instantiate(descriptor)
@@ -196,7 +196,13 @@ class DefaultToolExecutor:
         grant: RuntimeExecutionGrant | None = None,
     ) -> Any:
         """Verify the grant and capability binding, then execute a BaseTool handle via sandbox."""
-        capabilities = self._verify_and_prepare(tool.tool_id, parameters, grant, context)
+        capabilities = self._verify_and_prepare(
+            tool.tool_id,
+            tool.metadata.identity.version,
+            parameters,
+            grant,
+            context,
+        )
         assert grant is not None
         return self._run(
             tool,
@@ -209,11 +215,17 @@ class DefaultToolExecutor:
     def _verify_and_prepare(
         self,
         tool_id: str,
+        tool_version: str,
         parameters: Mapping[str, Any],
         grant: RuntimeExecutionGrant | None,
         context: RuntimeContext | None = None,
     ) -> ExecutionCapabilities:
         """Verify authority, grant, and capability binding, then consume grant before execution.
+
+        ``tool_version`` comes from the descriptor this executor resolved, so the binding
+        rebuilt here names the implementation that would actually run. A grant issued
+        against a different version produces a different binding and is refused at step 3
+        below — before the grant is claimed, so a substituted version cannot spend it.
 
         Sequence (ADR-032):
         1. Check sandbox backend is configured (fail closed if None).
@@ -242,6 +254,7 @@ class DefaultToolExecutor:
         try:
             requested = ExecutionBinding.from_operation(
                 tool_id=tool_id,
+                tool_version=tool_version,
                 parameters=parameters,
             )
         except ExecutionBindingValidationError as exc:

@@ -45,7 +45,11 @@ from app.models.tool_metadata import ToolMetadata
 from app.models.tool_operational import ToolOperational
 from app.models.tool_risk_level import ToolRiskLevel
 from app.models.watermark import BaselineWatermark
-from app.registry.tool_registry import ToolRegistry
+from app.registry.tool_registry import (
+    ToolNotRegisteredError,
+    ToolRegistry,
+    ToolVersionMismatchError,
+)
 from app.runtime.capability_registry import InMemoryCapabilityProfileRegistry
 from app.runtime.contracts import (
     CapabilityProfileRegistryProtocol,
@@ -185,7 +189,15 @@ class RuntimeService:
         reg = InMemoryCapabilityProfileRegistry()
         if self._tool_registry:
             for tool_id in self._tool_registry.list_tool_ids():
-                desc = self._tool_registry.resolve(tool_id)
+                try:
+                    desc = self._tool_registry.resolve(tool_id)
+                except ToolVersionMismatchError:
+                    # A profile is derived per tool_id, so a tool registered under
+                    # several versions has no single workspace this derivation can
+                    # speak for. It gets no profile rather than an arbitrary one,
+                    # which is the same fail-closed outcome as an undeterminable
+                    # workspace below: no profile, no executable grant.
+                    continue
                 tool_inst = desc.instance
                 tool_workspace = (
                     getattr(tool_inst, "workspace", None)
@@ -705,18 +717,54 @@ class RuntimeService:
         # final ALLOW decision will cover. An operation that cannot be bound
         # consistently (for example an explicit resource contradicting its path
         # parameter) is denied rather than authorized against an ambiguous target.
+        #
+        # The bound identity includes the tool version, and that version comes from the
+        # resolved descriptor rather than from anything the caller supplied: the binding
+        # must name the implementation that would actually run.
+        #
+        # Two failures are possible here and they refuse at different stages. Keeping
+        # them apart is the point; collapsing them would make tool registration part of
+        # authorization and would erase the authorization evidence for exactly the
+        # requests that end up refused.
+        #
+        #   malformed operation  — there is no coherent target to evaluate, so there is
+        #                          no meaningful authorization question. Refused here.
+        #   unresolved tool      — the operation is well formed and "is this agent
+        #                          permitted to use this tool" is answerable and worth
+        #                          recording. Authorization evaluates; the containment
+        #                          gate below refuses it, because no concrete,
+        #                          version-pinned execution context exists.
+        #
+        # Approval of a tool_id is not the same fact as a registered executable
+        # implementation of it. The first is a permission question, the second an
+        # enforceability one.
         binding_error_code: str | None = None
-        binding: ExecutionBinding | None
-        try:
-            binding = ExecutionBinding.from_operation(
-                tool_id=tool_id,
-                parameters=parameters,
-                resource=resource,
-            )
-            resource = binding.resource
-        except ExecutionBindingValidationError:
-            binding = None
+        binding: ExecutionBinding | None = None
+        operation_is_malformed = False
+
+        tool_version: str | None = None
+        if self._tool_registry is not None:
+            try:
+                tool_version = self._tool_registry.resolve(tool_id).version
+            except (ToolNotRegisteredError, ToolVersionMismatchError):
+                tool_version = None
+
+        if tool_version is None:
+            # Unresolved implementation: authorization still evaluates below.
             binding_error_code = "EXECUTION_BINDING_INVALID"
+        else:
+            try:
+                binding = ExecutionBinding.from_operation(
+                    tool_id=tool_id,
+                    tool_version=tool_version,
+                    parameters=parameters,
+                    resource=resource,
+                )
+                resource = binding.resource
+            except ExecutionBindingValidationError:
+                binding = None
+                binding_error_code = "EXECUTION_BINDING_INVALID"
+                operation_is_malformed = True
 
         self._safe_emit(
             BehavioralEvent(
@@ -753,7 +801,7 @@ class RuntimeService:
             )
 
         authorization_result = None
-        if binding is None:
+        if operation_is_malformed:
             decision = Decision.DENY
         else:
             authorization_result = self._authorization_service.evaluate(
@@ -965,7 +1013,21 @@ class RuntimeService:
         # enforces CAS validation against expected_epoch so that concurrent enforcement
         # transitions (recovery or suspension) fail closed without grant issuance.
         authorization = None
-        if self._execution_authority is not None and binding is not None:
+        if self._execution_authority is not None and binding is None:
+            # Containment gate for an unresolved implementation. Authorization has been
+            # evaluated and recorded on its own terms; what fails here is enforceability.
+            # Without a concrete, version-pinned execution context there is nothing a
+            # grant could authorise, so an ALLOW is refused rather than left standing as
+            # "allowed, never executed", and no grant is issued. A missing executable
+            # implementation therefore can never become executable authority.
+            #
+            # Scoped to a configured execution authority for the same reason the
+            # capability-profile gate below is: where no authority exists, no grant and
+            # no execution can follow from this service at all, so there is no
+            # enforceability claim to refuse.
+            if final_decision == Decision.ALLOW:
+                final_decision = Decision.DENY
+        elif self._execution_authority is not None and binding is not None:
             # ADR-032: an executable grant must carry an explicit capability binding.
             # The executor refuses a profile-less grant, but by then the pipeline has
             # already concluded ALLOW, leaving a decision that can never be enforced —

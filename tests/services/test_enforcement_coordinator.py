@@ -33,7 +33,7 @@ from tests.conftest import create_test_agent_service
 from tests.services.test_findings_service import make_finding
 
 AGENT_ID = "contained-agent"
-BINDING = ExecutionBinding.from_operation("file_read", {"path": "notes.txt"})
+BINDING = ExecutionBinding.from_operation("file_read", "1.0.0", {"path": "notes.txt"})
 
 
 class RefusingAuthority(ExecutionAuthority):

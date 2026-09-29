@@ -45,6 +45,7 @@ from app.runtime.execution_authority import (
     ExecutionRefusalReason,
 )
 from app.runtime.tool_executor import DefaultToolExecutor, ToolExecutionError
+from app.tools.file_read_tool import FileReadTool
 from tests.conftest import auth_headers, register_test_agent
 
 from .conftest import BENIGN_FILE, BENIGN_MARKER, PROTECTED_FILE, PROTECTED_MARKER
@@ -245,7 +246,7 @@ def test_exit_gate_hand_crafted_grant_is_rejected(
         authority_id=env.execution_authority.authority_id,
         agent_id="agent-1",
         session_id="session-1",
-        binding=ExecutionBinding.from_operation("file_read", {"path": PROTECTED_FILE}),
+        binding=ExecutionBinding.from_operation("file_read", "1.0.0", {"path": PROTECTED_FILE}),
         issued_at=0.0,
         expires_at=1e12,
         signature="0" * 64,
@@ -619,7 +620,7 @@ def test_invariant_the_executor_still_verifies_the_capability_binding(
 
     env = build_runtime(workspace=security_workspace)
     grant = env.execution_authority.issue(
-        ExecutionBinding.from_operation("file_read", {"path": BENIGN_FILE}),
+        ExecutionBinding.from_operation("file_read", "1.0.0", {"path": BENIGN_FILE}),
         Decision.ALLOW,
         agent_id=env.agent_id,
         session_id="session-tampered",
@@ -635,3 +636,91 @@ def test_invariant_the_executor_still_verifies_the_capability_binding(
 
     with pytest.raises(CapabilityDigestMismatchError):
         executor.execute_descriptor(descriptor, {"path": BENIGN_FILE}, grant=grant)
+
+
+@pytest.mark.security_invariant
+def test_invariant_an_unresolvable_tool_never_becomes_executable_authority(
+    build_runtime, security_workspace: Path
+) -> None:
+    """An approved tool with no concrete implementation is authorized, then contained.
+
+    Approval and executability are different facts. "May this agent use file_read"
+    is answerable and is answered — the authorization evidence is recorded on its own
+    terms — but a tool that resolves to no single registered version has no concrete,
+    version-pinned execution context, so nothing could be granted over it.
+
+    The property under test is the conversion, not the decision: a missing executable
+    implementation must never turn an authorization ALLOW into executable authority.
+    Asserting that ``issue`` is never reached is stronger than asserting the final
+    decision, because a grant issued and then discarded would still satisfy the latter.
+    """
+    issued: list[tuple] = []
+    authority = ExecutionAuthority()
+    real_issue = authority.issue
+
+    def _recording_issue(*args, **kwargs):
+        issued.append((args, kwargs))
+        return real_issue(*args, **kwargs)
+
+    authority.issue = _recording_issue  # type: ignore[method-assign]
+
+    env = build_runtime(execution_authority=authority)  # no workspace: no registered tools
+    assert env.tool_registry.exists("file_read") is False
+
+    result = env.runtime.execute(
+        session_id="session-unresolvable",
+        agent_id=env.agent_id,
+        tool_id="file_read",
+        resource=BENIGN_FILE,
+        parameters={"path": BENIGN_FILE},
+    )
+
+    assert result.event.decision == Decision.ALLOW, (
+        "authorization is still evaluated and recorded; the refusal is about containment"
+    )
+    assert result.event.final_decision == Decision.DENY, (
+        "an unenforceable request must not stand as finally allowed"
+    )
+    assert result.authorization is None, "no grant may be produced"
+    assert issued == [], "execution authority must never be asked to issue"
+    assert authority.outstanding_grant_count == 0
+
+
+@pytest.mark.security_invariant
+def test_invariant_an_ambiguous_tool_version_never_becomes_executable_authority(
+    build_runtime, security_workspace: Path
+) -> None:
+    """Same containment, reached through ambiguity rather than absence.
+
+    Two registered versions and no requested version is not a resolution the registry
+    is willing to guess at, so the request has no concrete implementation for the same
+    reason an unregistered tool does not.
+    """
+    env = build_runtime(workspace=security_workspace)
+    assert env.runtime.execute(
+        session_id="session-before-ambiguity",
+        agent_id=env.agent_id,
+        tool_id="file_read",
+        resource=BENIGN_FILE,
+        parameters={"path": BENIGN_FILE},
+    ).event.final_decision == Decision.ALLOW
+
+    second = FileReadTool(str(security_workspace))
+    second._metadata = second.metadata.model_copy(
+        update={
+            "identity": second.metadata.identity.model_copy(update={"version": "2.0.0"})
+        }
+    )
+    env.tool_registry.register(second)
+
+    result = env.runtime.execute(
+        session_id="session-ambiguous",
+        agent_id=env.agent_id,
+        tool_id="file_read",
+        resource=BENIGN_FILE,
+        parameters={"path": BENIGN_FILE},
+    )
+
+    assert result.event.decision == Decision.ALLOW
+    assert result.event.final_decision == Decision.DENY
+    assert result.authorization is None
