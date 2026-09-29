@@ -26,8 +26,12 @@ class AgentEnforcementStateModel(Base):
     __table_args__ = (
         CheckConstraint("epoch >= 0", name="chk_agent_enforcement_epoch_non_negative"),
         CheckConstraint(
-            "enforcement_baseline_sequence >= 0",
+            "baseline_evidence_sequence >= 0",
             name="chk_agent_enforcement_baseline_seq_non_negative",
+        ),
+        CheckConstraint(
+            "baseline_agent_sequence >= 0",
+            name="chk_agent_enforcement_baseline_agent_seq_non_negative",
         ),
     )
 
@@ -43,8 +47,16 @@ class AgentEnforcementStateModel(Base):
     enforcement_baseline_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    enforcement_baseline_sequence: Mapped[int] = mapped_column(
+    # One watermark per monotonic namespace. These are not interchangeable: the first
+    # counts findings, the second counts session events, and each is read only by the
+    # consumer that works in its namespace.
+    baseline_evidence_sequence: Mapped[int] = mapped_column(
         BigInteger, nullable=False, default=0
+    )
+    # server_default so the column could be added NOT NULL to tables that already held
+    # rows (migration 0002); declared here too so the model and the schema agree.
+    baseline_agent_sequence: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0"
     )
     last_transition_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

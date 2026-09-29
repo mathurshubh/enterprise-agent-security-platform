@@ -53,7 +53,7 @@ class TestAgentRiskAggregate:
     def test_b1_projection_equivalence(self) -> None:
         """Incremental projection matches fresh rebuild for all security-relevant fields (B-1)."""
         t0 = datetime(2026, 9, 20, 10, 0, 0, tzinfo=timezone.utc)
-        wm = BaselineWatermark(agent_id="agent-1", baseline_at=t0, baseline_sequence=0)
+        wm = BaselineWatermark(agent_id="agent-1", baseline_at=t0, baseline_evidence_sequence=0)
 
         agg = AgentRiskAggregate(wm)
 
@@ -88,13 +88,13 @@ class TestAgentRiskAggregate:
         assert incremental_snapshot.counts_by_severity == rebuilt_snapshot.counts_by_severity
         assert incremental_snapshot.counts_by_rule == rebuilt_snapshot.counts_by_rule
         assert incremental_snapshot.last_applied_sequence == rebuilt_snapshot.last_applied_sequence
-        assert incremental_snapshot.baseline_sequence == rebuilt_snapshot.baseline_sequence
+        assert incremental_snapshot.baseline_evidence_sequence == rebuilt_snapshot.baseline_evidence_sequence
         assert incremental_snapshot.state == PostureState.HEALTHY
 
     def test_b2_and_b11_cursor_vs_active_contribution(self) -> None:
         """Inactive findings advance sequence cursor without inflating risk score (B-2, B-11)."""
         t0 = datetime(2026, 9, 20, 10, 0, 0, tzinfo=timezone.utc)
-        wm = BaselineWatermark(agent_id="agent-1", baseline_at=t0, baseline_sequence=0)
+        wm = BaselineWatermark(agent_id="agent-1", baseline_at=t0, baseline_evidence_sequence=0)
         agg = AgentRiskAggregate(wm)
 
         # F1: OPEN HIGH -> +50 score, cursor=1
@@ -131,7 +131,7 @@ class TestAgentRiskAggregate:
     def test_b3_idempotent_deduplication(self) -> None:
         """Already applied sequence is safely ignored without mutating posture (B-3)."""
         t0 = datetime(2026, 9, 20, 10, 0, 0, tzinfo=timezone.utc)
-        wm = BaselineWatermark(agent_id="agent-1", baseline_at=t0, baseline_sequence=0)
+        wm = BaselineWatermark(agent_id="agent-1", baseline_at=t0, baseline_evidence_sequence=0)
         agg = AgentRiskAggregate(wm)
 
         f1 = make_test_finding(
@@ -151,7 +151,7 @@ class TestAgentRiskAggregate:
     def test_b4_fail_closed_on_sequence_gap(self) -> None:
         """Sequence gap transitions posture state to STALE and rejects update (B-4)."""
         t0 = datetime(2026, 9, 20, 10, 0, 0, tzinfo=timezone.utc)
-        wm = BaselineWatermark(agent_id="agent-1", baseline_at=t0, baseline_sequence=0)
+        wm = BaselineWatermark(agent_id="agent-1", baseline_at=t0, baseline_evidence_sequence=0)
         agg = AgentRiskAggregate(wm)
 
         f1 = make_test_finding(
@@ -172,7 +172,7 @@ class TestAgentRiskAggregate:
     def test_b5_baseline_isolation(self) -> None:
         """Findings belonging to prior baseline epoch are excluded (B-5)."""
         t0 = datetime(2026, 9, 20, 10, 0, 0, tzinfo=timezone.utc)
-        wm = BaselineWatermark(agent_id="agent-1", baseline_at=t0, baseline_sequence=5)
+        wm = BaselineWatermark(agent_id="agent-1", baseline_at=t0, baseline_evidence_sequence=5)
         agg = AgentRiskAggregate(wm)
 
         # Finding with sequence 4 (pre-baseline)
@@ -187,7 +187,7 @@ class TestAgentRiskAggregate:
     def test_b9_bounded_rule_vocabulary_and_memory(self) -> None:
         """counts_by_rule is bounded by registered vocabulary; no finding objects retained (B-9)."""
         t0 = datetime(2026, 9, 20, 10, 0, 0, tzinfo=timezone.utc)
-        wm = BaselineWatermark(agent_id="agent-1", baseline_at=t0, baseline_sequence=0)
+        wm = BaselineWatermark(agent_id="agent-1", baseline_at=t0, baseline_evidence_sequence=0)
         agg = AgentRiskAggregate(wm)
 
         # Ingest 100 findings with arbitrary unregistered rule IDs
@@ -219,7 +219,7 @@ class TestAgentRiskAggregate:
     def test_b10_reset_to_baseline(self) -> None:
         """reset_to_baseline resets active risk state and snaps cursor to watermark (B-10)."""
         t0 = datetime(2026, 9, 20, 10, 0, 0, tzinfo=timezone.utc)
-        wm0 = BaselineWatermark(agent_id="agent-1", baseline_at=t0, baseline_sequence=0)
+        wm0 = BaselineWatermark(agent_id="agent-1", baseline_at=t0, baseline_evidence_sequence=0)
         agg = AgentRiskAggregate(wm0)
 
         f1 = make_test_finding("f-1", severity=Severity.CRITICAL, evidence_sequence=1, recorded_at=t0 + timedelta(seconds=1))
@@ -230,20 +230,20 @@ class TestAgentRiskAggregate:
 
         # Reinstatement establishes new baseline watermark
         t1 = datetime(2026, 9, 20, 11, 0, 0, tzinfo=timezone.utc)
-        wm1 = BaselineWatermark(agent_id="agent-1", baseline_at=t1, baseline_sequence=2)
+        wm1 = BaselineWatermark(agent_id="agent-1", baseline_at=t1, baseline_evidence_sequence=2)
         agg.reset_to_baseline(wm1)
 
         assert agg.risk_score == 0
         assert agg.risk_level == RiskLevel.LOW
         assert agg.finding_count == 0
         assert agg.last_applied_sequence == 2
-        assert agg.baseline_sequence == 2
+        assert agg.baseline_evidence_sequence == 2
         assert agg.state == PostureState.HEALTHY
 
     def test_b13_evidence_boundary_consistency_anomaly(self) -> None:
-        """Finding with sequence > baseline_sequence but recorded_at <= baseline_at triggers STALE (B-13)."""
+        """Finding with sequence > baseline_evidence_sequence but recorded_at <= baseline_at triggers STALE (B-13)."""
         t_base = datetime(2026, 9, 20, 10, 0, 0, tzinfo=timezone.utc)
-        wm = BaselineWatermark(agent_id="agent-1", baseline_at=t_base, baseline_sequence=5)
+        wm = BaselineWatermark(agent_id="agent-1", baseline_at=t_base, baseline_evidence_sequence=5)
         agg = AgentRiskAggregate(wm)
 
         # Inconsistent finding: seq=6 (post-baseline) but recorded_at is prior to baseline_at!
@@ -259,7 +259,7 @@ class TestAgentRiskAggregate:
     def test_m5_a_scoring_semantics_exact_weights(self) -> None:
         """Scoring uses exact additive 10/25/50/100 weights and unbounded integer scores."""
         t0 = datetime(2026, 9, 20, 10, 0, 0, tzinfo=timezone.utc)
-        wm = BaselineWatermark(agent_id="agent-1", baseline_at=t0, baseline_sequence=0)
+        wm = BaselineWatermark(agent_id="agent-1", baseline_at=t0, baseline_evidence_sequence=0)
         agg = AgentRiskAggregate(wm)
 
         # 1. LOW = 10 -> score 10, LOW
@@ -284,7 +284,7 @@ class TestAgentRiskAggregate:
 
     def test_agent_mismatch_and_unassigned_sequence_errors(self) -> None:
         """apply_finding rejects agent mismatch and unassigned sequence."""
-        wm = BaselineWatermark(agent_id="agent-1", baseline_at=None, baseline_sequence=0)
+        wm = BaselineWatermark(agent_id="agent-1", baseline_at=None, baseline_evidence_sequence=0)
         agg = AgentRiskAggregate(wm)
 
         f_other = make_test_finding("f-other", agent_id="agent-2", evidence_sequence=1)
@@ -309,29 +309,29 @@ class TestCursorInvariantCI1:
 
     def test_initialization_satisfies_the_invariant(self) -> None:
         aggregate = AgentRiskAggregate(
-            BaselineWatermark(agent_id="agent-1", baseline_sequence=7)
+            BaselineWatermark(agent_id="agent-1", baseline_evidence_sequence=7)
         )
 
-        assert aggregate.last_applied_sequence >= aggregate.baseline_sequence
+        assert aggregate.last_applied_sequence >= aggregate.baseline_evidence_sequence
 
     def test_reset_to_baseline_leaves_the_cursor_at_the_baseline(self) -> None:
         aggregate = AgentRiskAggregate(
-            BaselineWatermark(agent_id="agent-1", baseline_sequence=1)
+            BaselineWatermark(agent_id="agent-1", baseline_evidence_sequence=1)
         )
         aggregate.apply_finding(make_test_finding("f-2", evidence_sequence=2))
 
         aggregate.reset_to_baseline(
-            BaselineWatermark(agent_id="agent-1", baseline_sequence=9)
+            BaselineWatermark(agent_id="agent-1", baseline_evidence_sequence=9)
         )
 
-        assert aggregate.baseline_sequence == 9
+        assert aggregate.baseline_evidence_sequence == 9
         assert aggregate.last_applied_sequence == 9
 
     def test_rebuild_with_post_baseline_evidence_advances_the_cursor(self) -> None:
         aggregate = AgentRiskAggregate(
-            BaselineWatermark(agent_id="agent-1", baseline_sequence=0)
+            BaselineWatermark(agent_id="agent-1", baseline_evidence_sequence=0)
         )
-        watermark = BaselineWatermark(agent_id="agent-1", baseline_sequence=2)
+        watermark = BaselineWatermark(agent_id="agent-1", baseline_evidence_sequence=2)
 
         aggregate.rebuild_from_findings(
             [
@@ -341,7 +341,7 @@ class TestCursorInvariantCI1:
             watermark,
         )
 
-        assert aggregate.last_applied_sequence >= aggregate.baseline_sequence
+        assert aggregate.last_applied_sequence >= aggregate.baseline_evidence_sequence
         assert aggregate.last_applied_sequence == 4
 
     def test_rebuild_without_post_baseline_evidence_holds_the_cursor_at_the_baseline(
@@ -349,18 +349,18 @@ class TestCursorInvariantCI1:
     ) -> None:
         """The case where a naive implementation would leave a stale, lower cursor."""
         aggregate = AgentRiskAggregate(
-            BaselineWatermark(agent_id="agent-1", baseline_sequence=0)
+            BaselineWatermark(agent_id="agent-1", baseline_evidence_sequence=0)
         )
-        watermark = BaselineWatermark(agent_id="agent-1", baseline_sequence=12)
+        watermark = BaselineWatermark(agent_id="agent-1", baseline_evidence_sequence=12)
 
         aggregate.rebuild_from_findings([], watermark)
 
         assert aggregate.last_applied_sequence == 12
-        assert aggregate.last_applied_sequence >= aggregate.baseline_sequence
+        assert aggregate.last_applied_sequence >= aggregate.baseline_evidence_sequence
 
     def test_incremental_application_never_moves_the_cursor_backwards(self) -> None:
         aggregate = AgentRiskAggregate(
-            BaselineWatermark(agent_id="agent-1", baseline_sequence=0)
+            BaselineWatermark(agent_id="agent-1", baseline_evidence_sequence=0)
         )
         observed = []
 
@@ -371,7 +371,7 @@ class TestCursorInvariantCI1:
             observed.append(aggregate.last_applied_sequence)
 
         assert observed == sorted(observed)
-        assert aggregate.last_applied_sequence >= aggregate.baseline_sequence
+        assert aggregate.last_applied_sequence >= aggregate.baseline_evidence_sequence
 
     def test_an_invalid_state_is_detected_rather_than_repaired(self) -> None:
         """The sequence attributes are public, so this is reachable from outside.
@@ -381,27 +381,27 @@ class TestCursorInvariantCI1:
         reasoning that makes B-5 redundant.
         """
         aggregate = AgentRiskAggregate(
-            BaselineWatermark(agent_id="agent-1", baseline_sequence=0)
+            BaselineWatermark(agent_id="agent-1", baseline_evidence_sequence=0)
         )
-        aggregate.baseline_sequence = 50
+        aggregate.baseline_evidence_sequence = 50
         aggregate.last_applied_sequence = 3
 
         with pytest.raises(ProjectionInvariantError):
             aggregate.snapshot()
 
         # Unrepaired: the state is still exactly as it was found.
-        assert aggregate.baseline_sequence == 50
+        assert aggregate.baseline_evidence_sequence == 50
         assert aggregate.last_applied_sequence == 3
 
     def test_a_violated_projection_cannot_be_exposed_as_healthy(self) -> None:
         """`snapshot()` is the only way projection state leaves the aggregate."""
         aggregate = AgentRiskAggregate(
-            BaselineWatermark(agent_id="agent-1", baseline_sequence=0)
+            BaselineWatermark(agent_id="agent-1", baseline_evidence_sequence=0)
         )
         aggregate.apply_finding(make_test_finding("f-1", evidence_sequence=1))
         assert aggregate.snapshot().state == PostureState.HEALTHY
 
-        aggregate.baseline_sequence = 99
+        aggregate.baseline_evidence_sequence = 99
 
         with pytest.raises(ProjectionInvariantError):
             aggregate.snapshot()
@@ -409,10 +409,10 @@ class TestCursorInvariantCI1:
     def test_a_stale_projection_is_held_to_the_invariant_too(self) -> None:
         """No state is exempt: STALE is still a state a decision is refused from."""
         aggregate = AgentRiskAggregate(
-            BaselineWatermark(agent_id="agent-1", baseline_sequence=0)
+            BaselineWatermark(agent_id="agent-1", baseline_evidence_sequence=0)
         )
         aggregate.mark_stale()
-        aggregate.baseline_sequence = 25
+        aggregate.baseline_evidence_sequence = 25
 
         with pytest.raises(ProjectionInvariantError):
             aggregate.snapshot()

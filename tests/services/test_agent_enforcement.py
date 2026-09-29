@@ -296,12 +296,17 @@ class TestEnforcementPlaneInvariants:
             agent_id,
             actor="admin-1",
             reason="clearance 1",
-            watermark=BaselineWatermark(agent_id=agent_id, baseline_sequence=10),
+            watermark=BaselineWatermark(
+                agent_id=agent_id,
+                baseline_evidence_sequence=10,
+                baseline_agent_sequence=40,
+            ),
         )
         state2 = service.get_enforcement_state(agent_id)
         assert state2.epoch == 2
         assert state2.suspended_at is None
-        assert state2.enforcement_baseline_sequence == 10
+        assert state2.baseline_evidence_sequence == 10
+        assert state2.baseline_agent_sequence == 40
 
         # 3. Suspend again -> epoch advances to 3
         service.suspend_agent(agent_id, reason="suspension 2")
@@ -314,12 +319,17 @@ class TestEnforcementPlaneInvariants:
             agent_id,
             actor="admin-2",
             reason="clearance 2",
-            watermark=BaselineWatermark(agent_id=agent_id, baseline_sequence=25),
+            watermark=BaselineWatermark(
+                agent_id=agent_id,
+                baseline_evidence_sequence=25,
+                baseline_agent_sequence=90,
+            ),
         )
         state4 = service.get_enforcement_state(agent_id)
         assert state4.epoch == 4
         assert state4.suspended_at is None
-        assert state4.enforcement_baseline_sequence == 25
+        assert state4.baseline_evidence_sequence == 25
+        assert state4.baseline_agent_sequence == 90
 
     def test_enforcement_state_unavailable_error_propagates_fail_closed(self) -> None:
         from unittest.mock import MagicMock

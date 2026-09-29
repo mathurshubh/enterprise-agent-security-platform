@@ -41,7 +41,7 @@ class TestM5BContractInvariantsB1ThroughB14:
     def test_b1_and_b7_projection_equivalence_and_reconstructibility(self) -> None:
         """B-1 & B-7: HEALTHY projection matches deterministic rebuild from authoritative evidence."""
         agent_id = "agent-b1"
-        watermark = BaselineWatermark(agent_id=agent_id, baseline_sequence=0)
+        watermark = BaselineWatermark(agent_id=agent_id, baseline_evidence_sequence=0)
         aggregate = AgentRiskAggregate(watermark)
 
         findings = [
@@ -90,7 +90,7 @@ class TestM5BContractInvariantsB1ThroughB14:
         """B-2: Cursor advances contiguously for every accepted post-baseline finding."""
         agent_id = "agent-b2"
         aggregate = AgentRiskAggregate(
-            BaselineWatermark(agent_id=agent_id, baseline_sequence=0)
+            BaselineWatermark(agent_id=agent_id, baseline_evidence_sequence=0)
         )
 
         f1 = make_finding("f1", agent_id=agent_id).model_copy(
@@ -109,7 +109,7 @@ class TestM5BContractInvariantsB1ThroughB14:
         """B-3: Sequence <= last_applied_sequence is an idempotent no-op."""
         agent_id = "agent-b3"
         aggregate = AgentRiskAggregate(
-            BaselineWatermark(agent_id=agent_id, baseline_sequence=0)
+            BaselineWatermark(agent_id=agent_id, baseline_evidence_sequence=0)
         )
 
         f1 = make_finding("f1", agent_id=agent_id).model_copy(
@@ -127,7 +127,7 @@ class TestM5BContractInvariantsB1ThroughB14:
         """B-4: Sequence gap (seq > last_applied + 1) transitions projection to STALE."""
         agent_id = "agent-b4"
         aggregate = AgentRiskAggregate(
-            BaselineWatermark(agent_id=agent_id, baseline_sequence=0)
+            BaselineWatermark(agent_id=agent_id, baseline_evidence_sequence=0)
         )
 
         f3 = make_finding("f3", agent_id=agent_id).model_copy(
@@ -139,7 +139,7 @@ class TestM5BContractInvariantsB1ThroughB14:
     def test_b5_baseline_isolation(self) -> None:
         """B-5: Findings at or before baseline sequence belong to prior epoch and are ignored."""
         agent_id = "agent-b5"
-        watermark = BaselineWatermark(agent_id=agent_id, baseline_sequence=5)
+        watermark = BaselineWatermark(agent_id=agent_id, baseline_evidence_sequence=5)
         aggregate = AgentRiskAggregate(watermark)
 
         f4 = make_finding("f4", agent_id=agent_id).model_copy(
@@ -171,7 +171,7 @@ class TestM5BContractInvariantsB1ThroughB14:
         agent_id = "agent-b9"
         vocabulary = {"PROMPT_INJECTION", "SENSITIVE_FILE_ACCESS"}
         aggregate = AgentRiskAggregate(
-            BaselineWatermark(agent_id=agent_id, baseline_sequence=0),
+            BaselineWatermark(agent_id=agent_id, baseline_evidence_sequence=0),
             rule_vocabulary=vocabulary,
         )
 
@@ -195,16 +195,16 @@ class TestM5BContractInvariantsB1ThroughB14:
             findings_service.record_finding(make_finding(f"f{i}", agent_id=agent_id))
 
         t = datetime.now(timezone.utc)
-        watermark = findings_service.capture_baseline(agent_id=agent_id, baseline_at=t)
-        assert watermark.agent_id == agent_id
-        assert watermark.baseline_at == t
-        assert watermark.baseline_sequence == 3
+        evidence_seq = findings_service.capture_evidence_baseline_sequence(
+            agent_id=agent_id, baseline_at=t
+        )
+        assert evidence_seq == 3
 
     def test_b11_cursor_separation_from_active_risk_contribution(self) -> None:
         """B-11: Cursor tracks all findings; risk score tracks strictly active findings."""
         agent_id = "agent-b11"
         aggregate = AgentRiskAggregate(
-            BaselineWatermark(agent_id=agent_id, baseline_sequence=0)
+            BaselineWatermark(agent_id=agent_id, baseline_evidence_sequence=0)
         )
 
         f1_resolved = make_finding(
@@ -246,7 +246,7 @@ class TestM5BContractInvariantsB1ThroughB14:
         agent_id = "agent-b13"
         t_baseline = datetime(2026, 9, 21, 12, 0, 0, tzinfo=timezone.utc)
         watermark = BaselineWatermark(
-            agent_id=agent_id, baseline_at=t_baseline, baseline_sequence=5
+            agent_id=agent_id, baseline_at=t_baseline, baseline_evidence_sequence=5
         )
         aggregate = AgentRiskAggregate(watermark)
 
@@ -402,7 +402,7 @@ class TestCompleteM5BLifecycleE2E:
         # 9. Invariant: projection is reset to new baseline epoch
         new_posture = risk_aggregator.get_posture(agent_id)
         assert new_posture.state == PostureState.HEALTHY
-        assert new_posture.baseline_sequence == 2
+        assert new_posture.baseline_evidence_sequence == 2
         assert new_posture.last_applied_sequence == 2
         assert new_posture.finding_count == 0
         assert new_posture.risk_score == 0
@@ -491,7 +491,7 @@ class TestProductionDependencyWiring:
         """The positive control the removal must not break."""
         agent_id = "agent-1"
         dependencies.risk_aggregator.reset_to_baseline(
-            BaselineWatermark(agent_id=agent_id, baseline_sequence=0)
+            BaselineWatermark(agent_id=agent_id, baseline_evidence_sequence=0)
         )
 
         posture = dependencies.runtime_service._assess_agent_posture(agent_id)

@@ -154,6 +154,9 @@ enforcement_coordinator: EnforcementCoordinator = EnforcementCoordinator(
     findings_service=findings_service,
     risk_aggregator=risk_aggregator,
     lock_manager=agent_lock_manager,
+    # Allocation authority for the agent-sequence half of the enforcement baseline.
+    # Without it a reinstatement records 0 there and excludes no prior event.
+    session_service=session_service,
 )
 
 capability_service: CapabilityService = CapabilityService(

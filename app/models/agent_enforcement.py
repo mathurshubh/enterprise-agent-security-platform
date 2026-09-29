@@ -72,6 +72,10 @@ class AgentEnforcementState(BaseModel):
     - Authoritative Epoch: ``epoch`` is the persisted monotonic concurrency version.
       Initial clean state is 0. Every committed enforcement transition increments
       ``epoch`` by exactly +1.
+    - Typed Sequence Namespaces: the baseline is stored once per monotonic namespace.
+      ``baseline_evidence_sequence`` belongs to ``Finding.evidence_sequence`` and
+      ``baseline_agent_sequence`` to ``SessionEvent.agent_sequence``. They have separate
+      allocators, advance at different rates, and are never compared against each other.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -87,5 +91,6 @@ class AgentEnforcementState(BaseModel):
     # Reinstatement resets enforcement eligibility, not security history: findings
     # recorded before this moment remain evidence but no longer drive enforcement.
     enforcement_baseline_at: datetime | None = None
-    enforcement_baseline_sequence: int = Field(default=0, ge=0)
+    baseline_evidence_sequence: int = Field(default=0, ge=0)
+    baseline_agent_sequence: int = Field(default=0, ge=0)
     last_transition_at: datetime | None = None

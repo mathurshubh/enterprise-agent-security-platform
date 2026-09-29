@@ -43,7 +43,7 @@ class AgentRiskPosture(BaseModel):
     risk_level: RiskLevel = RiskLevel.LOW
     finding_count: int = Field(default=0, ge=0)
     baseline_at: datetime | None = None
-    baseline_sequence: int = Field(default=0, ge=0)
+    baseline_evidence_sequence: int = Field(default=0, ge=0)
     last_applied_sequence: int = Field(default=0, ge=0)
     counts_by_severity: dict[Severity, int] = Field(
         default_factory=lambda: {s: 0 for s in Severity}

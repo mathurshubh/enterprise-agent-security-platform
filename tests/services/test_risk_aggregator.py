@@ -57,7 +57,7 @@ class TestRiskAggregator:
 
         # 2. Reconcile with baseline -> transitions to HEALTHY
         t0 = datetime(2026, 9, 20, 10, 0, 0, tzinfo=timezone.utc)
-        wm = BaselineWatermark(agent_id="agent-1", baseline_at=t0, baseline_sequence=0)
+        wm = BaselineWatermark(agent_id="agent-1", baseline_at=t0, baseline_evidence_sequence=0)
         f1 = make_finding("f-1", agent_id="agent-1", evidence_sequence=1, recorded_at=t0 + timedelta(seconds=1))
 
         reconciled = aggregator.reconcile_agent("agent-1", [f1], wm)
@@ -78,8 +78,8 @@ class TestRiskAggregator:
         """Projections for different agents remain strictly isolated."""
         aggregator = RiskAggregator()
         t0 = datetime(2026, 9, 20, 10, 0, 0, tzinfo=timezone.utc)
-        wm_a = BaselineWatermark(agent_id="agent-A", baseline_at=t0, baseline_sequence=0)
-        wm_b = BaselineWatermark(agent_id="agent-B", baseline_at=t0, baseline_sequence=0)
+        wm_a = BaselineWatermark(agent_id="agent-A", baseline_at=t0, baseline_evidence_sequence=0)
+        wm_b = BaselineWatermark(agent_id="agent-B", baseline_at=t0, baseline_evidence_sequence=0)
 
         aggregator.reconcile_agent("agent-A", [], wm_a)
         aggregator.reconcile_agent("agent-B", [], wm_b)
@@ -103,7 +103,7 @@ class TestRiskAggregator:
         """reset_to_baseline resets projection to exact provided watermark (B-10)."""
         aggregator = RiskAggregator()
         t0 = datetime(2026, 9, 20, 10, 0, 0, tzinfo=timezone.utc)
-        wm0 = BaselineWatermark(agent_id="agent-1", baseline_at=t0, baseline_sequence=0)
+        wm0 = BaselineWatermark(agent_id="agent-1", baseline_at=t0, baseline_evidence_sequence=0)
 
         f1 = make_finding("f-1", agent_id="agent-1", severity=Severity.HIGH, evidence_sequence=1, recorded_at=t0 + timedelta(seconds=1))
         aggregator.reconcile_agent("agent-1", [f1], wm0)
@@ -111,20 +111,20 @@ class TestRiskAggregator:
 
         # Reinstatement reset with explicit watermark sequence 5
         t1 = datetime(2026, 9, 20, 11, 0, 0, tzinfo=timezone.utc)
-        wm1 = BaselineWatermark(agent_id="agent-1", baseline_at=t1, baseline_sequence=5)
+        wm1 = BaselineWatermark(agent_id="agent-1", baseline_at=t1, baseline_evidence_sequence=5)
         reset_posture = aggregator.reset_to_baseline(wm1)
 
         assert reset_posture.state == PostureState.HEALTHY
         assert reset_posture.risk_score == 0
         assert reset_posture.risk_level == RiskLevel.LOW
-        assert reset_posture.baseline_sequence == 5
+        assert reset_posture.baseline_evidence_sequence == 5
         assert reset_posture.last_applied_sequence == 5
 
     def test_lock_released_before_calling_aggregate(self) -> None:
         """RiskAggregator releases its internal lock before calling aggregate methods."""
         aggregator = RiskAggregator()
         t0 = datetime(2026, 9, 20, 10, 0, 0, tzinfo=timezone.utc)
-        wm = BaselineWatermark(agent_id="agent-1", baseline_at=t0, baseline_sequence=0)
+        wm = BaselineWatermark(agent_id="agent-1", baseline_at=t0, baseline_evidence_sequence=0)
 
         aggregator.reconcile_agent("agent-1", [], wm)
 

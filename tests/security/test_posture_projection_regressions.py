@@ -342,8 +342,8 @@ class TestEnforcementEpochIsolation:
 
         On the incremental path this is enforced by the idempotency cursor (B-3), not
         by the pre-baseline check (B-5). `reset_to_baseline` sets
-        `last_applied_sequence = baseline_sequence` and the cursor only ever advances,
-        so `sequence <= baseline_sequence` always implies
+        `last_applied_sequence = baseline_evidence_sequence` and the cursor only ever advances,
+        so `sequence <= baseline_evidence_sequence` always implies
         `sequence <= last_applied_sequence` and B-5 can never be the deciding guard.
         B-5 is a backstop that takes effect only if B-3 is broken: removing B-3 alone
         fails two tests, removing both fails four, removing B-5 alone fails none.
@@ -353,7 +353,7 @@ class TestEnforcementEpochIsolation:
         self.contain_and_reinstate(env)
 
         baseline = env.agent_service.get_current_baseline(env.agent_id)
-        assert baseline.baseline_sequence > 0, "no pre-baseline evidence to replay"
+        assert baseline.baseline_evidence_sequence > 0, "no pre-baseline evidence to replay"
 
         applied = env.risk_aggregator.ingest_finding(
             Finding(
@@ -364,7 +364,7 @@ class TestEnforcementEpochIsolation:
                 severity=Severity.CRITICAL,
                 category=FindingCategory.PROMPT_INJECTION,
                 description="evidence from the previous epoch, replayed",
-                evidence_sequence=baseline.baseline_sequence,
+                evidence_sequence=baseline.baseline_evidence_sequence,
             )
         )
 
@@ -395,12 +395,12 @@ class TestPostureStateIsNotAnAssessment:
     def test_a_baseline_watermark_couples_time_and_sequence(self) -> None:
         """The epoch boundary is one value, so the two halves cannot drift apart."""
         watermark = BaselineWatermark(
-            agent_id="agent-1", baseline_at=None, baseline_sequence=7
+            agent_id="agent-1", baseline_at=None, baseline_evidence_sequence=7
         )
 
         assert watermark.model_config["frozen"] is True
         with pytest.raises(ValidationError):
-            watermark.baseline_sequence = 9
+            watermark.baseline_evidence_sequence = 9
 
 
 class TestProjectionIntegrityFailsClosed:
@@ -424,7 +424,7 @@ class TestProjectionIntegrityFailsClosed:
     def corrupt_projection(self, env) -> None:
         """Reach the invalid state the way a defective mutator would leave it."""
         aggregate = env.risk_aggregator._projections[env.agent_id]
-        aggregate.baseline_sequence = 50
+        aggregate.baseline_evidence_sequence = 50
         aggregate.last_applied_sequence = 3
 
     @pytest.mark.security_invariant
@@ -475,7 +475,7 @@ class TestProjectionIntegrityFailsClosed:
         execute(env, "integrity-norepair")
 
         aggregate = env.risk_aggregator._projections[env.agent_id]
-        assert aggregate.baseline_sequence == 50
+        assert aggregate.baseline_evidence_sequence == 50
         assert aggregate.last_applied_sequence == 3
 
     @pytest.mark.security_regression

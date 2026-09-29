@@ -412,6 +412,22 @@ class SqlSessionRepository(SessionRepository):
             )
             return int(result.rowcount)
 
+    def current_agent_sequence(self, agent_id: str) -> int:
+        """Return the highest ``agent_sequence`` allocated to this agent, or 0 if none.
+
+        Read from ``agent_sequence_counters``, the allocation authority, rather than from
+        ``MAX(session_events.agent_sequence)``: pruning deletes events, and a watermark
+        derived from surviving rows would move backwards when it must not. No lock is
+        taken — this reads a position, it does not allocate one.
+        """
+        with transactional_session(self._session_factory) as db:
+            counter = db.execute(
+                select(AgentSequenceCounterModel.current_sequence).where(
+                    AgentSequenceCounterModel.agent_id == agent_id
+                )
+            ).scalar_one_or_none()
+            return int(counter) if counter is not None else 0
+
     def update_event_final_decision(
         self,
         session_id: str,

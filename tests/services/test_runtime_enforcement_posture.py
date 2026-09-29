@@ -627,7 +627,7 @@ class TestStep8RuntimePostureConsumption:
         env = self._build_step8_runtime()
         # Initialize projection to HEALTHY
         env.risk_aggregator.reset_to_baseline(
-            env.watermark_cls(agent_id=env.agent_id, baseline_sequence=0)
+            env.watermark_cls(agent_id=env.agent_id, baseline_evidence_sequence=0)
         )
         assert (
             env.risk_aggregator.get_posture(env.agent_id).state == PostureState.HEALTHY
@@ -648,7 +648,7 @@ class TestStep8RuntimePostureConsumption:
 
         env = self._build_step8_runtime()
         env.risk_aggregator.reset_to_baseline(
-            env.watermark_cls(agent_id=env.agent_id, baseline_sequence=0)
+            env.watermark_cls(agent_id=env.agent_id, baseline_evidence_sequence=0)
         )
         assert (
             env.risk_aggregator.get_posture(env.agent_id).state == PostureState.HEALTHY
@@ -696,7 +696,7 @@ class TestStep8RuntimePostureConsumption:
         env = self._build_step8_runtime()
         # Initial projection
         env.risk_aggregator.reset_to_baseline(
-            env.watermark_cls(agent_id=env.agent_id, baseline_sequence=0)
+            env.watermark_cls(agent_id=env.agent_id, baseline_evidence_sequence=0)
         )
         f1 = make_finding("f1", agent_id=env.agent_id)
         recs = env.findings_service.record_new_findings([f1])
@@ -753,7 +753,7 @@ class TestStep8RuntimePostureConsumption:
         watermark = env.watermark_cls(
             agent_id=env.agent_id,
             baseline_at=baseline_time,
-            baseline_sequence=5,
+            baseline_evidence_sequence=5,
         )
         env.agent_service.suspend_agent(env.agent_id, reason="investigation")
         env.agent_service.reinstate_agent(
@@ -783,11 +783,11 @@ class TestStep8RuntimePostureConsumption:
         assert posture.state == PostureState.HEALTHY
 
         # Verify baseline was not moved by reconciliation
-        assert posture.baseline_sequence == 5
+        assert posture.baseline_evidence_sequence == 5
         assert posture.baseline_at == baseline_time
         assert posture.last_applied_sequence == 6
         assert posture.finding_count == 1
 
         stored_baseline = env.agent_service.get_current_baseline(env.agent_id)
-        assert stored_baseline.baseline_sequence == 5
+        assert stored_baseline.baseline_evidence_sequence == 5
         assert stored_baseline.baseline_at == baseline_time
