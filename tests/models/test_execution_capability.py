@@ -363,3 +363,52 @@ class TestExecutionGrantIntegration:
         assert grant.capability_profile_id == "profile-default-fs"
         assert grant.capability_digest == "abc123digest"
 
+
+class TestRequiredControlsAreDigested:
+    """``required_controls`` is part of the capability identity, not a side annotation.
+
+    It decides whether an unsupported resource control refuses the launch or degrades it
+    explicitly, so two profiles differing only in what they mandate are different
+    capability sets. The digest is what a receipt carries as evidence of the confinement
+    an execution ran under, and what identifies a capability definition once profiles are
+    stored, so a shared digest would make those two profiles indistinguishable in
+    evidence and collide as stored definitions.
+    """
+
+    @staticmethod
+    def _with_required(required: tuple[str, ...]) -> ExecutionCapabilities:
+        return ExecutionCapabilities(
+            capability_profile_id="profile-digest",
+            filesystem=FilesystemCapability(workspace_root="/tmp/ws", read_only=True),
+            network=NetworkCapability(),
+            resources=ResourceLimits(required_controls=required),
+        )
+
+    def test_requiring_a_control_changes_the_digest(self) -> None:
+        none_required = self._with_required(())
+        memory_required = self._with_required(("memory",))
+
+        assert none_required.compute_digest() != memory_required.compute_digest()
+
+    def test_two_profiles_differing_only_in_required_controls_are_distinguishable(
+        self,
+    ) -> None:
+        """The collision this guards: same limits, different mandate."""
+        memory = self._with_required(("memory",))
+        cpu = self._with_required(("cpu",))
+
+        assert memory.resources.max_memory_bytes == cpu.resources.max_memory_bytes
+        assert memory.resources.max_cpu_seconds == cpu.resources.max_cpu_seconds
+        assert memory.compute_digest() != cpu.compute_digest()
+
+    def test_required_control_order_does_not_change_the_digest(self) -> None:
+        forward = self._with_required(("cpu", "memory"))
+        reversed_ = self._with_required(("memory", "cpu"))
+
+        assert forward.compute_digest() == reversed_.compute_digest()
+
+    def test_a_repeated_required_control_does_not_change_the_digest(self) -> None:
+        once = self._with_required(("memory",))
+        twice = self._with_required(("memory", "memory"))
+
+        assert once.compute_digest() == twice.compute_digest()

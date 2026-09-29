@@ -283,8 +283,15 @@ class ExecutionCapabilities(BaseModel):
         """Compute deterministic SHA-256 digest of the effective capability set.
 
         The digest is computed from canonical JSON representation where all
-        semantically unordered collections (destinations, subpaths, env vars)
-        are explicitly sorted.
+        semantically unordered collections (destinations, subpaths, env vars,
+        required controls) are explicitly sorted.
+
+        ``required_controls`` is part of the digested set. It decides whether an
+        unsupported control refuses the launch or degrades it explicitly (§9.4), so two
+        profiles that differ only in what they mandate are not the same capability set.
+        Omitting it would let them share a digest, which matters twice over: the digest
+        is what a receipt carries as evidence of the confinement an execution ran under,
+        and what identifies a capability definition when profiles are stored.
         """
         canonical_dict = {
             "capability_profile_id": self.capability_profile_id,
@@ -309,6 +316,7 @@ class ExecutionCapabilities(BaseModel):
                 "max_cpu_seconds": self.resources.max_cpu_seconds,
                 "max_output_bytes": self.resources.max_output_bytes,
                 "wall_clock_timeout_seconds": self.resources.wall_clock_timeout_seconds,
+                "required_controls": sorted(set(self.resources.required_controls)),
             },
         }
         canonical_json = json.dumps(canonical_dict, sort_keys=True, separators=(",", ":"))
