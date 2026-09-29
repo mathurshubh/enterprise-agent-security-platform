@@ -26,6 +26,14 @@ class ToolVersionMismatchError(Exception):
     """Raised when the requested tool version does not match any registered version."""
 
 
+class AmbiguousToolVersionError(ToolVersionMismatchError):
+    """Raised when a version is omitted and the registry holds several to choose from.
+
+    Subclasses ``ToolVersionMismatchError`` so existing handlers of an unresolvable
+    version keep working: both mean the request did not name one concrete implementation.
+    """
+
+
 class ToolRegistry:
     """Single authoritative Tool Registry for executable platform tools and metadata descriptors.
 
@@ -134,9 +142,14 @@ class ToolRegistry:
 
         Separates resolution (lookup returning a runtime descriptor) from execution.
 
+        Resolution always yields one concrete version. An omitted version is resolved
+        only when that is unambiguous, so the caller can never receive an implementation
+        it did not choose.
+
         Raises:
             ToolNotRegisteredError: If tool_id is not registered.
             ToolVersionMismatchError: If version is specified and does not match any registered version.
+            AmbiguousToolVersionError: If version is omitted and several versions are registered.
         """
         with self._lock:
             if tool_id not in self._descriptors or not self._descriptors[tool_id]:
@@ -154,7 +167,18 @@ class ToolRegistry:
                     f"Tool '{tool_id}' version '{version}' does not match registered versions ({list(versions_map.keys())})"
                 )
 
-            # Default resolution: return latest/first registered version
+            # Implicit resolution is permitted only when it is unambiguous. Insertion
+            # order is not a version-selection policy: with several versions registered,
+            # "the first one" would make the executed implementation depend on
+            # registration sequence, and an execution grant would then bind a version
+            # nobody chose. The registry declines to guess rather than resolving to a
+            # version by accident; establishing a selection policy is a separate decision.
+            if len(versions_map) > 1:
+                raise AmbiguousToolVersionError(
+                    f"Tool '{tool_id}' has multiple registered versions "
+                    f"({sorted(versions_map)}); an explicit version is required"
+                )
+
             return next(iter(versions_map.values()))
 
     def get(self, tool_id: str, version: str | None = None) -> BaseTool:
