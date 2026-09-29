@@ -6,7 +6,7 @@ import pytest
 from alembic.autogenerate import compare_metadata
 from alembic.config import Config
 from alembic.migration import MigrationContext
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, text
 
 import app.repositories.sql.models  # noqa: F401 - Register models
 from alembic import command
@@ -79,6 +79,74 @@ def test_alembic_schema_matches_base_metadata(alembic_config: tuple[Config, str]
             )
             diff = compare_metadata(migration_ctx, Base.metadata)
             assert diff == [], f"Schema drift detected between migrations and Base.metadata: {diff}"
+
+    finally:
+        engine.dispose()
+
+
+def test_0002_preserves_existing_rows_and_defaults_the_new_namespace(
+    alembic_config: tuple[Config, str],
+) -> None:
+    """Migrating a populated database must not lose or invent a watermark.
+
+    0002 renames the evidence watermark and adds the agent one. An existing row keeps
+    its evidence position under the new name, and its agent position becomes 0 — which
+    admits every recorded event into the horizon. That is the conservative direction and
+    matches what those deployments already had, since the value previously compared
+    against ``agent_sequence`` was a finding position always at or below the true event
+    position.
+    """
+    config, db_url = alembic_config
+    engine = create_engine(db_url)
+
+    try:
+        command.upgrade(config, "0001")
+
+        now = "2026-09-30 12:00:00+00:00"
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO agents (agent_id, name, owner, risk_tier, status,"
+                    " approved_tools, created_at, updated_at) VALUES"
+                    " ('agent-mig', 'Mig', 'secops', 'LOW', 'ACTIVE', '[]', :now, :now)"
+                ),
+                {"now": now},
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO agent_enforcement_state (agent_id, epoch, current_status,"
+                    " enforcement_baseline_at, enforcement_baseline_sequence, updated_at)"
+                    " VALUES ('agent-mig', 4, 'ACTIVE', :now, 7, :now)"
+                ),
+                {"now": now},
+            )
+
+        command.upgrade(config, "0002")
+
+        with engine.connect() as conn:
+            row = conn.execute(
+                text(
+                    "SELECT epoch, baseline_evidence_sequence, baseline_agent_sequence"
+                    " FROM agent_enforcement_state WHERE agent_id = 'agent-mig'"
+                )
+            ).one()
+
+        assert row.epoch == 4, "unrelated state is carried through the rebuild"
+        assert row.baseline_evidence_sequence == 7, "the evidence watermark is preserved"
+        assert row.baseline_agent_sequence == 0, "the new namespace starts at 0"
+
+        # Downgrading restores the original column and keeps the evidence position.
+        command.downgrade(config, "0001")
+
+        with engine.connect() as conn:
+            legacy = conn.execute(
+                text(
+                    "SELECT enforcement_baseline_sequence FROM agent_enforcement_state"
+                    " WHERE agent_id = 'agent-mig'"
+                )
+            ).scalar_one()
+
+        assert legacy == 7
 
     finally:
         engine.dispose()
