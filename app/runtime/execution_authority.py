@@ -466,6 +466,17 @@ class ExecutionAuthority:
                 tool_id,
                 "requested tool differs from the authorized tool",
             )
+        # A tool's identity is its id and its version. The signature already covers the
+        # version, but that only defeats a forged binding: a genuinely issued grant
+        # presented against a different registered version of the same tool would still
+        # verify if identity were compared by name alone. Compared here so the grant
+        # authorises the implementation it was issued for, not merely the tool's name.
+        if requested.tool_version != authorized.tool_version:
+            raise ExecutionBindingError(
+                ExecutionRefusalReason.TOOL_MISMATCH,
+                tool_id,
+                "requested tool version differs from the authorized tool version",
+            )
         if requested.resource != authorized.resource:
             raise ExecutionBindingError(
                 ExecutionRefusalReason.RESOURCE_MISMATCH,

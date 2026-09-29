@@ -165,7 +165,7 @@ def _grant_for(
         caps = _make_test_capabilities(profile_id)
         digest = caps.compute_digest()
     return authority.issue(
-        ExecutionBinding.from_operation(tool_id, parameters),
+        ExecutionBinding.from_operation(tool_id, "1.0.0", parameters),
         Decision.ALLOW,
         agent_id=agent_id,
         session_id=session_id,
@@ -593,7 +593,7 @@ def test_executor_fails_closed_on_missing_capability_profile_in_registry():
     # Grant bound to a profile that is NOT registered
     caps = _make_test_capabilities("profile-unregistered")
     grant = authority.issue(
-        ExecutionBinding.from_operation(tool.tool_id, {}),
+        ExecutionBinding.from_operation(tool.tool_id, "1.0.0", {}),
         Decision.ALLOW,
         agent_id="agent-1", session_id="session-1",
         capability_profile_id="profile-unregistered",
@@ -706,7 +706,7 @@ def test_adversarial_in_process_canary_not_invoked():
 
     canary = AdversarialInProcessCanaryTool()
     grant = authority.issue(
-        ExecutionBinding.from_operation(canary.tool_id, {"message": "hello"}),
+        ExecutionBinding.from_operation(canary.tool_id, "1.0.0", {"message": "hello"}),
         Decision.ALLOW,
         agent_id="agent-1", session_id="session-1",
         capability_profile_id=profile_id,
@@ -761,7 +761,7 @@ def test_sandbox_pid_divergence():
 
     tool = PidTool()
     grant = authority.issue(
-        ExecutionBinding.from_operation(tool.tool_id, {}),
+        ExecutionBinding.from_operation(tool.tool_id, "1.0.0", {}),
         Decision.ALLOW,
         agent_id="agent-1", session_id="session-1",
         capability_profile_id=profile_id,
@@ -1072,3 +1072,83 @@ def test_a_telemetry_outage_is_recorded_rather_than_silently_discarded(monkeypat
     assert "telemetry pipeline down" not in recorded[0], (
         "the exception type is recorded, never its message"
     )
+
+
+def _versioned_descriptor(tool_id: str, version: str) -> ToolDescriptor:
+    """A descriptor whose identity differs from its sibling only by version."""
+    tool = ExecutionTestTool(tool_id=tool_id)
+    tool._metadata = tool.metadata.model_copy(
+        update={"identity": tool.metadata.identity.model_copy(update={"version": version})}
+    )
+    return ToolDescriptor(metadata=tool.metadata, instance=tool)
+
+
+class TestBoundVersionCannotBeSubstituted:
+    """A grant authorises one implementation version, not a tool name.
+
+    The binding the executor rebuilds carries the version of the descriptor it resolved.
+    A grant issued against a different version therefore produces a different binding and
+    is refused — before the grant is claimed, so a substituted version cannot spend
+    authority issued for another.
+    """
+
+    @staticmethod
+    def _grant_for_version(authority: ExecutionAuthority, version: str):
+        caps = _make_test_capabilities("test-profile")
+        return authority.issue(
+            ExecutionBinding.from_operation("exec_test", version, {}),
+            Decision.ALLOW,
+            agent_id="agent-1",
+            session_id="session-1",
+            capability_profile_id="test-profile",
+            capability_digest=caps.compute_digest(),
+        )
+
+    def test_the_bound_version_executes(self) -> None:
+        authority = ExecutionAuthority()
+        executor = _make_executor(authority=authority)
+        grant = self._grant_for_version(authority, "1.0.0")
+
+        executor.execute_descriptor(
+            _versioned_descriptor("exec_test", "1.0.0"), {}, grant=grant
+        )
+
+        assert authority.outstanding_grant_count == 0
+
+    def test_a_different_version_is_refused(self) -> None:
+        authority = ExecutionAuthority()
+        executor = _make_executor(authority=authority)
+        grant = self._grant_for_version(authority, "1.0.0")
+
+        with pytest.raises(ExecutionBindingError):
+            executor.execute_descriptor(
+                _versioned_descriptor("exec_test", "2.0.0"), {}, grant=grant
+            )
+
+    def test_a_refused_substitution_does_not_spend_the_grant(self) -> None:
+        """Refusal precedes consumption: the legitimate holder can still use it."""
+        authority = ExecutionAuthority()
+        executor = _make_executor(authority=authority)
+        grant = self._grant_for_version(authority, "1.0.0")
+
+        with pytest.raises(ExecutionBindingError):
+            executor.execute_descriptor(
+                _versioned_descriptor("exec_test", "2.0.0"), {}, grant=grant
+            )
+
+        assert authority.outstanding_grant_count == 1
+        executor.execute_descriptor(
+            _versioned_descriptor("exec_test", "1.0.0"), {}, grant=grant
+        )
+        assert authority.outstanding_grant_count == 0
+
+    def test_the_substituted_version_never_reaches_the_tool(self) -> None:
+        authority = ExecutionAuthority()
+        executor = _make_executor(authority=authority)
+        grant = self._grant_for_version(authority, "1.0.0")
+        descriptor = _versioned_descriptor("exec_test", "2.0.0")
+
+        with pytest.raises(ExecutionBindingError):
+            executor.execute_descriptor(descriptor, {}, grant=grant)
+
+        assert descriptor.instance.executions == 0

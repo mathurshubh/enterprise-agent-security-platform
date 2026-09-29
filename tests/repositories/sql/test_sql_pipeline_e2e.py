@@ -228,7 +228,7 @@ def test_e2e_case_1_allow_path_exactly_once_execution(sql_pipeline_setup) -> Non
     assert event.agent_sequence == 1
 
     # 4. Issue execution grant via ExecutionAuthority bound to SQL enforcement repository
-    binding = ExecutionBinding.from_operation(tool_id, params)
+    binding = ExecutionBinding.from_operation(tool_id, "1.0.0", params)
     grant = env["execution_authority"].issue(
         binding,
         auth_result.decision,
@@ -275,7 +275,7 @@ def test_e2e_case_2_suspended_agent_halts_authorization_no_grant(sql_pipeline_se
     assert "SUSPENDED" in auth_result.reason
 
     # ExecutionAuthority refuses grant issuance on non-ALLOW decision
-    binding = ExecutionBinding.from_operation(tool_id, params)
+    binding = ExecutionBinding.from_operation(tool_id, "1.0.0", params)
     grant = env["execution_authority"].issue(
         binding,
         auth_result.decision,
@@ -310,7 +310,7 @@ def test_e2e_case_3_enforcement_interlock_stale_epoch_fails_issuance(sql_pipelin
 
     # Authority attempts to issue grant with stale expected_epoch=0
     # Boundary check against SQL enforcement repository fails closed (returns None)
-    binding = ExecutionBinding.from_operation(tool_id, params)
+    binding = ExecutionBinding.from_operation(tool_id, "1.0.0", params)
     grant = env["execution_authority"].issue(
         binding,
         auth_result.decision,
@@ -328,7 +328,7 @@ def test_e2e_case_4_stale_issued_grant_rejected_after_containment(sql_pipeline_s
     params = {"path": "safe.txt"}
 
     # Legitimate grant issuance at epoch 0
-    binding = ExecutionBinding.from_operation(tool_id, params)
+    binding = ExecutionBinding.from_operation(tool_id, "1.0.0", params)
     grant = env["execution_authority"].issue(
         binding,
         Decision.ALLOW,

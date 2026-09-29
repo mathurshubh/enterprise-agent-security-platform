@@ -346,7 +346,7 @@ class TestExecutionGrantIntegration:
         from app.models.audit_event import Decision
         from app.models.execution_binding import ExecutionBinding
 
-        binding = ExecutionBinding.from_operation(tool_id="file_read", parameters={"path": "a.txt"})
+        binding = ExecutionBinding.from_operation(tool_version="1.0.0", tool_id="file_read", parameters={"path": "a.txt"})
         grant = RuntimeExecutionGrant(
             grant_id="grant-r-1",
             authority_id="auth-1",
@@ -362,3 +362,4 @@ class TestExecutionGrantIntegration:
         )
         assert grant.capability_profile_id == "profile-default-fs"
         assert grant.capability_digest == "abc123digest"
+

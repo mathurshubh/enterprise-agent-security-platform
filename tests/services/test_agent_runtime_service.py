@@ -174,6 +174,7 @@ class StubRuntimeService(RuntimeExecutor):
             try:
                 binding = ExecutionBinding.from_operation(
                     tool_id=tool_id,
+                    tool_version="1.0.0",
                     parameters=parameters,
                     resource=resource,
                 )
