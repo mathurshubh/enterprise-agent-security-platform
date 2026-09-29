@@ -52,7 +52,7 @@ class RiskAggregator:
                 risk_level=RiskLevel.LOW,
                 finding_count=0,
                 baseline_at=None,
-                baseline_sequence=0,
+                baseline_evidence_sequence=0,
                 last_applied_sequence=0,
             )
 

@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from threading import RLock
 
 from app.models.finding import Finding, FindingCategory, FindingStatus, Severity
-from app.models.watermark import UNASSIGNED_SEQUENCE, BaselineWatermark
+from app.models.watermark import UNASSIGNED_SEQUENCE
 
 
 class FindingsService:
@@ -210,15 +210,19 @@ class FindingsService:
         with self._lock:
             return self._agent_sequences.get(agent_id, 0)
 
-    def capture_baseline(
+    def capture_evidence_baseline_sequence(
         self,
         agent_id: str,
         baseline_at: datetime | None = None,
-    ) -> BaselineWatermark:
-        """Capture an immutable snapshot of an agent's baseline boundary (B-10).
+    ) -> int:
+        """Return the highest ``evidence_sequence`` recorded for this agent at or before
+        ``baseline_at`` (B-10).
 
-        baseline_sequence is the highest authoritative sequence belonging to evidence
-        at or before baseline_at.
+        This service allocates ``evidence_sequence``, so it can speak for that namespace
+        and only that one. It returns the position rather than a whole ``BaselineWatermark``
+        because a watermark also carries the session-event position, which a different
+        authority allocates — composing both here would make this service an accidental
+        cross-namespace coordinator, which is how the two came to be conflated.
         """
         with self._lock:
             at = baseline_at or datetime.now(timezone.utc)
@@ -230,12 +234,7 @@ class FindingsService:
                 for f in agent_findings
                 if self._recorded_at.get(f.finding_id, at) <= at
             ]
-            highest_seq = max(seqs) if seqs else 0
-            return BaselineWatermark(
-                agent_id=agent_id,
-                baseline_at=at,
-                baseline_sequence=highest_seq,
-            )
+            return max(seqs) if seqs else 0
 
     def clear(self) -> None:
         """Clear all stored findings (useful for testing)."""

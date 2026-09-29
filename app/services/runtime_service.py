@@ -665,7 +665,7 @@ class RuntimeService:
                 watermark = BaselineWatermark(
                     agent_id=agent_id,
                     baseline_at=None,
-                    baseline_sequence=0,
+                    baseline_evidence_sequence=0,
                 )
 
             # Authoritative evidence scan for reconciliation
@@ -837,8 +837,11 @@ class RuntimeService:
             except AgentNotFoundError:
                 enforcement_state = None
         context_epoch = enforcement_state.epoch if enforcement_state is not None else 0
-        baseline_seq = (
-            enforcement_state.enforcement_baseline_sequence
+        # HorizonQuery filters SessionEvent.agent_sequence, so it reads the watermark
+        # captured in that namespace. The findings watermark lives alongside it and
+        # belongs to the risk projection; the two count different things.
+        baseline_agent_seq = (
+            enforcement_state.baseline_agent_sequence
             if enforcement_state is not None
             else 0
         )
@@ -905,7 +908,7 @@ class RuntimeService:
             ),
             window_seconds=rule_descriptor.horizon_seconds,
             evaluation_time=recorded_event.timestamp,
-            baseline_agent_sequence=baseline_seq,
+            baseline_agent_sequence=baseline_agent_seq,
         )
 
         try:

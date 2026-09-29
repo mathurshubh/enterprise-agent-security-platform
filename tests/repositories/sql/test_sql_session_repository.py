@@ -1,6 +1,6 @@
 """Verification and contract tests for SqlSessionRepository (Plane 3, ADR-030)."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import select
@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.models.audit_event import Decision
 from app.models.session import (
+    Session,
     SessionTerminalError,
     TerminalReason,
     TerminalSessionTombstone,
@@ -248,3 +249,54 @@ def test_terminalization_event_race_rejection(sql_repo_setup) -> None:
     )
     with pytest.raises(SessionTerminalError):
         repo.record_event(ev)
+
+
+def test_current_agent_sequence_reports_the_allocated_position(sql_repo_setup) -> None:
+    """The SQL backend answers the same watermark question as the in-memory one.
+
+    ``agent_sequence`` is allocated here, so this repository is the authority a caller
+    reads when recording an enforcement baseline in that namespace.
+    """
+    repo, _ = sql_repo_setup
+    repo.create_session(Session(session_id="sess-seq", agent_id="agent-1"))
+
+    assert repo.current_agent_sequence("agent-1") == 0
+
+    for _ in range(3):
+        repo.record_event(
+            SessionEvent(
+                session_id="sess-seq",
+                agent_id="agent-1",
+                tool_id="file_read",
+                decision=Decision.DENY,
+            )
+        )
+
+    assert repo.current_agent_sequence("agent-1") == 3
+    assert repo.current_agent_sequence("agent-2") == 0, "counters are per agent"
+
+
+def test_current_agent_sequence_survives_pruning(sql_repo_setup) -> None:
+    """Read from agent_sequence_counters, not MAX over surviving rows.
+
+    Pruning deletes events; a watermark derived from what remains would move backwards
+    and re-admit evidence a reinstatement had already retired.
+    """
+    repo, _ = sql_repo_setup
+    repo.create_session(Session(session_id="sess-prune-seq", agent_id="agent-1"))
+    for _ in range(4):
+        repo.record_event(
+            SessionEvent(
+                session_id="sess-prune-seq",
+                agent_id="agent-1",
+                tool_id="file_read",
+                decision=Decision.DENY,
+            )
+        )
+
+    assert repo.current_agent_sequence("agent-1") == 4
+
+    pruned = repo.prune_events(cutoff=datetime.now(timezone.utc) + timedelta(hours=1))
+
+    assert pruned == 4
+    assert repo.current_agent_sequence("agent-1") == 4

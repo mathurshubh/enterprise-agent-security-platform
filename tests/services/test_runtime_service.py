@@ -517,7 +517,7 @@ def test_reinstatement_baseline_excludes_prior_denials():
         "agent-1",
         actor="admin",
         reason="Test reinstatement",
-        watermark=BaselineWatermark(agent_id="agent-1", baseline_sequence=2),
+        watermark=BaselineWatermark(agent_id="agent-1", baseline_agent_sequence=2),
     )
 
     # Subsequent denial in session 2 (agent_sequence = 3)

@@ -313,8 +313,8 @@ class TestFindingsAuthoritativeSequencing:
         assert new_recorded[0].evidence_sequence == 2
         assert service.get_agent_sequence("agent-A") == 2
 
-    def test_capture_baseline_watermark(self) -> None:
-        """capture_baseline creates an atomic BaselineWatermark covering evidence up to baseline_at (B-10)."""
+    def test_capture_evidence_baseline_sequence(self) -> None:
+        """The findings authority reports its own namespace's position at baseline_at (B-10)."""
         service = FindingsService()
         t1 = datetime(2026, 9, 20, 10, 0, 0, tzinfo=timezone.utc)
         t2 = datetime(2026, 9, 20, 11, 0, 0, tzinfo=timezone.utc)
@@ -332,16 +332,12 @@ class TestFindingsAuthoritativeSequencing:
         service.record_finding(f3)
         service._recorded_at["f-3"] = t3
 
-        # Watermark at t2 should include f1 and f2 (sequence 2), excluding f3 (sequence 3)
-        wm = service.capture_baseline("agent-A", baseline_at=t2)
-        assert wm.agent_id == "agent-A"
-        assert wm.baseline_at == t2
-        assert wm.baseline_sequence == 2
+        # The position at t2 covers f1 and f2 (sequence 2), excluding f3 (sequence 3)
+        assert service.capture_evidence_baseline_sequence("agent-A", baseline_at=t2) == 2
 
-        # Watermark before any findings should have sequence 0
+        # Before any findings the position is 0
         t0 = datetime(2026, 9, 20, 9, 0, 0, tzinfo=timezone.utc)
-        wm0 = service.capture_baseline("agent-A", baseline_at=t0)
-        assert wm0.baseline_sequence == 0
+        assert service.capture_evidence_baseline_sequence("agent-A", baseline_at=t0) == 0
 
     def test_b14_sequence_continuity_across_reconstruction(self) -> None:
         """Service initialized with partially sequenced findings continues from max sequence (B-14)."""

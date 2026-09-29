@@ -23,6 +23,7 @@ from app.services.agent_lock_manager import AgentLockManager
 from app.services.agent_service import AgentService
 from app.services.findings_service import FindingsService
 from app.services.risk_aggregator import RiskAggregator
+from app.services.session_service import SessionService
 
 
 class ReinstatementIncompleteError(Exception):
@@ -52,11 +53,15 @@ class EnforcementCoordinator:
         findings_service: FindingsService | None = None,
         risk_aggregator: RiskAggregator | None = None,
         lock_manager: AgentLockManager | None = None,
+        session_service: SessionService | None = None,
     ) -> None:
         self._agent_service = agent_service
         self._execution_authority = execution_authority
         self._findings_service = findings_service
         self._risk_aggregator = risk_aggregator
+        # Allocation authority for SessionEvent.agent_sequence, which the enforcement
+        # baseline records alongside the findings watermark.
+        self._session_service = session_service
         self._lock_manager = (
             lock_manager if lock_manager is not None else AgentLockManager()
         )
@@ -80,17 +85,31 @@ class EnforcementCoordinator:
         """
         with self._lock_manager.get_lock(agent_id):
             baseline_at = datetime.now(timezone.utc)
-            watermark = (
-                self._findings_service.capture_baseline(
+            # Each position is read from the service that allocates it. The coordinator
+            # composes the watermark; neither authority is asked for the other's namespace.
+            # The two reads are not atomic with each other, so they may straddle concurrent
+            # activity by a few records. That is accepted: each watermark only has to be
+            # authoritative within its own namespace, and baseline_at carries the temporal
+            # boundary. A zero from a missing authority admits everything, which is the
+            # conservative direction for a baseline that excludes evidence.
+            evidence_sequence = (
+                self._findings_service.capture_evidence_baseline_sequence(
                     agent_id=agent_id,
                     baseline_at=baseline_at,
                 )
                 if self._findings_service is not None
-                else BaselineWatermark(
-                    agent_id=agent_id,
-                    baseline_at=baseline_at,
-                    baseline_sequence=0,
-                )
+                else 0
+            )
+            agent_sequence = (
+                self._session_service.current_agent_sequence(agent_id)
+                if self._session_service is not None
+                else 0
+            )
+            watermark = BaselineWatermark(
+                agent_id=agent_id,
+                baseline_at=baseline_at,
+                baseline_evidence_sequence=evidence_sequence,
+                baseline_agent_sequence=agent_sequence,
             )
 
             agent = self._agent_service.reinstate_agent(
@@ -132,7 +151,8 @@ class EnforcementCoordinator:
                 watermark = BaselineWatermark(
                     agent_id=agent_id,
                     baseline_at=enforcement_state.enforcement_baseline_at,
-                    baseline_sequence=enforcement_state.enforcement_baseline_sequence,
+                    baseline_evidence_sequence=enforcement_state.baseline_evidence_sequence,
+                    baseline_agent_sequence=enforcement_state.baseline_agent_sequence,
                 )
                 self._risk_aggregator.reset_to_baseline(watermark)
 

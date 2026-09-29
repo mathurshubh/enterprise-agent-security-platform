@@ -193,7 +193,7 @@ class AgentService:
     def get_current_baseline(self, agent_id: str) -> BaselineWatermark:
         """Return the current enforcement baseline watermark for an agent (B-10).
 
-        Reads the stored enforcement_baseline_at and enforcement_baseline_sequence.
+        Reads the stored enforcement_baseline_at and both namespace watermarks.
         Never derives or recomputes a new baseline from findings.
         """
         with self._lock:
@@ -201,7 +201,8 @@ class AgentService:
             return BaselineWatermark(
                 agent_id=agent_id,
                 baseline_at=state.enforcement_baseline_at,
-                baseline_sequence=state.enforcement_baseline_sequence,
+                baseline_evidence_sequence=state.baseline_evidence_sequence,
+                baseline_agent_sequence=state.baseline_agent_sequence,
             )
 
     def get_enforcement_state(self, agent_id: str) -> AgentEnforcementState:
@@ -271,14 +272,20 @@ class AgentService:
                 if watermark and watermark.baseline_at is not None
                 else now
             )
-            baseline_seq = watermark.baseline_sequence if watermark else 0
+            baseline_evidence_seq = (
+                watermark.baseline_evidence_sequence if watermark else 0
+            )
+            baseline_agent_seq = (
+                watermark.baseline_agent_sequence if watermark else 0
+            )
             new_state = state.model_copy(
                 update={
                     "epoch": next_epoch,
                     "suspended_at": None,
                     "suspension_reason": None,
                     "enforcement_baseline_at": baseline_at,
-                    "enforcement_baseline_sequence": baseline_seq,
+                    "baseline_evidence_sequence": baseline_evidence_seq,
+                    "baseline_agent_sequence": baseline_agent_seq,
                     "last_transition_at": now,
                 }
             )

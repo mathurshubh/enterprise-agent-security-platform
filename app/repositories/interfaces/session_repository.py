@@ -148,6 +148,17 @@ class SessionEventHorizonRepository(Protocol):
         """Prune detection horizon events older than the cutoff timestamp. Returns count evicted."""
         ...
 
+    def current_agent_sequence(self, agent_id: str) -> int:
+        """Return the highest ``agent_sequence`` allocated to this agent, or 0 if none.
+
+        This repository allocates ``agent_sequence``, so it is the only authority that can
+        state a watermark in that namespace. A caller capturing an enforcement baseline
+        reads the position from here rather than borrowing a number from another counter:
+        ``Finding.evidence_sequence`` advances once per finding and ``agent_sequence`` once
+        per event, so a value from one namespace names a different position in the other.
+        """
+        ...
+
     def update_event_final_decision(
         self,
         session_id: str,

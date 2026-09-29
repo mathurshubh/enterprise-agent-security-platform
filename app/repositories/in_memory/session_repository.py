@@ -232,6 +232,16 @@ class InMemorySessionRepository(SessionRepository):
             self._events = [e for e in self._events if e.timestamp >= cutoff]
             return initial - len(self._events)
 
+    def current_agent_sequence(self, agent_id: str) -> int:
+        """Return the highest ``agent_sequence`` allocated to this agent, or 0 if none.
+
+        Read from the allocation counter rather than from the retained events: pruning
+        removes events but must not move a watermark backwards, and the counter is what
+        the next allocation continues from.
+        """
+        with self._lock:
+            return self._agent_sequences.get(agent_id, 0)
+
     def update_event_final_decision(
         self,
         session_id: str,

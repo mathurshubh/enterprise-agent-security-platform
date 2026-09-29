@@ -232,6 +232,14 @@ class SessionService:
         now = now_utc or datetime.now(timezone.utc)
         return self._prune_events(now)
 
+    def current_agent_sequence(self, agent_id: str) -> int:
+        """Return the agent's highest allocated ``SessionEvent.agent_sequence``, or 0.
+
+        The position a caller needs to record an enforcement baseline in this namespace.
+        It is read from the allocator, so pruning cannot move it backwards.
+        """
+        return self._session_repository.current_agent_sequence(agent_id)
+
     def list_events(
         self,
         session_id: str,

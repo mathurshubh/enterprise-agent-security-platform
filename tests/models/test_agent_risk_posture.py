@@ -26,7 +26,7 @@ class TestAgentRiskPostureModel:
         assert posture.risk_level == RiskLevel.LOW
         assert posture.finding_count == 0
         assert posture.baseline_at is None
-        assert posture.baseline_sequence == 0
+        assert posture.baseline_evidence_sequence == 0
         assert posture.last_applied_sequence == 0
         assert posture.posture_version == 1
         assert posture.counts_by_rule == {}

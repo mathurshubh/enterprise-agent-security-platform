@@ -11,14 +11,21 @@ and, throughout, no runtime path may recover a contained agent.
 """
 
 import inspect
+from datetime import datetime, timedelta, timezone
 
 import pytest
+from pydantic import ValidationError
 
 import app.services.runtime_service as runtime_service_module
 from app.models.agent import Agent, AgentStatus, RiskTier
 from app.models.audit_event import Decision
 from app.models.execution_binding import ExecutionBinding
+from app.models.session import Session
+from app.models.session_event import AggregationScope, HorizonQuery, SessionEvent
+from app.models.watermark import BaselineWatermark
+from app.repositories.in_memory.session_repository import InMemorySessionRepository
 from app.runtime.execution_authority import ExecutionAuthority
+from app.services.agent_risk_aggregate import AgentRiskAggregate
 from app.services.agent_service import (
     AgentNotFoundError,
     AgentNotSuspendedError,
@@ -29,7 +36,7 @@ from app.services.enforcement_coordinator import (
     ReinstatementIncompleteError,
 )
 from app.services.findings_service import FindingsService
-from tests.conftest import create_test_agent_service
+from tests.conftest import create_test_agent_service, create_test_session_service
 from tests.services.test_findings_service import make_finding
 
 AGENT_ID = "contained-agent"
@@ -210,7 +217,7 @@ class TestEnforcementBaselineIntegration:
     """Validates enforcement baseline watermark coupling, persistence, and non-recomputation (B-10)."""
 
     def test_first_time_agent_baseline_semantics(self) -> None:
-        """First-time agent has None baseline_at and 0 baseline_sequence."""
+        """First-time agent has None baseline_at and 0 baseline_evidence_sequence."""
         agents = create_test_agent_service()
         agents.register_agent(
             Agent(
@@ -224,12 +231,12 @@ class TestEnforcementBaselineIntegration:
         )
         state = agents.get_enforcement_state("fresh-agent")
         assert state.enforcement_baseline_at is None
-        assert state.enforcement_baseline_sequence == 0
+        assert state.baseline_evidence_sequence == 0
 
         baseline = agents.get_current_baseline("fresh-agent")
         assert baseline.agent_id == "fresh-agent"
         assert baseline.baseline_at is None
-        assert baseline.baseline_sequence == 0
+        assert baseline.baseline_evidence_sequence == 0
 
     def test_reinstatement_persists_timestamp_and_sequence(self) -> None:
         """EnforcementCoordinator.reinstate persists exact watermark timestamp and sequence."""
@@ -259,11 +266,11 @@ class TestEnforcementBaselineIntegration:
 
         state = agents.get_enforcement_state(AGENT_ID)
         assert state.enforcement_baseline_at is not None
-        assert state.enforcement_baseline_sequence == 2
+        assert state.baseline_evidence_sequence == 2
 
         baseline = agents.get_current_baseline(AGENT_ID)
         assert baseline.baseline_at == state.enforcement_baseline_at
-        assert baseline.baseline_sequence == 2
+        assert baseline.baseline_evidence_sequence == 2
 
     def test_current_baseline_does_not_recompute_after_new_findings(self) -> None:
         """Adding new findings after reinstatement does not mutate stored baseline watermark."""
@@ -292,7 +299,7 @@ class TestEnforcementBaselineIntegration:
         coordinator.reinstate(AGENT_ID, actor="admin-1", reason="investigated")
 
         baseline_before = agents.get_current_baseline(AGENT_ID)
-        assert baseline_before.baseline_sequence == 10
+        assert baseline_before.baseline_evidence_sequence == 10
 
         # Record findings after reinstatement: 11, 12, 13
         findings.record_finding(make_finding("f-post-11", agent_id=AGENT_ID))
@@ -302,7 +309,7 @@ class TestEnforcementBaselineIntegration:
 
         # get_current_baseline MUST still return sequence 10, never recompute to 13
         baseline_after = agents.get_current_baseline(AGENT_ID)
-        assert baseline_after.baseline_sequence == 10
+        assert baseline_after.baseline_evidence_sequence == 10
         assert baseline_after.baseline_at == baseline_before.baseline_at
 
     def test_failed_persistence_does_not_reopen_issuance(self) -> None:
@@ -364,7 +371,7 @@ class TestEnforcementCoordinatorRiskAggregatorIntegration:
         # Posture in aggregator must be HEALTHY, reset to baseline seq 3 with 0 findings
         posture = aggregator.get_posture(AGENT_ID)
         assert posture.state == PostureState.HEALTHY
-        assert posture.baseline_sequence == 3
+        assert posture.baseline_evidence_sequence == 3
         assert posture.last_applied_sequence == 3
         assert posture.finding_count == 0
         assert posture.risk_score == 0
@@ -474,7 +481,7 @@ class TestProjectionFailureHandling:
 
         # Initialize aggregate at baseline seq 0
         aggregator.reset_to_baseline(
-            BaselineWatermark(agent_id=AGENT_ID, baseline_sequence=0)
+            BaselineWatermark(agent_id=AGENT_ID, baseline_evidence_sequence=0)
         )
 
         # Fault injection inside aggregate apply_finding
@@ -562,7 +569,7 @@ class TestConcurrencyAndRaceSerialization:
 
             # Ingest pre-findings into aggregator at baseline 0 so projection exists
             aggregator.reset_to_baseline(
-                BaselineWatermark(agent_id=agent_id, baseline_sequence=0)
+                BaselineWatermark(agent_id=agent_id, baseline_evidence_sequence=0)
             )
             for f in findings.list_findings(agent_id=agent_id):
                 aggregator.ingest_finding(f)
@@ -613,29 +620,238 @@ class TestConcurrencyAndRaceSerialization:
 
             if posture.state == PostureState.HEALTHY:
                 # 2. Check which valid serialization occurred:
-                if baseline.baseline_sequence == 5:
+                if baseline.baseline_evidence_sequence == 5:
                     # Reinstatement serialized first: fresh finding (seq 6) is active post-baseline
-                    assert posture.baseline_sequence == 5
+                    assert posture.baseline_evidence_sequence == 5
                     assert posture.last_applied_sequence == 6
                     assert posture.finding_count == 1
-                elif baseline.baseline_sequence == 6:
+                elif baseline.baseline_evidence_sequence == 6:
                     # Finding serialized first: fresh finding (seq 6) is absorbed into baseline epoch
-                    assert posture.baseline_sequence == 6
+                    assert posture.baseline_evidence_sequence == 6
                     assert posture.last_applied_sequence == 6
                     assert posture.finding_count == 0
                 else:
                     pytest.fail(
-                        f"Invalid baseline sequence: {baseline.baseline_sequence}"
+                        f"Invalid baseline sequence: {baseline.baseline_evidence_sequence}"
                     )
 
                 # 3. Posture MUST NEVER miss post-baseline authoritative finding:
                 post_baseline_findings = [
                     f
                     for f in all_persisted
-                    if f.evidence_sequence > baseline.baseline_sequence
+                    if f.evidence_sequence > baseline.baseline_evidence_sequence
                     and (
                         baseline.baseline_at is None
                         or (f.recorded_at or f.created_at) > baseline.baseline_at
                     )
                 ]
                 assert posture.finding_count == len(post_baseline_findings)
+
+
+class TestBaselineSequenceNamespacesAreSeparate:
+    """A watermark position is only meaningful in the namespace that allocated it.
+
+    ``Finding.evidence_sequence`` and ``SessionEvent.agent_sequence`` are allocated by
+    different authorities and advance at different rates — a finding is derived from at
+    least one event, so the finding counter trails the event counter. Reading one as the
+    other names a different position in a different ordering, which is how a reinstatement
+    came to exclude the wrong evidence.
+    """
+
+    @staticmethod
+    def _watermark(evidence: int, agent: int) -> BaselineWatermark:
+        return BaselineWatermark(
+            agent_id=AGENT_ID,
+            baseline_evidence_sequence=evidence,
+            baseline_agent_sequence=agent,
+        )
+
+    def test_the_risk_projection_reads_only_the_evidence_watermark(self) -> None:
+        aggregate = AgentRiskAggregate(self._watermark(evidence=3, agent=100))
+
+        at_baseline = make_finding("f-at", agent_id=AGENT_ID)
+        at_baseline = at_baseline.model_copy(update={"evidence_sequence": 3})
+        after_baseline = make_finding("f-after", agent_id=AGENT_ID)
+        after_baseline = after_baseline.model_copy(update={"evidence_sequence": 4})
+
+        assert aggregate.apply_finding(at_baseline) is False, "at the baseline: ignored"
+        assert aggregate.apply_finding(after_baseline) is True, "past the baseline: applied"
+
+    def test_the_horizon_reads_only_the_agent_watermark(self) -> None:
+        repository = InMemorySessionRepository()
+        repository.create_session(Session(session_id="s-ns", agent_id=AGENT_ID))
+        for _ in range(4):
+            repository.record_event(
+                SessionEvent(
+                    session_id="s-ns",
+                    agent_id=AGENT_ID,
+                    tool_id="file_read",
+                    decision=Decision.DENY,
+                )
+            )
+
+        eligible = repository.list_eligible_events(
+            HorizonQuery(
+                agent_id=AGENT_ID,
+                scope=AggregationScope.AGENT,
+                window_seconds=3600,
+                evaluation_time=datetime.now(timezone.utc) + timedelta(seconds=1),
+                baseline_agent_sequence=2,
+            )
+        )
+
+        assert [e.agent_sequence for e in eligible] == [3, 4]
+
+    def test_independent_allocator_rates_do_not_leak_between_namespaces(self) -> None:
+        """The defect, reproduced without relying on the counters coinciding.
+
+        Three findings and one hundred events. A watermark that carried the finding
+        position into the horizon would exclude only events 1-3 and leave 97 stale events
+        driving enforcement; one that carried the event position into the projection would
+        put the cursor far past every finding and silently stop applying them.
+        """
+        findings_service = FindingsService()
+        for i in range(1, 4):
+            findings_service.record_finding(make_finding(f"f{i}", agent_id=AGENT_ID))
+
+        repository = InMemorySessionRepository()
+        repository.create_session(Session(session_id="s-rates", agent_id=AGENT_ID))
+        for _ in range(100):
+            repository.record_event(
+                SessionEvent(
+                    session_id="s-rates",
+                    agent_id=AGENT_ID,
+                    tool_id="file_read",
+                    decision=Decision.DENY,
+                )
+            )
+
+        evidence_seq = findings_service.capture_evidence_baseline_sequence(AGENT_ID)
+        agent_seq = repository.current_agent_sequence(AGENT_ID)
+
+        assert evidence_seq == 3
+        assert agent_seq == 100
+        assert evidence_seq != agent_seq, "the test is vacuous if the counters coincide"
+
+        watermark = self._watermark(evidence=evidence_seq, agent=agent_seq)
+
+        # The projection ignores findings at or before 3 and admits the next one.
+        aggregate = AgentRiskAggregate(watermark)
+        f4 = make_finding("f4", agent_id=AGENT_ID).model_copy(
+            update={"evidence_sequence": 4}
+        )
+        assert aggregate.apply_finding(f4) is True
+
+        # The horizon excludes every event at or before 100 and admits the next one.
+        eligible = repository.list_eligible_events(
+            HorizonQuery(
+                agent_id=AGENT_ID,
+                scope=AggregationScope.AGENT,
+                window_seconds=3600,
+                evaluation_time=datetime.now(timezone.utc) + timedelta(seconds=1),
+                baseline_agent_sequence=watermark.baseline_agent_sequence,
+            )
+        )
+        assert eligible == []
+
+        repository.record_event(
+            SessionEvent(
+                session_id="s-rates",
+                agent_id=AGENT_ID,
+                tool_id="file_read",
+                decision=Decision.DENY,
+            )
+        )
+        eligible = repository.list_eligible_events(
+            HorizonQuery(
+                agent_id=AGENT_ID,
+                scope=AggregationScope.AGENT,
+                window_seconds=3600,
+                evaluation_time=datetime.now(timezone.utc) + timedelta(seconds=1),
+                baseline_agent_sequence=watermark.baseline_agent_sequence,
+            )
+        )
+        assert [e.agent_sequence for e in eligible] == [101]
+
+    def test_a_watermark_rejects_a_field_name_it_does_not_define(self) -> None:
+        """A stale name must fail, not silently default to "exclude nothing"."""
+        with pytest.raises(ValidationError):
+            BaselineWatermark(agent_id=AGENT_ID, baseline_sequence=5)
+
+    def test_reinstatement_takes_each_position_from_its_own_authority(self) -> None:
+        """End-to-end: the coordinator must not source one namespace from the other.
+
+        Constructed so the two counters cannot coincide — three findings against one
+        hundred events. Taking the agent position from the findings authority would
+        persist 3, and the horizon would then re-admit ninety-seven events the
+        reinstatement was supposed to retire.
+        """
+        agents = create_test_agent_service()
+        authority = ExecutionAuthority()
+        findings = FindingsService()
+        sessions = create_test_session_service()
+        coordinator = EnforcementCoordinator(
+            agents, authority, findings, session_service=sessions
+        )
+
+        agents.register_agent(
+            Agent(
+                agent_id=AGENT_ID,
+                name="Contained",
+                owner="security",
+                risk_tier=RiskTier.LOW,
+                approved_tools=["file_read"],
+                status=AgentStatus.ACTIVE,
+            )
+        )
+        sessions.create_session(Session(session_id="s-auth", agent_id=AGENT_ID))
+
+        for i in range(1, 4):
+            findings.record_new_findings([make_finding(f"f{i}", agent_id=AGENT_ID)])
+        for _ in range(100):
+            sessions.record_event(
+                SessionEvent(
+                    session_id="s-auth",
+                    agent_id=AGENT_ID,
+                    tool_id="file_read",
+                    decision=Decision.DENY,
+                )
+            )
+
+        assert findings.get_agent_sequence(AGENT_ID) == 3
+        assert sessions.current_agent_sequence(AGENT_ID) == 100
+
+        agents.suspend_agent(AGENT_ID, reason="contained")
+        coordinator.reinstate(AGENT_ID, actor="admin", reason="recovered")
+
+        state = agents.get_enforcement_state(AGENT_ID)
+        assert state.baseline_evidence_sequence == 3, "findings authority"
+        assert state.baseline_agent_sequence == 100, "session authority"
+
+    def test_the_agent_position_survives_pruning_of_the_events_it_counted(self) -> None:
+        """A watermark must not move backwards when retention removes events.
+
+        ``agent_sequence`` is read from the allocator, not from surviving rows. Deriving
+        it from retained events would let a prune lower the watermark, re-admitting
+        already-retired evidence into the horizon.
+        """
+        repository = InMemorySessionRepository()
+        repository.create_session(Session(session_id="s-prune", agent_id=AGENT_ID))
+        for _ in range(5):
+            repository.record_event(
+                SessionEvent(
+                    session_id="s-prune",
+                    agent_id=AGENT_ID,
+                    tool_id="file_read",
+                    decision=Decision.DENY,
+                )
+            )
+
+        assert repository.current_agent_sequence(AGENT_ID) == 5
+
+        pruned = repository.prune_events(
+            cutoff=datetime.now(timezone.utc) + timedelta(hours=1)
+        )
+
+        assert pruned == 5, "the events the watermark counted are gone"
+        assert repository.current_agent_sequence(AGENT_ID) == 5

@@ -52,7 +52,7 @@ class AgentRiskAggregate:
     - B-2: Contiguous Application (cursor advances for every accepted post-baseline finding)
     - B-3: Idempotent Dedup (seq <= last_applied_sequence is a zero-mutation no-op)
     - B-4: Fail-Closed on Gap (seq > last_applied_sequence + 1 transitions to STALE)
-    - B-5: Baseline Isolation (seq <= baseline_sequence is safely ignored)
+    - B-5: Baseline Isolation (seq <= baseline_evidence_sequence is safely ignored)
     - B-7: Reconstructibility (full deterministic rebuild from findings & watermark)
     - B-9: Bounded Memory (zero finding-ID history; counts_by_rule bounded by rule vocabulary)
     - B-11: Cursor != Contribution (cursor tracks all findings; risk score tracks active findings)
@@ -67,10 +67,10 @@ class AgentRiskAggregate:
         self._lock = threading.RLock()
         self.agent_id: str = watermark.agent_id
         self.baseline_at: datetime | None = watermark.baseline_at
-        self.baseline_sequence: int = watermark.baseline_sequence
+        self.baseline_evidence_sequence: int = watermark.baseline_evidence_sequence
 
         # Cursor initialized to baseline sequence
-        self.last_applied_sequence: int = watermark.baseline_sequence
+        self.last_applied_sequence: int = watermark.baseline_evidence_sequence
 
         # Bounded rule vocabulary (B-9)
         self._rule_vocabulary: frozenset[str] = (
@@ -110,11 +110,11 @@ class AgentRiskAggregate:
 
         Called under the caller's lock, so it observes committed state.
         """
-        if self.last_applied_sequence < self.baseline_sequence:
+        if self.last_applied_sequence < self.baseline_evidence_sequence:
             raise ProjectionInvariantError(
                 f"CI-1 violated for agent '{self.agent_id}': "
                 f"last_applied_sequence={self.last_applied_sequence} precedes "
-                f"baseline_sequence={self.baseline_sequence}"
+                f"baseline_evidence_sequence={self.baseline_evidence_sequence}"
             )
 
     def apply_finding(self, finding: Finding) -> bool:
@@ -138,7 +138,7 @@ class AgentRiskAggregate:
 
             # 3. Pre-baseline determination (B-5)
             # Findings at or before baseline sequence belong to a prior epoch; safely skip
-            if finding.evidence_sequence <= self.baseline_sequence:
+            if finding.evidence_sequence <= self.baseline_evidence_sequence:
                 return False
 
             # 3b. Duplicate determination (B-3 Idempotency)
@@ -202,7 +202,7 @@ class AgentRiskAggregate:
         """
         with self._lock:
             self.baseline_at = watermark.baseline_at
-            self.baseline_sequence = watermark.baseline_sequence
+            self.baseline_evidence_sequence = watermark.baseline_evidence_sequence
 
             # Reset counts and bounded aggregates
             self.counts_by_severity = {s: 0 for s in Severity}
@@ -214,7 +214,7 @@ class AgentRiskAggregate:
             for f in authoritative_findings:
                 if f.agent_id != self.agent_id:
                     continue
-                if f.evidence_sequence <= watermark.baseline_sequence:
+                if f.evidence_sequence <= watermark.baseline_evidence_sequence:
                     continue
                 f_rec = (
                     f.recorded_at
@@ -234,7 +234,7 @@ class AgentRiskAggregate:
                     f.evidence_sequence for f in post_baseline
                 )
             else:
-                self.last_applied_sequence = watermark.baseline_sequence
+                self.last_applied_sequence = watermark.baseline_evidence_sequence
 
             # 2. Risk contribution derived strictly from ACTIVE findings
             for f in post_baseline:
@@ -256,8 +256,8 @@ class AgentRiskAggregate:
         """Reset projection state to a new enforcement baseline (B-10)."""
         with self._lock:
             self.baseline_at = watermark.baseline_at
-            self.baseline_sequence = watermark.baseline_sequence
-            self.last_applied_sequence = watermark.baseline_sequence
+            self.baseline_evidence_sequence = watermark.baseline_evidence_sequence
+            self.last_applied_sequence = watermark.baseline_evidence_sequence
 
             self.counts_by_severity = {s: 0 for s in Severity}
             self.counts_by_rule.clear()
@@ -296,7 +296,7 @@ class AgentRiskAggregate:
                 risk_level=self.risk_level,
                 finding_count=self.finding_count,
                 baseline_at=self.baseline_at,
-                baseline_sequence=self.baseline_sequence,
+                baseline_evidence_sequence=self.baseline_evidence_sequence,
                 last_applied_sequence=self.last_applied_sequence,
                 counts_by_severity=dict(self.counts_by_severity),
                 counts_by_rule=dict(self.counts_by_rule),

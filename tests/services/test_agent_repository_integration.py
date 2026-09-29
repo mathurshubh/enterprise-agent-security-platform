@@ -230,7 +230,7 @@ class TestEnforcementCASAndEpochSemantics:
             agent_id,
             actor="admin-1",
             reason="cycle 1 clearance",
-            watermark=BaselineWatermark(agent_id=agent_id, baseline_sequence=5),
+            watermark=BaselineWatermark(agent_id=agent_id, baseline_evidence_sequence=5),
         )
         assert service.get_agent(agent_id).status == AgentStatus.ACTIVE
         t1 = datetime.now(timezone.utc)
@@ -247,7 +247,7 @@ class TestEnforcementCASAndEpochSemantics:
             agent_id,
             actor="admin-2",
             reason="cycle 2 clearance",
-            watermark=BaselineWatermark(agent_id=agent_id, baseline_sequence=12),
+            watermark=BaselineWatermark(agent_id=agent_id, baseline_evidence_sequence=12),
         )
         assert service.get_agent(agent_id).status == AgentStatus.ACTIVE
         t2 = datetime.now(timezone.utc)
