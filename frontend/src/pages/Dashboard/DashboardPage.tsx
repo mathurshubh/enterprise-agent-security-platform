@@ -64,7 +64,8 @@ export default function DashboardPage() {
     [events]
   )
   const uniqueToolsUsed = useMemo(
-    () => new Set(events.map((e) => e.toolId)).size,
+    // Requested identities, for the same reason as the audit page metric.
+    () => new Set(events.map((e) => e.requestedToolId)).size,
     [events]
   )
 

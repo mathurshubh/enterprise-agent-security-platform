@@ -4,7 +4,10 @@
  * REACT CONCEPT: "Presentational Component & Tooltip Rendering"
  * ──────────────────────────────────────────────────────────────────
  * Renders the tabular audit log. Column layout matches enterprise SOC
- * timelines: Time, Decision, Agent, Tool, and truncated Event ID.
+ * timelines: Time, Decision, Agent, Tool, Resolution, and truncated Event ID.
+ *
+ * The Tool column always shows the requested identity. Resolution shows what the
+ * security pipeline established, and is never substituted into Tool.
  *
  * Timestamp Formatting:
  *   Consumes the shared `formatTimestamp` utility to render times
@@ -78,6 +81,7 @@ export default function AuditTable({ events, loading }: AuditTableProps) {
             <th className="px-6 py-4">Decision</th>
             <th className="px-6 py-4">Agent</th>
             <th className="px-6 py-4">Tool</th>
+            <th className="px-6 py-4">Resolution</th>
             <th className="px-6 py-4 text-right">Event ID</th>
           </tr>
         </thead>
@@ -102,9 +106,29 @@ export default function AuditTable({ events, loading }: AuditTableProps) {
                 {event.agentId}
               </td>
 
-              {/* Tool ID */}
+              {/* Requested tool identity — always present, never substituted */}
               <td className="px-6 py-4 text-text-secondary font-mono">
-                {event.toolId}
+                {event.requestedToolId || <span className="text-text-muted italic">(empty)</span>}
+              </td>
+
+              {/*
+                What the pipeline resolved. Kept separate from the column above: a
+                request that named a tool is not evidence that the tool existed, and
+                collapsing the two would make a claimed tool indistinguishable from a
+                resolved one.
+              */}
+              <td className="px-6 py-4 font-mono">
+                {event.toolVersion !== null ? (
+                  <span className="text-text-secondary">v{event.toolVersion}</span>
+                ) : (
+                  <span className="text-text-muted" title={
+                    event.toolId !== null
+                      ? 'Tool family resolved; no concrete version was established'
+                      : 'No tool identity was established for this request'
+                  }>
+                    {event.toolId !== null ? 'no version' : 'unresolved'}
+                  </span>
+                )}
               </td>
 
               {/* Truncated Event ID with tooltip */}
