@@ -28,14 +28,20 @@ from tests.repositories.contracts.base_enforcement_contract import (
     BaseEnforcementStateRepositoryContractTests,
 )
 
+# Agents the shared contract tests exercise. The SQL adapter locks the parent agent row
+# before recording a transition, so every agent a contract test names must exist here —
+# a contract test added upstream fails against this adapter until it is listed.
 KNOWN_ENFORCEMENT_AGENTS = [
     "agent-1",
+    "agent-advancing-baseline",
     "agent-cas-1",
     "agent-cas-2",
     "agent-cas-atomicity",
     "agent-iso-enf",
     "agent-monotonic-epoch",
+    "agent-namespaces",
     "agent-order",
+    "agent-roundtrip",
     "agent-test-cas",
 ]
 
