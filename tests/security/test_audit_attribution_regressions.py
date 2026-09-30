@@ -152,7 +152,10 @@ class TestEveryDecisionProducesAttributedEvidence:
             resource=BENIGN_FILE,
         )
 
-        assert refused.event.decision == Decision.DENY
+        # The refusal is downstream of authorization, so the persisted event
+        # keeps what authorization concluded and records DENY as the outcome.
+        assert refused.event.decision == Decision.ALLOW
+        assert refused.event.final_decision == Decision.DENY
         assert refused.refusal_reason == "POSTURE_RECONCILIATION_FAILED"
         recorded = audit_for(env, "audit-posture-refusal")
         assert len(recorded) == 1

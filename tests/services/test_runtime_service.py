@@ -559,7 +559,10 @@ def test_horizon_unavailable_fails_closed_without_grant():
 
     assert result.refusal_reason == "HORIZON_UNAVAILABLE"
     assert result.authorization is None
-    assert result.event.decision == Decision.DENY
+    # The refusal is downstream of authorization, so the persisted event
+    # keeps what authorization concluded and records DENY as the outcome.
+    assert result.event.decision == Decision.ALLOW
+    assert result.event.final_decision == Decision.DENY
 
     audit_events = service._audit_service.list_events()
     assert any(

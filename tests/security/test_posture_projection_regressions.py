@@ -162,7 +162,10 @@ class TestProjectionHealthGatesAuthorization:
 
         result = execute(env, "projection-unreconcilable")
 
-        assert result.event.decision == Decision.DENY
+        # The refusal is downstream of authorization, so the persisted event
+        # keeps what authorization concluded and records DENY as the outcome.
+        assert result.event.decision == Decision.ALLOW
+        assert result.event.final_decision == Decision.DENY
         assert result.refusal_reason == POSTURE_RECONCILIATION_FAILED
 
     @pytest.mark.security_invariant
@@ -221,7 +224,10 @@ class TestProjectionHealthGatesAuthorization:
 
         result = execute(env, "projection-raises")
 
-        assert result.event.decision == Decision.DENY
+        # The refusal is downstream of authorization, so the persisted event
+        # keeps what authorization concluded and records DENY as the outcome.
+        assert result.event.decision == Decision.ALLOW
+        assert result.event.final_decision == Decision.DENY
         assert result.refusal_reason == POSTURE_RECONCILIATION_FAILED
         assert result.enforcement_posture is None
         assert result.authorization is None
@@ -238,7 +244,10 @@ class TestProjectionHealthGatesAuthorization:
 
         for index in range(3):
             result = execute(env, f"projection-persistent-{index}")
-            assert result.event.decision == Decision.DENY
+            # The refusal is downstream of authorization, so the persisted event
+            # keeps what authorization concluded and records DENY as the outcome.
+            assert result.event.decision == Decision.ALLOW
+            assert result.event.final_decision == Decision.DENY
             assert result.refusal_reason == POSTURE_RECONCILIATION_FAILED
 
 
@@ -437,7 +446,10 @@ class TestProjectionIntegrityFailsClosed:
         self.corrupt_projection(env)
         result = execute(env, "integrity-violated")
 
-        assert result.event.decision == Decision.DENY
+        # The refusal is downstream of authorization, so the persisted event
+        # keeps what authorization concluded and records DENY as the outcome.
+        assert result.event.decision == Decision.ALLOW
+        assert result.event.final_decision == Decision.DENY
         assert result.refusal_reason == POSTURE_RECONCILIATION_FAILED
 
     @pytest.mark.security_invariant
@@ -489,7 +501,10 @@ class TestProjectionIntegrityFailsClosed:
 
         for index in range(3):
             result = execute(env, f"integrity-persist-{index}")
-            assert result.event.decision == Decision.DENY
+            # The refusal is downstream of authorization, so the persisted event
+            # keeps what authorization concluded and records DENY as the outcome.
+            assert result.event.decision == Decision.ALLOW
+            assert result.event.final_decision == Decision.DENY
             assert result.refusal_reason == POSTURE_RECONCILIATION_FAILED
 
     @pytest.mark.security_regression
@@ -590,3 +605,38 @@ class TestSinglePostureAuthority:
         # M4-RISK: the store and its readers are gone; derivation remains.
         for removed in ("record_assessment", "get_assessment", "list_assessments", "clear"):
             assert not hasattr(RiskService, removed)
+
+
+class TestPostureRefusalPreservesResolvedIdentity:
+    """A posture refusal is downstream of resolution and must not deny it happened.
+
+    Covered separately from the horizon refusal because the two are distinct call sites:
+    a mutation dropping the resolved version from one is invisible to tests that exercise
+    only the other.
+    """
+
+    def test_the_posture_refusal_records_the_resolved_identity(
+        self, build_runtime, security_workspace: Path
+    ) -> None:
+        env = build_runtime(
+            workspace=security_workspace,
+            risk_aggregator=UnreconcilableAggregator(),
+        )
+
+        env.runtime.execute(
+            session_id="s-posture-identity",
+            agent_id=env.agent_id,
+            tool_id="file_read",
+            resource=BENIGN_FILE,
+            parameters={"path": BENIGN_FILE},
+        )
+
+        persisted = env.session_service.list_events("s-posture-identity")
+        assert len(persisted) == 1, "the refusal finalizes, it does not duplicate"
+        assert persisted[0].final_decision == Decision.DENY
+        assert persisted[0].tool_version == "1.0.0"
+
+        audit = env.audit_service.list_events()[-1]
+        assert audit.requested_tool_id == "file_read"
+        assert audit.tool_id == "file_read", "the family had resolved"
+        assert audit.tool_version == "1.0.0", "and so had the implementation"

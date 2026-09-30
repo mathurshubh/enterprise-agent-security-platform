@@ -35,6 +35,7 @@ from app.models.jwt_claims import Role
 from app.models.response_action import ResponseType
 from app.models.runtime_execution_grant import RuntimeExecutionGrant
 from app.models.sandbox_execution_result import SandboxExecutionResult
+from app.models.session import SessionRepositoryError
 from app.models.telemetry.behavioral_event import (
     BehavioralEvent,
     compute_parameter_hash,
@@ -943,3 +944,153 @@ class TestAuditRecordsRequestedAndResolvedIdentitySeparately:
         assert refusal.requested_tool_id == "file_read", "what was asked for is recorded"
         assert refusal.tool_id is None, "refused before any tool resolution occurred"
         assert refusal.tool_version is None
+
+
+class TestAPersistedEventIsTheAuthoritativeRecord:
+    """After record_event succeeds, a refusal finalizes that event — it does not replace it.
+
+    The two post-record refusals used to construct a fresh SessionEvent carrying
+    ``final_decision=DENY`` and return that, leaving the persisted row at
+    ``final_decision=None``. One request produced two records disagreeing: the returned
+    object claimed a terminal decision while declaring itself unpersisted
+    (``sequence_number=0``), and the durable row said the request was authorized and never
+    concluded — indistinguishable, to the detection horizon that queries these rows, from
+    a request that crashed mid-pipeline.
+    """
+
+    @staticmethod
+    def _refuse_horizon(env):
+        def unavailable(*_a, **_k):
+            raise SessionRepositoryError("horizon unavailable")
+
+        env.session_service.list_eligible_events = unavailable
+
+    @staticmethod
+    def _execute(env, session_id: str):
+        return env.runtime.execute(
+            session_id=session_id,
+            agent_id=env.agent_id,
+            tool_id="file_read",
+            resource=BENIGN_FILE,
+            parameters={"path": BENIGN_FILE},
+        )
+
+    def test_the_refusal_finalizes_the_persisted_event(
+        self, build_runtime, security_workspace: Path
+    ) -> None:
+        env = build_runtime(workspace=security_workspace)
+        self._refuse_horizon(env)
+
+        self._execute(env, "s-finalize")
+
+        persisted = env.session_service.list_events("s-finalize")
+        assert len(persisted) == 1
+        assert persisted[0].final_decision == Decision.DENY, "the durable row is finalized"
+        assert persisted[0].decision == Decision.ALLOW, "authorization evidence is intact"
+
+    def test_the_returned_event_is_the_persisted_one(
+        self, build_runtime, security_workspace: Path
+    ) -> None:
+        """Not merely equal in outcome — the same record, with its allocated positions."""
+        env = build_runtime(workspace=security_workspace)
+        self._refuse_horizon(env)
+
+        result = self._execute(env, "s-same-event")
+        persisted = env.session_service.list_events("s-same-event")[0]
+
+        assert result.event.sequence_number == persisted.sequence_number
+        assert result.event.agent_sequence == persisted.agent_sequence
+        assert result.event.sequence_number != 0, "0 means unrecorded — a fabricated event"
+        assert result.event.final_decision == persisted.final_decision
+
+    def test_the_refusal_creates_no_second_event(
+        self, build_runtime, security_workspace: Path
+    ) -> None:
+        env = build_runtime(workspace=security_workspace)
+        self._refuse_horizon(env)
+
+        self._execute(env, "s-no-duplicate")
+
+        assert len(env.session_service.list_events("s-no-duplicate")) == 1
+
+    def test_resolved_identity_survives_the_refusal(
+        self, build_runtime, security_workspace: Path
+    ) -> None:
+        """The refusal is downstream of resolution, so the evidence must not deny it happened."""
+        env = build_runtime(workspace=security_workspace)
+        self._refuse_horizon(env)
+
+        self._execute(env, "s-identity")
+
+        persisted = env.session_service.list_events("s-identity")[0]
+        assert persisted.tool_version == "1.0.0"
+
+        audit = env.audit_service.list_events()[-1]
+        assert audit.requested_tool_id == "file_read"
+        assert audit.tool_id == "file_read", "the family had resolved before the refusal"
+        assert audit.tool_version == "1.0.0", "and so had the implementation"
+
+    def test_a_pre_persistence_refusal_still_persists_nothing(
+        self, build_runtime, security_workspace: Path
+    ) -> None:
+        """The session-binding refusal fires before record_event and must stay that way.
+
+        Guards the persistence boundary from moving backwards: this path legitimately has
+        no event to finalize and no resolved identity to report.
+        """
+        env = build_runtime(workspace=security_workspace)
+        self._execute(env, "s-owned")
+
+        intruder = "intruding-agent"
+        env.agent_service.register_agent(
+            Agent(
+                agent_id=intruder,
+                name="Intruder",
+                owner="security-team",
+                risk_tier=RiskTier.LOW,
+                approved_tools=["file_read"],
+                status=AgentStatus.ACTIVE,
+            )
+        )
+        before = len(env.session_service.list_events("s-owned"))
+
+        env.runtime.execute(
+            session_id="s-owned",
+            agent_id=intruder,
+            tool_id="file_read",
+            resource=BENIGN_FILE,
+            parameters={"path": BENIGN_FILE},
+        )
+
+        assert len(env.session_service.list_events("s-owned")) == before
+        audit = env.audit_service.list_events()[-1]
+        assert audit.agent_id == intruder
+        assert audit.tool_id is None, "nothing resolved before this refusal"
+        assert audit.tool_version is None
+
+    def test_finalization_uses_the_authoritative_mechanism(
+        self, build_runtime, security_workspace: Path
+    ) -> None:
+        """A refused event is subject to the same finalization invariant as any other.
+
+        Settable once and idempotent on repeat; an attempt to overwrite it with a
+        different decision is rejected.
+        """
+        env = build_runtime(workspace=security_workspace)
+        self._refuse_horizon(env)
+        self._execute(env, "s-idempotent")
+
+        persisted = env.session_service.list_events("s-idempotent")[0]
+
+        env.session_service.update_event_final_decision(
+            session_id="s-idempotent",
+            sequence_number=persisted.sequence_number,
+            final_decision=Decision.DENY,
+        )
+
+        with pytest.raises(ValueError):
+            env.session_service.update_event_final_decision(
+                session_id="s-idempotent",
+                sequence_number=persisted.sequence_number,
+                final_decision=Decision.ALLOW,
+            )
