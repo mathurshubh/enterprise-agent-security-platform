@@ -21,7 +21,11 @@ import type { AuditEvent, AuditDecision } from '../types/auditEvent'
 interface AuditEventResponse {
   event_id: string
   agent_id: string
-  tool_id: string
+  /** What the request named. Always present. */
+  requested_tool_id: string
+  /** What the pipeline resolved, or null. Not a fallback for the field above. */
+  tool_id: string | null
+  tool_version: string | null
   decision: string
   timestamp: string // ISO-8601 string
 }
@@ -48,7 +52,9 @@ export const getAuditEvents = async (): Promise<AuditEvent[]> => {
     return {
       id: dto.event_id,
       agentId: dto.agent_id,
-      toolId: dto.tool_id,
+      requestedToolId: dto.requested_tool_id ?? '',
+      toolId: dto.tool_id ?? null,
+      toolVersion: dto.tool_version ?? null,
       decision: decisionVal,
       timestamp: dto.timestamp,
     }

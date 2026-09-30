@@ -26,14 +26,19 @@ export default function AuditTimelinePage() {
   const totalEvents      = events.length
   const deniedDecisions  = events.filter((e) => e.decision === 'DENY').length
   const activeAgents     = new Set(events.map((e) => e.agentId)).size
-  const toolsReferenced  = new Set(events.map((e) => e.toolId)).size
+  // Counts requested identities: the metric means "tools referenced by requests",
+  // and resolved identity is null for every unresolved one, which would collapse
+  // them all into a single phantom bucket.
+  const toolsReferenced  = new Set(events.map((e) => e.requestedToolId)).size
 
   // ── Client-side search filtering ───────────────────────────────────
   const query = search.trim().toLowerCase()
   const filteredEvents = events.filter((event) =>
     event.id.toLowerCase().includes(query) ||
     event.agentId.toLowerCase().includes(query) ||
-    event.toolId.toLowerCase().includes(query) ||
+    event.requestedToolId.toLowerCase().includes(query) ||
+    (event.toolId?.toLowerCase().includes(query) ?? false) ||
+    (event.toolVersion?.toLowerCase().includes(query) ?? false) ||
     event.decision.toLowerCase().includes(query)
   )
 
