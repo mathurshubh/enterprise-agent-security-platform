@@ -28,6 +28,13 @@ class ToolDescriptor(BaseModel):
     tool_class: type[BaseTool] | None = Field(
         default=None, description="Class reference of the tool implementation."
     )
+    implementation_id: str | None = Field(
+        default=None,
+        description=(
+            "Packaged implementation this registration maps to, declared at registration "
+            "and never derived. Absent means the tool cannot execute."
+        ),
+    )
     enabled: bool = Field(default=True, description="Whether the tool is enabled for runtime resolution.")
     registration_state: Literal["REGISTERED", "UNREGISTERED", "DEPRECATED"] = Field(
         default="REGISTERED", description="Lifecycle state of the registration."

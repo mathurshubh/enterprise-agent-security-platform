@@ -107,6 +107,7 @@ class TestProcessSandboxExecution:
 
         result = sandbox.execute(
             tool=tool,
+            implementation_id=tool.implementation_id,
             parameters={"message": "hello sandbox"},
             capabilities=caps,
             provenance=provenance,
@@ -151,6 +152,7 @@ class TestProcessSandboxExecution:
 
         sandbox.execute(
             tool=tool,
+            implementation_id=tool.implementation_id,
             parameters={"message": "hi"},
             capabilities=_make_test_capabilities(),
             provenance=provenance,
@@ -177,6 +179,7 @@ class TestProcessSandboxExecution:
 
         result = sandbox.execute(
             tool=tool,
+            implementation_id=tool.implementation_id,
             parameters={"keys": ["POSTGRES_URL", "JWT_SECRET_KEY", "SOME_RANDOM_PARENT_VAR", "EXPLICIT_ALLOWED_VAR"]},
             capabilities=caps,
             provenance=provenance,
@@ -204,6 +207,7 @@ class TestProcessSandboxExecution:
         with pytest.raises(SandboxTimeoutError) as exc_info:
             sandbox.execute(
                 tool=tool,
+                implementation_id=tool.implementation_id,
                 parameters={"seconds": 5.0},
                 capabilities=caps,
                 provenance=provenance,
@@ -227,6 +231,7 @@ class TestProcessSandboxExecution:
         with pytest.raises(SandboxResourceExhaustedError) as exc_info:
             sandbox.execute(
                 tool=tool,
+                implementation_id=tool.implementation_id,
                 parameters={"count": 50, "chunk": "A" * 1024},
                 capabilities=caps,
                 provenance=provenance,
@@ -243,6 +248,7 @@ class TestProcessSandboxExecution:
 
         result = sandbox.execute(
             tool=tool,
+            implementation_id=tool.implementation_id,
             parameters={},
             capabilities=caps,
             provenance=provenance,
@@ -272,6 +278,7 @@ class TestProcessSandboxExecution:
         )
         result = sandbox.execute(
             tool=tool,
+            implementation_id=tool.implementation_id,
             parameters={"message": raw_error_message, "error_type": "ValueError"},
             capabilities=caps,
             provenance=provenance,
@@ -295,6 +302,7 @@ class TestProcessSandboxExecution:
 
         result = sandbox.execute(
             tool=tool,
+            implementation_id=tool.implementation_id,
             parameters={},
             capabilities=caps,
             provenance=provenance,
@@ -351,6 +359,7 @@ class TestTrustedRunnerBootstrap:
 
         result = sandbox.execute(
             tool=tool,
+            implementation_id=tool.implementation_id,
             parameters={"message": "trusted"},
             capabilities=_make_test_capabilities(workspace_root=str(tmp_path)),
             provenance=_make_provenance(),
@@ -389,6 +398,7 @@ class TestTrustedRunnerBootstrap:
         tool = MockTool(tool_id="test_echo", implementation_id="test_echo")
         sandbox.execute(
             tool=tool,
+            implementation_id=tool.implementation_id,
             parameters={"message": "hi"},
             capabilities=_make_test_capabilities(workspace_root=str(tmp_path)),
             provenance=_make_provenance(),
@@ -506,6 +516,7 @@ class TestResourceControlsFailClosed:
         with pytest.raises(SandboxUnavailableError, match="could not be established"):
             sandbox.execute(
                 tool=tool,
+                implementation_id=tool.implementation_id,
                 parameters={"message": "hi"},
                 capabilities=caps,
                 provenance=_make_provenance(),
@@ -549,6 +560,7 @@ class TestResourceControlsFailClosed:
         with pytest.raises(SandboxUnavailableError, match="cpu=FAILED"):
             sandbox.execute(
                 tool=tool,
+                implementation_id=tool.implementation_id,
                 parameters={"message": "hi"},
                 capabilities=_make_test_capabilities(workspace_root=str(tmp_path)),
                 provenance=_make_provenance(),
@@ -590,6 +602,7 @@ class TestResourceControlsFailClosed:
 
         result = sandbox.execute(
             tool=tool,
+            implementation_id=tool.implementation_id,
             parameters={"message": "degraded"},
             capabilities=_make_test_capabilities(workspace_root=str(tmp_path)),
             provenance=_make_provenance(),
@@ -662,6 +675,7 @@ class TestResourceControlsFailClosed:
         with pytest.raises(SandboxUnavailableError):
             sandbox.execute(
                 tool=tool,
+                implementation_id=tool.implementation_id,
                 parameters={"message": "hi"},
                 capabilities=_make_test_capabilities(workspace_root=str(tmp_path)),
                 provenance=_make_provenance(),
@@ -676,6 +690,7 @@ class TestResourceControlsFailClosed:
 
         result = sandbox.execute(
             tool=tool,
+            implementation_id=tool.implementation_id,
             parameters={"message": "ok"},
             capabilities=_make_test_capabilities(workspace_root=str(tmp_path)),
             provenance=_make_provenance(),

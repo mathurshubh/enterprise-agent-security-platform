@@ -197,6 +197,7 @@ class TestProcessSandboxFilesystemEnforcement:
 
         result = sandbox.execute(
             tool=tool,
+            implementation_id=tool.implementation_id,
             parameters={"op": "open_read", "path": "relative_target.txt"},
             capabilities=caps,
             provenance=provenance,
@@ -213,6 +214,7 @@ class TestProcessSandboxFilesystemEnforcement:
 
         result = sandbox.execute(
             tool=tool,
+            implementation_id=tool.implementation_id,
             parameters={"op": "open_read", "path": "/etc/passwd"},
             capabilities=caps,
             provenance=provenance,
@@ -231,6 +233,7 @@ class TestProcessSandboxFilesystemEnforcement:
 
         result = sandbox.execute(
             tool=tool,
+            implementation_id=tool.implementation_id,
             parameters={"op": "open_read", "path": "../../etc/hosts"},
             capabilities=caps,
             provenance=provenance,
@@ -255,6 +258,7 @@ class TestProcessSandboxFilesystemEnforcement:
 
         result = sandbox.execute(
             tool=tool,
+            implementation_id=tool.implementation_id,
             parameters={"op": "open_read", "path": "sym_hosts"},
             capabilities=caps,
             provenance=provenance,
@@ -285,6 +289,7 @@ class TestProcessSandboxFilesystemEnforcement:
         # 1. Access within allowed subpath succeeds
         res_allowed = sandbox.execute(
             tool=tool,
+            implementation_id=tool.implementation_id,
             parameters={"op": "open_read", "path": str(allowed_file)},
             capabilities=caps,
             provenance=provenance,
@@ -295,6 +300,7 @@ class TestProcessSandboxFilesystemEnforcement:
         # 2. Access outside allowed subpath is rejected
         res_denied = sandbox.execute(
             tool=tool,
+            implementation_id=tool.implementation_id,
             parameters={"op": "open_read", "path": str(disallowed_file)},
             capabilities=caps,
             provenance=provenance,
@@ -333,6 +339,7 @@ class TestProcessSandboxFilesystemEnforcement:
         full_params = {"op": op, **params}
         result = sandbox.execute(
             tool=tool,
+            implementation_id=tool.implementation_id,
             parameters=full_params,
             capabilities=caps,
             provenance=provenance,
@@ -354,6 +361,7 @@ class TestProcessSandboxFilesystemEnforcement:
 
         result = sandbox.execute(
             tool=tool,
+            implementation_id=tool.implementation_id,
             parameters={"op": "scratch_write", "filename": "ephemeral_data.txt", "content": "ephemeral"},
             capabilities=caps,
             provenance=provenance,
@@ -378,6 +386,7 @@ class TestProcessSandboxFilesystemEnforcement:
 
         result = sandbox.execute(
             tool=tool,
+            implementation_id=tool.implementation_id,
             parameters={"message": "fail", "error_type": "ValueError"},
             capabilities=caps,
             provenance=provenance,
@@ -407,6 +416,7 @@ class TestProcessSandboxFilesystemEnforcement:
         with pytest.raises(SandboxTimeoutError):
             sandbox.execute(
                 tool=tool,
+                implementation_id=tool.implementation_id,
                 parameters={"seconds": 5.0},
                 capabilities=caps,
                 provenance=provenance,
@@ -431,6 +441,7 @@ class TestProcessSandboxFilesystemEnforcement:
         with pytest.raises(SandboxUnavailableError) as exc_info:
             sandbox.execute(
                 tool=tool,
+                implementation_id=tool.implementation_id,
                 parameters={"message": "hi"},
                 capabilities=caps,
                 provenance=provenance,

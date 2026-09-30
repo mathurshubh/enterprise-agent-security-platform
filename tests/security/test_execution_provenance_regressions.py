@@ -112,6 +112,10 @@ class _RecordingSandbox:
         parameters: dict[str, Any],
         capabilities: ExecutionCapabilities,
         provenance: ExecutionProvenance,
+
+        implementation_id: str | None = None,
+
+        tool_version: str | None = None,
     ) -> SandboxExecutionResult:
         self.provenance.append(provenance)
         return SandboxExecutionResult(success=True, output={"ok": True})
@@ -168,7 +172,11 @@ def test_invariant_evidence_identity_comes_from_the_grant_on_the_production_call
     """
     authority, store, _, executor = _harness()
     tool = _Tool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
     grant = _grant(
         authority, tool.tool_id, {"msg": "x"},
         agent_id="agent-real", session_id="session-real",
@@ -187,7 +195,11 @@ def test_invariant_no_placeholder_identity_is_recorded_without_a_context() -> No
     """The specific regression: a fabricated subject must not reach evidence."""
     authority, store, _, executor = _harness()
     tool = _Tool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
     grant = _grant(authority, tool.tool_id, {})
 
     executor.execute_descriptor(descriptor, {}, grant=grant)
@@ -207,7 +219,11 @@ def test_invariant_a_contradicting_context_cannot_reattribute_an_execution() -> 
     """
     authority, store, sandbox, executor = _harness()
     tool = _Tool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
     grant = _grant(authority, tool.tool_id, {}, agent_id="agent-a", session_id="session-a")
     impersonating = RuntimeContext(
         session_id="session-a",
@@ -229,7 +245,11 @@ def test_invariant_a_contradicting_context_cannot_reattribute_an_execution() -> 
 def test_invariant_a_contradicting_session_is_refused() -> None:
     authority, _, sandbox, executor = _harness()
     tool = _Tool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
     grant = _grant(authority, tool.tool_id, {}, agent_id="agent-a", session_id="session-a")
     rotated = RuntimeContext(
         session_id="session-b",
@@ -252,7 +272,11 @@ def test_invariant_an_identity_refusal_does_not_consume_the_grant() -> None:
     destroy a legitimate one."""
     authority, _, _, executor = _harness()
     tool = _Tool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
     grant = _grant(authority, tool.tool_id, {}, agent_id="agent-a", session_id="session-a")
     wrong = RuntimeContext(
         session_id="session-a",
@@ -275,7 +299,11 @@ def test_the_sandbox_receives_the_grants_identity_not_a_placeholder() -> None:
     """Provenance reaching the isolation boundary is grant-derived too."""
     authority, _, sandbox, executor = _harness()
     tool = _Tool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
     grant = _grant(
         authority, tool.tool_id, {}, agent_id="agent-sb", session_id="session-sb"
     )
@@ -293,7 +321,11 @@ def test_an_agreeing_context_supplies_correlation_but_not_identity() -> None:
     Identity still comes from the grant, so the two sources cannot diverge."""
     authority, store, _, executor = _harness()
     tool = _Tool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
     grant = _grant(
         authority, tool.tool_id, {}, agent_id="agent-c", session_id="session-c"
     )
@@ -323,7 +355,11 @@ def test_invariant_an_empty_context_identity_does_not_blank_out_evidence() -> No
     """
     authority, store, _, executor = _harness()
     tool = _Tool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
     grant = _grant(
         authority, tool.tool_id, {}, agent_id="agent-d", session_id="session-d"
     )
@@ -364,7 +400,11 @@ def test_invariant_the_authoritative_grant_id_reaches_the_isolation_boundary() -
     """
     authority, store, sandbox, executor = _harness()
     tool = _Tool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
     grant = _grant(authority, tool.tool_id, {})
 
     executor.execute_descriptor(descriptor, {}, grant=grant)
@@ -380,7 +420,11 @@ def test_invariant_the_request_id_stays_distinct_from_the_grant_id() -> None:
     the same value, so neither could be used to distinguish the other."""
     authority, _, sandbox, executor = _harness()
     tool = _Tool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
     grant = _grant(authority, tool.tool_id, {})
     context = RuntimeContext(
         session_id="session-1",
@@ -512,7 +556,11 @@ def test_invariant_verification_precedes_the_claim_and_execution() -> None:
         ),
     )
     tool = _Tool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
     grant = _grant(authority, tool.tool_id, {})
 
     executor.execute_descriptor(descriptor, {}, grant=grant)
@@ -565,7 +613,11 @@ def test_invariant_a_profile_bound_grant_without_a_digest_cannot_execute() -> No
 
     authority, store, sandbox, executor = _harness()
     tool = _Tool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
     grant = _grant(authority, tool.tool_id, {}, capability_digest=None)
 
     assert grant.capability_profile_id == PROFILE_ID, "the profile half is bound"
@@ -584,7 +636,11 @@ def test_invariant_the_receipt_records_the_capability_that_governed_the_executio
     evidence of what was permitted to happen."""
     authority, store, _, executor = _harness()
     tool = _Tool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
     grant = _grant(authority, tool.tool_id, {})
 
     assert grant.capability_profile_id is not None
@@ -603,7 +659,11 @@ def test_invariant_the_receipt_records_the_timeout_governing_this_execution() ->
     an execution running inside its declared limit is never reconciled as timed out."""
     authority, store, _, executor = _harness()
     tool = _Tool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
     grant = _grant(authority, tool.tool_id, {})
 
     executor.execute_descriptor(descriptor, {}, grant=grant)
@@ -621,7 +681,11 @@ def test_the_receipt_carries_the_request_id_as_correlation_not_authority() -> No
     bridge between authorization and execution. They must not be the same value."""
     authority, store, _, executor = _harness()
     tool = _Tool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
     grant = _grant(authority, tool.tool_id, {})
     context = RuntimeContext(
         session_id="session-1",
@@ -662,7 +726,11 @@ def test_invariant_two_concurrent_executions_of_one_grant_yield_one_execution() 
 
     authority, store, sandbox, executor = _harness()
     tool = _Tool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
     grant = _grant(authority, tool.tool_id, {})
 
     barrier = threading.Barrier(2, timeout=10)
@@ -755,7 +823,11 @@ def test_a_refused_claim_does_not_spend_the_grant() -> None:
     """Refusal semantics are unchanged: a mismatched request leaves the grant usable."""
     authority, _, _, executor = _harness()
     tool = _Tool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
     grant = _grant(authority, tool.tool_id, {"msg": "authorized"})
 
     with pytest.raises(ExecutionBindingError) as exc_info:
@@ -773,7 +845,11 @@ def test_a_revoked_grant_cannot_be_claimed() -> None:
     """Revocation participates in the same authority decision as the claim."""
     authority, _, sandbox, executor = _harness()
     tool = _Tool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
     grant = _grant(authority, tool.tool_id, {}, agent_id="agent-revoked")
 
     authority.suspend_issuance("agent-revoked")
@@ -845,7 +921,11 @@ def test_invariant_the_executor_claims_rather_than_consuming() -> None:
     """
     authority, _, sandbox, executor = _harness()
     tool = _Tool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
     grant = _grant(authority, tool.tool_id, {})
 
     claimed: list[str] = []

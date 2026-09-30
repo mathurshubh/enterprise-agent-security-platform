@@ -21,6 +21,15 @@ class ToolExecutionDescriptor(BaseModel):
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True, extra="forbid")
 
     tool_id: str = Field(min_length=1)
+    tool_version: str | None = Field(
+        default=None,
+        description=(
+            "Concrete version this execution is attributable to. Identity and provenance "
+            "only: the child selects an implementation by implementation_id and must "
+            "never derive one from tool_id and version, which would rebuild the inference "
+            "this field exists to replace."
+        ),
+    )
     implementation_id: str = Field(min_length=1)
     parameters: Mapping[str, Any] = Field(default_factory=dict)
     grant_id: str | None = None
@@ -60,6 +69,7 @@ class ToolExecutionDescriptor(BaseModel):
         """Serialize descriptor to canonical JSON string."""
         data = {
             "tool_id": self.tool_id,
+            "tool_version": self.tool_version,
             "implementation_id": self.implementation_id,
             "parameters": dict(self.parameters),
             "grant_id": self.grant_id,
@@ -78,6 +88,7 @@ class ToolExecutionDescriptor(BaseModel):
         raw = json.loads(json_str)
         return cls(
             tool_id=raw["tool_id"],
+            tool_version=raw.get("tool_version"),
             implementation_id=raw["implementation_id"],
             parameters=raw.get("parameters", {}),
             grant_id=raw.get("grant_id"),

@@ -189,6 +189,7 @@ class TestProcessSandboxNetworkEnforcement:
 
         result = sandbox.execute(
             tool=tool,
+            implementation_id=tool.implementation_id,
             parameters={"op": "tcp_connect", "host": "1.1.1.1", "port": 80},
             capabilities=caps,
             provenance=provenance,
@@ -206,6 +207,7 @@ class TestProcessSandboxNetworkEnforcement:
 
         result = sandbox.execute(
             tool=tool,
+            implementation_id=tool.implementation_id,
             parameters={"op": "udp_send", "host": "1.1.1.1", "port": 53},
             capabilities=caps,
             provenance=provenance,
@@ -227,6 +229,7 @@ class TestProcessSandboxNetworkEnforcement:
 
         result = sandbox.execute(
             tool=tool,
+            implementation_id=tool.implementation_id,
             parameters={"op": "tcp_connect", "host": "127.0.0.1", "port": 8000},
             capabilities=caps,
             provenance=provenance,
@@ -248,6 +251,7 @@ class TestProcessSandboxNetworkEnforcement:
 
         result = sandbox.execute(
             tool=tool,
+            implementation_id=tool.implementation_id,
             parameters={"op": "tcp_connect", "host": "169.254.169.254", "port": 80},
             capabilities=caps,
             provenance=provenance,
@@ -267,6 +271,7 @@ class TestProcessSandboxNetworkEnforcement:
         # Dword integer representation for 127.0.0.1
         result = sandbox.execute(
             tool=tool,
+            implementation_id=tool.implementation_id,
             parameters={"op": "tcp_connect", "host": "2130706433", "port": 80},
             capabilities=caps,
             provenance=provenance,
@@ -284,6 +289,7 @@ class TestProcessSandboxNetworkEnforcement:
 
         result = sandbox.execute(
             tool=tool,
+            implementation_id=tool.implementation_id,
             parameters={"op": "unix_connect", "path": "/var/run/docker.sock"},
             capabilities=caps,
             provenance=provenance,
@@ -302,6 +308,7 @@ class TestProcessSandboxNetworkEnforcement:
 
         result = sandbox.execute(
             tool=tool,
+            implementation_id=tool.implementation_id,
             parameters={"op": "bind_listener", "host": "0.0.0.0", "port": 8080},
             capabilities=caps,
             provenance=provenance,
@@ -341,6 +348,7 @@ class TestProcessSandboxNetworkEnforcement:
 
             result = sandbox.execute(
                 tool=tool,
+                implementation_id=tool.implementation_id,
                 parameters={
                     "op": "http_get",
                     "url": f"http://127.0.0.1:{server_port}/redirect",
@@ -374,6 +382,7 @@ class TestProcessSandboxNetworkEnforcement:
 
         result = sandbox.execute(
             tool=tool,
+            implementation_id=tool.implementation_id,
             parameters={"keys": ["HTTP_PROXY", "https_proxy", "NO_PROXY", "ALL_PROXY"]},
             capabilities=caps,
             provenance=provenance,
@@ -421,6 +430,7 @@ class TestProcessSandboxNetworkEnforcement:
 
             result = sandbox.execute(
                 tool=tool,
+                implementation_id=tool.implementation_id,
                 parameters={"message": f"parent_fd_{parent_fd}"},
                 capabilities=caps,
                 provenance=provenance,

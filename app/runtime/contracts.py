@@ -84,8 +84,15 @@ class ToolExecutionSandboxProtocol(Protocol):
         parameters: Mapping[str, Any],
         capabilities: ExecutionCapabilities,
         provenance: ExecutionProvenance,
+        implementation_id: str | None = None,
+        tool_version: str | None = None,
     ) -> SandboxExecutionResult:
         """Execute an authorized tool within the isolated sandbox environment.
+
+        ``implementation_id`` comes from the registration that declared it, and
+        ``tool_version`` from the verified grant. The sandbox is told which implementation
+        to run; deriving one from the tool identity is what allowed a version-2 tool to
+        execute a version-1 routine.
 
         ``provenance`` is derived from the verified grant. The sandbox receives no
         caller-supplied ``RuntimeContext``: it needs identity only to label the child

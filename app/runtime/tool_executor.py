@@ -260,6 +260,7 @@ class DefaultToolExecutor:
             capabilities=capabilities,
             grant=grant,
             context=context,
+            implementation_id=descriptor.implementation_id,
         )
 
     def execute_tool(
@@ -268,8 +269,14 @@ class DefaultToolExecutor:
         parameters: Mapping[str, Any],
         context: RuntimeContext | None = None,
         grant: RuntimeExecutionGrant | None = None,
+        implementation_id: str | None = None,
     ) -> Any:
-        """Verify the grant and capability binding, then execute a BaseTool handle via sandbox."""
+        """Internal primitive: execute a caller-supplied tool handle.
+
+        **Not the production execution path** — see ``execute``. The implementation is
+        named by the caller because there is no registration here to declare it, and it is
+        never derived from the tool.
+        """
         capabilities = self._verify_and_prepare(
             tool.tool_id,
             tool.metadata.identity.version,
@@ -283,6 +290,7 @@ class DefaultToolExecutor:
             parameters,
             capabilities=capabilities,
             grant=grant,
+            implementation_id=implementation_id,
             context=context,
         )
 
@@ -547,6 +555,7 @@ class DefaultToolExecutor:
         capabilities: ExecutionCapabilities,
         grant: RuntimeExecutionGrant,
         context: RuntimeContext | None = None,
+        implementation_id: str | None = None,
     ) -> Any:
         start_utc = datetime.now(timezone.utc)
         start_monotonic = self._monotonic_clock()
@@ -620,6 +629,11 @@ class DefaultToolExecutor:
                 parameters=parameters,
                 capabilities=capabilities,
                 provenance=provenance,
+                # Declared at registration and carried through unchanged; the version
+                # comes from the verified grant, so what runs and what the receipt
+                # attributes it to are the same concrete identity.
+                implementation_id=implementation_id,
+                tool_version=grant.binding.tool_version,
             )
         except Exception as exc:
             duration_ms = int((self._monotonic_clock() - start_monotonic) * 1000)
