@@ -255,3 +255,133 @@ class BaseEnforcementStateRepositoryContractTests(abc.ABC):
         assert state.epoch == 1
         assert state.suspension_reason == "orig"
         assert len(repo.list_transitions(agent_id)) == 1
+
+    # --- Persistence completeness -------------------------------------------------
+
+    def test_the_whole_state_survives_a_round_trip(self) -> None:
+        """Every field of AgentEnforcementState survives persistence — not a list of them.
+
+        Asserted as whole-object equality on purpose. The contract is that this repository
+        preserves the domain object, so a field added to ``AgentEnforcementState`` later
+        fails here in any adapter that forgets to persist it, without anyone remembering
+        to extend this test.
+
+        F-01 is what the alternative cost: migration 0002 added ``baseline_agent_sequence``
+        and the SQL adapter never read or wrote it, so the value was silently 0 on the
+        durable backend while every field-by-field assertion still passed. Do not replace
+        this with per-field assertions — that is the omission class it exists to close.
+
+        Every value below is deliberately non-default and distinct: a zero would be
+        indistinguishable from a dropped field reconstructing its default, and the two
+        baselines differ so that swapping them cannot pass.
+        """
+        repo = self.create_repository()
+        agent_id = "agent-roundtrip"
+
+        state = AgentEnforcementState(
+            agent_id=agent_id,
+            epoch=1,
+            suspended_at=datetime(2026, 3, 4, 5, 6, 7, tzinfo=timezone.utc),
+            suspension_reason="distinct reason text",
+            enforcement_baseline_at=datetime(2026, 3, 4, 5, 6, 8, tzinfo=timezone.utc),
+            baseline_evidence_sequence=41,
+            baseline_agent_sequence=73,
+            last_transition_at=datetime(2026, 3, 4, 5, 6, 9, tzinfo=timezone.utc),
+        )
+
+        assert (
+            repo.record_transition(
+                self._sample_transition("t-roundtrip", agent_id=agent_id),
+                state,
+                expected_epoch=0,
+            )
+            is True
+        )
+
+        assert repo.get_state(agent_id) == state
+
+    def test_advancing_one_baseline_leaves_the_other_namespace_alone(self) -> None:
+        """The two baselines are positions in different monotonic namespaces.
+
+        ``baseline_evidence_sequence`` counts findings and ``baseline_agent_sequence``
+        counts session events, allocated by different authorities at different rates. A
+        transition advancing one must not move or reset the other — that asymmetry is the
+        shape the original defect took.
+        """
+        repo = self.create_repository()
+        agent_id = "agent-namespaces"
+
+        initial = AgentEnforcementState(
+            agent_id=agent_id,
+            epoch=1,
+            baseline_evidence_sequence=41,
+            baseline_agent_sequence=73,
+        )
+        assert (
+            repo.record_transition(
+                self._sample_transition("t-ns-1", agent_id=agent_id),
+                initial,
+                expected_epoch=0,
+            )
+            is True
+        )
+
+        assert (
+            repo.record_transition(
+                self._sample_transition(
+                    "t-ns-2", agent_id=agent_id, action=EnforcementAction.REINSTATE
+                ),
+                initial.model_copy(
+                    update={"epoch": 2, "baseline_evidence_sequence": 58}
+                ),
+                expected_epoch=1,
+            )
+            is True
+        )
+
+        loaded = repo.get_state(agent_id)
+        assert loaded is not None
+        assert loaded.baseline_evidence_sequence == 58, "the evidence baseline advanced"
+        assert loaded.baseline_agent_sequence == 73, "the agent baseline is untouched"
+
+    def test_an_advancing_agent_baseline_persists_through_an_update(self) -> None:
+        """A reinstatement moves the agent watermark, and the new value must be stored.
+
+        Separate from the test above because that one holds this value constant, which
+        cannot tell "the update wrote the same value" from "the update never wrote it" —
+        a state created once and never updated keeps its inserted value either way. Only
+        a transition that *changes* it distinguishes the two.
+        """
+        repo = self.create_repository()
+        agent_id = "agent-advancing-baseline"
+
+        initial = AgentEnforcementState(
+            agent_id=agent_id,
+            epoch=1,
+            baseline_evidence_sequence=41,
+            baseline_agent_sequence=73,
+        )
+        assert (
+            repo.record_transition(
+                self._sample_transition("t-adv-1", agent_id=agent_id),
+                initial,
+                expected_epoch=0,
+            )
+            is True
+        )
+
+        assert (
+            repo.record_transition(
+                self._sample_transition(
+                    "t-adv-2", agent_id=agent_id, action=EnforcementAction.REINSTATE
+                ),
+                initial.model_copy(update={"epoch": 2, "baseline_agent_sequence": 150}),
+                expected_epoch=1,
+            )
+            is True
+        )
+
+        loaded = repo.get_state(agent_id)
+        assert loaded is not None
+        assert loaded.baseline_agent_sequence == 150, "the agent baseline advanced"
+        assert loaded.baseline_evidence_sequence == 41, "the evidence baseline is untouched"

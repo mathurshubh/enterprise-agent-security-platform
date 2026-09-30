@@ -69,6 +69,7 @@ class SqlEnforcementStateRepository(EnforcementStateRepository):
                     suspension_reason=row.suspension_reason,
                     enforcement_baseline_at=_ensure_utc(row.enforcement_baseline_at),
                     baseline_evidence_sequence=row.baseline_evidence_sequence,
+                    baseline_agent_sequence=row.baseline_agent_sequence,
                     last_transition_at=_ensure_utc(row.last_transition_at),
                 )
         except Exception as exc:
@@ -124,6 +125,7 @@ class SqlEnforcementStateRepository(EnforcementStateRepository):
                         suspension_reason=new_state.suspension_reason,
                         enforcement_baseline_at=new_state.enforcement_baseline_at,
                         baseline_evidence_sequence=new_state.baseline_evidence_sequence,
+                        baseline_agent_sequence=new_state.baseline_agent_sequence,
                         last_transition_at=new_state.last_transition_at,
                         updated_at=datetime.now(timezone.utc),
                     )
@@ -135,6 +137,7 @@ class SqlEnforcementStateRepository(EnforcementStateRepository):
                     state_row.suspension_reason = new_state.suspension_reason
                     state_row.enforcement_baseline_at = new_state.enforcement_baseline_at
                     state_row.baseline_evidence_sequence = new_state.baseline_evidence_sequence
+                    state_row.baseline_agent_sequence = new_state.baseline_agent_sequence
                     state_row.last_transition_at = new_state.last_transition_at
                     state_row.updated_at = datetime.now(timezone.utc)
 
