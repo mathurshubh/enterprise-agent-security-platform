@@ -37,6 +37,7 @@ from app.models.tool_metadata import ToolMetadata
 from app.models.tool_operational import ToolOperational
 from app.models.tool_risk_level import ToolRiskLevel
 from app.registry.tool_registry import (
+    AmbiguousToolVersionError,
     ToolNotRegisteredError,
     ToolRegistry,
 )
@@ -643,3 +644,37 @@ def test_executor_bound_to_another_authority_refuses_the_runtime_grant() -> None
 
     assert exc_info.value.reason is ExecutionRefusalReason.FOREIGN_AUTHORITY
     assert tool.parameters is None
+
+
+def test_execution_uses_the_granted_version_not_a_fresh_resolution() -> None:
+    """The grant names the implementation; the runtime service must not re-resolve.
+
+    With several versions registered, resolving from the unversioned
+    ``ToolInvocation`` raises ``AmbiguousToolVersionError`` — so the tool could not be
+    executed at all, despite the grant naming exactly which version to run. The grant's
+    version was able to reject a wrong resolution but never to drive the right one.
+    """
+    registry = ToolRegistry()
+    v1 = RecordingTool("file_read", "v1 output")
+    v2 = RecordingTool("file_read", "v2 output")
+    v2._metadata = v2.metadata.model_copy(
+        update={"identity": v2.metadata.identity.model_copy(update={"version": "2.0.0"})}
+    )
+    registry.register(v1)
+    registry.register(v2)
+
+    with pytest.raises(AmbiguousToolVersionError):
+        registry.resolve("file_read")
+
+    service = AgentRuntimeService(
+        agent=FakeAgent(),
+        runtime_service=StubRuntimeService(decision=Decision.ALLOW),
+        tool_registry=registry,
+    )
+
+    result = service.execute("read notes.txt")
+
+    # The stub grant binds 1.0.0, so 1.0.0 is what must run.
+    assert result.output == "v1 output"
+    assert v1.parameters is not None, "the granted version executed"
+    assert v2.parameters is None, "the other version did not"
