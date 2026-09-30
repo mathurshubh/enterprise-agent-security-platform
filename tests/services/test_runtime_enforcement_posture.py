@@ -734,7 +734,10 @@ class TestStep8RuntimePostureConsumption:
             resource="notes.txt",
         )
 
-        assert result.event.decision == Decision.DENY
+        # The refusal is downstream of authorization, so the persisted event
+        # keeps what authorization concluded and records DENY as the outcome.
+        assert result.event.decision == Decision.ALLOW
+        assert result.event.final_decision == Decision.DENY
         assert result.refusal_reason == POSTURE_RECONCILIATION_FAILED
         assert result.authorization is None
         # Invariant: no synthetic CRITICAL risk fabricated

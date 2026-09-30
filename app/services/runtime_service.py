@@ -462,11 +462,31 @@ class RuntimeService:
         self._last_result = result
         return result
 
+    def _finalize_refused_event(self, recorded_event: SessionEvent) -> SessionEvent:
+        """Record DENY as the terminal decision of an already-persisted event.
+
+        A refusal is an established outcome, not an incomplete one. Leaving
+        ``final_decision`` unset would leave the durable record saying the request was
+        authorized and never concluded, which a later reader — including the detection
+        horizon, which queries these rows — cannot tell apart from a request that crashed
+        mid-pipeline.
+
+        Goes through ``update_event_final_decision`` rather than writing the field
+        directly, so a refusal is subject to the same finalization invariant as any other
+        outcome: settable once, idempotent on repeat, and rejected if it would overwrite a
+        different decision.
+        """
+        self._session_service.update_event_final_decision(
+            session_id=recorded_event.session_id,
+            sequence_number=recorded_event.sequence_number,
+            final_decision=Decision.DENY,
+        )
+        return recorded_event.model_copy(update={"final_decision": Decision.DENY})
+
     def _refuse_posture_reconciliation(
         self,
-        session_id: str,
-        agent_id: str,
-        tool_id: str,
+        recorded_event: SessionEvent,
+        resolved_tool_id: str | None,
         resource: str | None,
         param_hash: str,
         trace_id: str | None,
@@ -480,26 +500,27 @@ class RuntimeService:
         The request is denied at the authorization/execution boundary without fabricating
         a synthetic CRITICAL risk score. This preserves the distinction between active
         risk evidence and security-state availability.
+
+        Reached after the pipeline has already persisted the request's event, so it takes
+        that event rather than building one: the persisted record is the authoritative one
+        for this request, and a second object asserting a different outcome would leave two
+        records of one request disagreeing.
         """
-        event = SessionEvent(
-            session_id=session_id,
-            agent_id=agent_id,
-            tool_id=tool_id,
-            decision=Decision.DENY,
-            # A refusal is an established outcome, not an incomplete one: the request
-            # never reaches the response step, so the final decision is recorded here.
-            # Leaving it None would make a refusal indistinguishable from a request
-            # that failed mid-pipeline.
-            final_decision=Decision.DENY,
-        )
+        session_id = recorded_event.session_id
+        agent_id = recorded_event.agent_id
+        tool_id = recorded_event.tool_id
+        event = self._finalize_refused_event(recorded_event)
 
         audit_event = AuditEvent(
             event_id=f"evt-{uuid.uuid4()}",
             session_id=session_id,
             agent_id=agent_id,
-            # Refused at a trust boundary, before any tool resolution: the request named
-            # this tool, and nothing established that it exists or which version it meant.
             requested_tool_id=tool_id,
+            # Resolution already happened; the refusal is downstream of it. Reporting no
+            # resolved identity here would state that nothing was established about this
+            # tool, which the persisted event disproves.
+            tool_id=resolved_tool_id,
+            tool_version=recorded_event.tool_version,
             decision=Decision.DENY,
         )
         self._audit_service.record_event(audit_event)
@@ -537,9 +558,8 @@ class RuntimeService:
 
     def _refuse_horizon_unavailable(
         self,
-        session_id: str,
-        agent_id: str,
-        tool_id: str,
+        recorded_event: SessionEvent,
+        resolved_tool_id: str | None,
         resource: str | None,
         param_hash: str,
         trace_id: str | None,
@@ -548,22 +568,23 @@ class RuntimeService:
         started_at: float,
         error: Exception,
     ) -> RuntimeResult:
-        """Fail closed when the authoritative detection horizon is unavailable."""
-        event = SessionEvent(
-            session_id=session_id,
-            agent_id=agent_id,
-            tool_id=tool_id,
-            decision=Decision.DENY,
-            final_decision=Decision.DENY,
-        )
+        """Fail closed when the authoritative detection horizon is unavailable.
+
+        Like the posture refusal, this is reached after the request's event has been
+        persisted, so it finalizes that event rather than constructing a replacement.
+        """
+        session_id = recorded_event.session_id
+        agent_id = recorded_event.agent_id
+        tool_id = recorded_event.tool_id
+        event = self._finalize_refused_event(recorded_event)
 
         audit_event = AuditEvent(
             event_id=f"evt-{uuid.uuid4()}",
             session_id=session_id,
             agent_id=agent_id,
-            # Refused at a trust boundary, before any tool resolution: the request named
-            # this tool, and nothing established that it exists or which version it meant.
             requested_tool_id=tool_id,
+            tool_id=resolved_tool_id,
+            tool_version=recorded_event.tool_version,
             decision=Decision.DENY,
         )
         self._audit_service.record_event(audit_event)
@@ -913,6 +934,23 @@ class RuntimeService:
 
         recorded_event = self._session_service.record_event(event)
 
+        # What resolution established about the tool, computed once and read by every
+        # record this request produces. A resolved version implies a resolved family —
+        # containment cannot reach an implementation whose family does not exist — and
+        # absent a version, authorization's own existence check determined the family.
+        # Derived here rather than at each emission site so a refusal and a completion
+        # cannot describe the same request differently.
+        resolved_tool_id = (
+            tool_id
+            if tool_version is not None
+            or (
+                authorization_result is not None
+                and authorization_result.tool_check.status
+                == AuthorizationCheckStatus.PASSED
+            )
+            else None
+        )
+
         # Read at the moment of the triggering event, never as the agent's current
         # epoch. An event from before an enforcement-recovery boundary must derive
         # the same epoch whenever it is evaluated, or the same behaviour would
@@ -966,9 +1004,8 @@ class RuntimeService:
             )
         except SessionRepositoryError as exc:
             return self._refuse_horizon_unavailable(
-                session_id=session_id,
-                agent_id=agent_id,
-                tool_id=tool_id,
+                recorded_event=recorded_event,
+                resolved_tool_id=resolved_tool_id,
                 resource=resource,
                 param_hash=param_hash,
                 trace_id=trace_id,
@@ -1030,9 +1067,8 @@ class RuntimeService:
             enforcement_posture = self._assess_agent_posture(agent_id)
         except PostureReconciliationError:
             return self._refuse_posture_reconciliation(
-                session_id=session_id,
-                agent_id=agent_id,
-                tool_id=tool_id,
+                recorded_event=recorded_event,
+                resolved_tool_id=resolved_tool_id,
                 resource=resource,
                 param_hash=param_hash,
                 trace_id=trace_id,
