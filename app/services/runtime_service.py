@@ -10,6 +10,7 @@ from app.models.agent import Agent, AgentStatus, RiskTier
 from app.models.agent_enforcement import EnforcementTrigger
 from app.models.agent_risk_posture import AgentRiskPosture, PostureState
 from app.models.audit_event import AuditEvent, Decision
+from app.models.authorization_result import AuthorizationCheckStatus
 from app.models.execution_binding import (
     ExecutionBinding,
     ExecutionBindingValidationError,
@@ -421,7 +422,9 @@ class RuntimeService:
             event_id=f"evt-{uuid.uuid4()}",
             session_id=session_id,
             agent_id=agent_id,
-            tool_id=tool_id,
+            # Refused at a trust boundary, before any tool resolution: the request named
+            # this tool, and nothing established that it exists or which version it meant.
+            requested_tool_id=tool_id,
             decision=Decision.DENY,
         )
         self._audit_service.record_event(audit_event)
@@ -494,7 +497,9 @@ class RuntimeService:
             event_id=f"evt-{uuid.uuid4()}",
             session_id=session_id,
             agent_id=agent_id,
-            tool_id=tool_id,
+            # Refused at a trust boundary, before any tool resolution: the request named
+            # this tool, and nothing established that it exists or which version it meant.
+            requested_tool_id=tool_id,
             decision=Decision.DENY,
         )
         self._audit_service.record_event(audit_event)
@@ -556,7 +561,9 @@ class RuntimeService:
             event_id=f"evt-{uuid.uuid4()}",
             session_id=session_id,
             agent_id=agent_id,
-            tool_id=tool_id,
+            # Refused at a trust boundary, before any tool resolution: the request named
+            # this tool, and nothing established that it exists or which version it meant.
+            requested_tool_id=tool_id,
             decision=Decision.DENY,
         )
         self._audit_service.record_event(audit_event)
@@ -900,6 +907,7 @@ class RuntimeService:
             session_id=session_id,
             agent_id=agent_id,
             tool_id=tool_id,
+            tool_version=tool_version,
             decision=decision,
         )
 
@@ -1130,7 +1138,23 @@ class RuntimeService:
             event_id=f"evt-{uuid.uuid4()}",
             session_id=session_id,
             agent_id=agent_id,
-            tool_id=tool_id,
+            requested_tool_id=tool_id,
+            # A resolved version implies a resolved family — containment cannot reach
+            # an implementation whose family does not exist. Where no version resolved,
+            # authorization's own existence check is what determined the family, so the
+            # record reports that rather than re-deriving it. Both are read from what the
+            # pipeline concluded; neither consults a service this pipeline may not hold.
+            tool_id=(
+                tool_id
+                if tool_version is not None
+                or (
+                    authorization_result is not None
+                    and authorization_result.tool_check.status
+                    == AuthorizationCheckStatus.PASSED
+                )
+                else None
+            ),
+            tool_version=tool_version,
             decision=final_decision,
         )
         self._audit_service.record_event(audit_event)

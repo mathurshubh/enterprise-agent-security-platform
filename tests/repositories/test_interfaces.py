@@ -340,6 +340,7 @@ class TestRepositoryProtocolConformance:
             event_id="audit-1",
             session_id="session-1",
             agent_id="agent-1",
+            requested_tool_id="test_tool",
             tool_id="test_tool",
             decision=Decision.ALLOW,
             timestamp=now,

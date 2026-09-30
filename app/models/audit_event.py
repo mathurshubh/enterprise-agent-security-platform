@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class Decision(str, Enum):
@@ -37,6 +37,20 @@ class AuditEvent(BaseModel):
 
     Deriving a changed value stays available through ``model_copy``, which produces a
     new record rather than editing the stored one.
+
+    Tool identity is recorded as two separate facts, because they answer different
+    questions and a single field could not answer either honestly:
+
+    - ``requested_tool_id`` is what crossed the trust boundary. Always present, never
+      validated against anything — recording what was asked for is the point, and a
+      request naming a tool that does not exist is exactly the case worth auditing.
+    - ``tool_id`` and ``tool_version`` are what the security pipeline established. Both
+      absent on a request refused at a trust boundary before any resolution occurred;
+      ``tool_version`` alone absent where a family resolved but no implementation did.
+
+    Collapsing these would make a record naming ``file_read`` unable to say whether the
+    tool existed, resolved, or was merely claimed — which is the distinction an evidence
+    record most needs to preserve.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -44,8 +58,37 @@ class AuditEvent(BaseModel):
     event_id: str
     session_id: str
     agent_id: str
-    tool_id: str
+    requested_tool_id: str = Field(
+        description=(
+            "The tool identity the request named, recorded as received. Not constrained: "
+            "a malformed or empty value is what some requests carry, and those are the "
+            "ones worth auditing."
+        ),
+    )
+    tool_id: str | None = Field(
+        default=None,
+        description="Resolved tool-family identity, when tool resolution occurred.",
+    )
+    tool_version: str | None = Field(
+        default=None,
+        description="Resolved concrete version, when an implementation was established.",
+    )
     decision: Decision
     timestamp: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
+
+    @model_validator(mode="after")
+    def _resolved_version_requires_a_resolved_family(self) -> "AuditEvent":
+        """A version cannot resolve without the family it belongs to.
+
+        Internal coherence only. That the resolved identity names a *registered* family
+        is a repository fact this model has no authority to check, and asserting it here
+        would make the model appear to guarantee something it cannot.
+        """
+        if self.tool_version is not None and self.tool_id is None:
+            raise ValueError(
+                "tool_version cannot be set without tool_id: a concrete version cannot "
+                "resolve without the family it belongs to"
+            )
+        return self

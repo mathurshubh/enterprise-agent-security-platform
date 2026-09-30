@@ -46,6 +46,10 @@ class SessionEvent(BaseModel):
     """One recorded step in a session.
 
     Dual sequencing:
+    Tool identity is recorded at the granularity resolution reached: ``tool_id`` is the
+    family the request named, and ``tool_version`` is the implementation it resolved to,
+    which is absent on every path where no implementation was established.
+
     - ``sequence_number``: Monotonic 1-based position within the session (session-scoped ordering).
     - ``agent_sequence``: Monotonic position within the agent across sessions (agent-scoped ordering and watermark).
       Monotonicity is required; numerical gaplessness is not required.
@@ -55,6 +59,15 @@ class SessionEvent(BaseModel):
     session_id: str
     agent_id: str
     tool_id: str
+    tool_version: str | None = Field(
+        default=None,
+        description=(
+            "Concrete version of the tool implementation this event concerns, when "
+            "resolution established one. None means no concrete version was ever "
+            "established — the tool was unregistered, its version ambiguous, or it was "
+            "governance-disabled — not that the version is unrecorded."
+        ),
+    )
     decision: Decision
 
     sequence_number: int = Field(

@@ -57,6 +57,7 @@ def make_audit_event(
         event_id=event_id,
         session_id=session_id,
         agent_id=agent_id,
+        requested_tool_id=tool_id,
         tool_id=tool_id,
         decision=decision,
     )
@@ -282,6 +283,38 @@ class TestListAuditEvents:
         assert response.status_code == 200
         ids = [e["event_id"] for e in response.json()]
         assert "evt-mgmt-001" in ids
+
+    def test_requested_and_resolved_identity_are_reported_separately(self) -> None:
+        """The endpoint must not echo the request into the resolved field.
+
+        A consumer reading ``tool_id`` needs to know the platform established that tool,
+        not merely that someone asked for it. Echoing the request would make a claimed
+        tool indistinguishable from a resolved one, which for an evidence API is a
+        misreport rather than a convenience.
+        """
+        audit_service.record_event(
+            AuditEvent(
+                event_id="evt-mgmt-unresolved",
+                session_id="mgmt-session-1",
+                agent_id="mgmt-agent-1",
+                requested_tool_id="never_registered",
+                decision=Decision.DENY,
+            )
+        )
+        audit_service.record_event(
+            make_audit_event("evt-mgmt-resolved", tool_id="file_read")
+        )
+
+        payload = {e["event_id"]: e for e in client.get("/api/v1/audit/events").json()}
+
+        unresolved = payload["evt-mgmt-unresolved"]
+        assert unresolved["requested_tool_id"] == "never_registered"
+        assert unresolved["tool_id"] is None, "nothing resolved; the request is not an answer"
+        assert unresolved["tool_version"] is None
+
+        resolved = payload["evt-mgmt-resolved"]
+        assert resolved["requested_tool_id"] == "file_read"
+        assert resolved["tool_id"] == "file_read"
 
     def test_response_schema(self) -> None:
         event = make_audit_event("evt-mgmt-schema")

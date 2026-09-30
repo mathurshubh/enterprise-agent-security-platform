@@ -37,6 +37,7 @@ def make_audit_event(
         "event_id": event_id,
         "session_id": session_id,
         "agent_id": agent_id,
+        "requested_tool_id": tool_id,
         "tool_id": tool_id,
         "decision": decision,
     }

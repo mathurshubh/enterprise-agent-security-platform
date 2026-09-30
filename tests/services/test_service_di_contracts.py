@@ -268,6 +268,7 @@ class TestPR180BehaviorNeutrality:
             event_id="ev-test",
             session_id="sess-1",
             agent_id="agent-1",
+            requested_tool_id="file_read",
             tool_id="file_read",
             action="file_read",
             decision=Decision.ALLOW,
