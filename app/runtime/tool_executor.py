@@ -64,6 +64,7 @@ from app.runtime.contracts import (
     ExecutionAuthorityProtocol,
     ExecutionEvidenceStoreProtocol,
     ToolExecutionSandboxProtocol,
+    ToolRegistryProtocol,
 )
 from app.runtime.exceptions import (
     CapabilityProfileNotFoundError,
@@ -123,6 +124,7 @@ class DefaultToolExecutor:
         monotonic_clock: Callable[[], float] = time.monotonic,
         sandbox: ToolExecutionSandboxProtocol | None = None,
         capability_registry: CapabilityProfileRegistryProtocol | None = None,
+        tool_registry: ToolRegistryProtocol | None = None,
     ) -> None:
         if authority is not None and not isinstance(
             authority, ExecutionAuthorityProtocol
@@ -143,6 +145,9 @@ class DefaultToolExecutor:
         self._monotonic_clock = monotonic_clock
         self._sandbox = sandbox
         self._capability_registry = capability_registry
+        # Used to materialise the implementation a grant names — never to choose one.
+        # See ``execute``.
+        self._tool_registry = tool_registry
 
     def instantiate(self, descriptor: ToolDescriptor, **kwargs: Any) -> BaseTool:
         """Instantiate or return an executable BaseTool handle from a passive ToolDescriptor."""
@@ -160,12 +165,81 @@ class DefaultToolExecutor:
             "Descriptor contains neither a BaseTool instance nor a factory",
         )
 
+    def execute(
+        self,
+        grant: RuntimeExecutionGrant | None,
+        parameters: Mapping[str, Any],
+        context: RuntimeContext | None = None,
+    ) -> Any:
+        """Execute the implementation a grant authorises. The production execution path.
+
+        The grant is the sole authority for which implementation runs. Nothing here reads
+        the original ``ToolInvocation``, and no caller supplies a tool: once an
+        ``ExecutionGrant`` exists, an independently selected ``ToolDescriptor`` would be a
+        second identity authority able to disagree with it. Comparing the two and refusing
+        a mismatch would catch the disagreement, but leaving the second path expressible is
+        what allows it to arise. This signature removes it.
+
+        Resolution here is *materialisation, not selection*. The version is always taken
+        from the grant's binding, so the registry is asked "give me exactly this version",
+        never "which version should I use". That question was answered upstream, before
+        authorization, and asking it again could answer it differently.
+
+        Raises:
+            ExecutionBindingError: no grant was supplied, or no registry is wired so the
+                authorised implementation cannot be materialised.
+            ToolNotRegisteredError / ToolVersionMismatchError: the exact version the grant
+                names is not registered.
+            ToolDisabledError: that version is registered but disabled.
+        """
+        if grant is None:
+            # Typed as optional so this refusal is part of the contract rather than an
+            # AttributeError. A pipeline reaching ALLOW without issuing a grant is a
+            # wiring failure, and execution without authority is what this refuses.
+            raise ExecutionBindingError(ExecutionRefusalReason.MISSING_GRANT, "")
+
+        binding = grant.binding
+        if self._tool_registry is None:
+            raise ExecutionBindingError(
+                ExecutionRefusalReason.NO_AUTHORITY,
+                binding.tool_id,
+                "executor is not bound to a tool registry and cannot materialise the "
+                "implementation this grant authorises",
+            )
+
+        descriptor = self._tool_registry.resolve(
+            binding.tool_id,
+            # Always supplied. Omitting it would hand the version decision back to the
+            # registry, which is the defect this path exists to remove.
+            version=binding.tool_version,
+        )
+        return self._execute_resolved(descriptor, parameters, context, grant)
+
     def execute_descriptor(
         self,
         descriptor: ToolDescriptor,
         parameters: Mapping[str, Any],
         context: RuntimeContext | None = None,
         grant: RuntimeExecutionGrant | None = None,
+    ) -> Any:
+        """Internal primitive: execute a caller-supplied descriptor.
+
+        **Not the production execution path.** Production goes through ``execute``, which
+        derives the implementation from the grant. This remains for executor-internal use
+        and for tests that deliberately exercise descriptor-level behaviour; a production
+        caller using it reintroduces the second identity authority ``execute`` removes.
+
+        The grant is still verified against the descriptor's own identity, so a descriptor
+        disagreeing with the grant is refused rather than executed.
+        """
+        return self._execute_resolved(descriptor, parameters, context, grant)
+
+    def _execute_resolved(
+        self,
+        descriptor: ToolDescriptor,
+        parameters: Mapping[str, Any],
+        context: RuntimeContext | None,
+        grant: RuntimeExecutionGrant | None,
     ) -> Any:
         """Verify the grant and capability binding, then instantiate and execute via sandbox.
 

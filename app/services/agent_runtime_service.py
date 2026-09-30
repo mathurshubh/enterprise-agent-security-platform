@@ -100,6 +100,9 @@ class AgentRuntimeService:
             sandbox=sandbox,
             capability_registry=capability_registry,
             evidence_store=evidence_store,
+            # The executor materialises the implementation a grant names, so it needs
+            # the same registry this service resolves against.
+            tool_registry=self._tool_registry,
         )
 
     @property
@@ -160,11 +163,14 @@ class AgentRuntimeService:
                 output=None,
             )
 
-        descriptor = self._tool_registry.resolve(invocation.tool_id)
-        output = self._executor.execute_descriptor(
-            descriptor,
+        # The grant names the implementation to run, so it is handed to the executor
+        # directly. Resolving from ``invocation.tool_id`` here would ask the registry to
+        # choose a version again — after authorization already chose one — and the choice
+        # could differ. It is also unversioned, so a tool with several registered versions
+        # could not be executed at all despite the grant naming exactly which one.
+        output = self._executor.execute(
+            runtime_result.authorization,
             parameters,
-            grant=runtime_result.authorization,
         )
 
         return AgentRuntimeResult(

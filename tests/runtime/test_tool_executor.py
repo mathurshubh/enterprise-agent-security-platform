@@ -29,6 +29,11 @@ from app.models.tool_identity import ToolIdentity
 from app.models.tool_metadata import ToolMetadata
 from app.models.tool_operational import ToolOperational
 from app.models.tool_risk_level import ToolRiskLevel
+from app.registry.tool_registry import (
+    AmbiguousToolVersionError,
+    ToolRegistry,
+    ToolVersionMismatchError,
+)
 from app.runtime.capability_registry import InMemoryCapabilityProfileRegistry
 from app.runtime.exceptions import (
     CapabilityDigestMismatchError,
@@ -1074,6 +1079,15 @@ def test_a_telemetry_outage_is_recorded_rather_than_silently_discarded(monkeypat
     )
 
 
+def _versioned_tool(tool_id: str, version: str) -> ExecutionTestTool:
+    """A tool whose identity differs from its siblings only by version."""
+    tool = ExecutionTestTool(tool_id=tool_id)
+    tool._metadata = tool.metadata.model_copy(
+        update={"identity": tool.metadata.identity.model_copy(update={"version": version})}
+    )
+    return tool
+
+
 def _versioned_descriptor(tool_id: str, version: str) -> ToolDescriptor:
     """A descriptor whose identity differs from its sibling only by version."""
     tool = ExecutionTestTool(tool_id=tool_id)
@@ -1152,3 +1166,135 @@ class TestBoundVersionCannotBeSubstituted:
             executor.execute_descriptor(descriptor, {}, grant=grant)
 
         assert descriptor.instance.executions == 0
+
+
+class TestTheGrantIsTheSoleToolIdentityAuthority:
+    """Execution materialises the implementation the grant names; it never chooses one.
+
+    `AgentRuntimeService` used to re-resolve `invocation.tool_id` — unversioned — after the
+    grant already named a concrete version. The grant's version could reject a wrong
+    resolution but never drive the right one, and with several versions registered the
+    unversioned resolve raised `AmbiguousToolVersionError`, so the tool could not be
+    executed at all despite the grant naming exactly which version to run.
+    """
+
+    class _RecordingSandbox(StubSandbox):
+        """Records which concrete implementation reached the sandbox.
+
+        The version that arrives here is the one that would actually run, which is the
+        property F-04 is about — not merely which version resolved.
+        """
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.versions: list[str] = []
+
+        def execute(self, *, tool, parameters, capabilities, provenance):
+            self.versions.append(tool.metadata.identity.version)
+            return super().execute(
+                tool=tool,
+                parameters=parameters,
+                capabilities=capabilities,
+                provenance=provenance,
+            )
+
+    @staticmethod
+    def _registry_with(*versions: str) -> ToolRegistry:
+        registry = ToolRegistry()
+        for version in versions:
+            registry.register(_versioned_tool("exec_test", version))
+        return registry
+
+    @staticmethod
+    def _grant(authority: ExecutionAuthority, version: str):
+        caps = _make_test_capabilities("test-profile")
+        return authority.issue(
+            ExecutionBinding.from_operation("exec_test", version, {}),
+            Decision.ALLOW,
+            agent_id="agent-1",
+            session_id="session-1",
+            capability_profile_id="test-profile",
+            capability_digest=caps.compute_digest(),
+        )
+
+    def test_the_granted_version_is_the_one_that_runs(self) -> None:
+        for version in ("1.0.0", "2.0.0"):
+            authority = ExecutionAuthority()
+            sandbox = self._RecordingSandbox()
+            executor = _make_executor(authority=authority, sandbox=sandbox)
+            executor._tool_registry = self._registry_with("1.0.0", "2.0.0")
+
+            executor.execute(self._grant(authority, version), {})
+
+            assert sandbox.versions == [version], (
+                f"grant named {version}; sandbox received {sandbox.versions}"
+            )
+
+    def test_several_registered_versions_are_not_ambiguous(self) -> None:
+        """The defect's observable symptom: unversioned resolution could not proceed."""
+        authority = ExecutionAuthority()
+        registry = self._registry_with("1.0.0", "2.0.0", "3.0.0")
+        sandbox = self._RecordingSandbox()
+        executor = _make_executor(authority=authority, sandbox=sandbox)
+        executor._tool_registry = registry
+
+        with pytest.raises(AmbiguousToolVersionError):
+            registry.resolve("exec_test")
+
+        executor.execute(self._grant(authority, "3.0.0"), {})
+
+        assert sandbox.versions == ["3.0.0"]
+
+    def test_a_version_the_grant_names_but_is_unregistered_fails_closed(self) -> None:
+        authority = ExecutionAuthority()
+        executor = _make_executor(authority=authority)
+        executor._tool_registry = self._registry_with("1.0.0")
+
+        with pytest.raises(ToolVersionMismatchError):
+            executor.execute(self._grant(authority, "9.9.9"), {})
+
+    def test_execution_without_a_registry_fails_closed(self) -> None:
+        """Nothing can materialise the authorised implementation, so nothing runs."""
+        authority = ExecutionAuthority()
+        executor = _make_executor(authority=authority)
+        executor._tool_registry = None
+
+        with pytest.raises(ExecutionBindingError) as exc:
+            executor.execute(self._grant(authority, "1.0.0"), {})
+        assert exc.value.reason is ExecutionRefusalReason.NO_AUTHORITY
+
+    def test_the_version_is_always_supplied_to_the_registry(self) -> None:
+        """Resolution is materialisation, not selection.
+
+        Asserted structurally rather than by outcome: an unversioned call would let the
+        registry decide, and with one version registered the result would look correct.
+        """
+        authority = ExecutionAuthority()
+        registry = self._registry_with("1.0.0")
+        calls: list[tuple] = []
+        real_resolve = registry.resolve
+
+        def recording_resolve(tool_id, version=None):
+            calls.append((tool_id, version))
+            return real_resolve(tool_id, version)
+
+        registry.resolve = recording_resolve
+        executor = _make_executor(authority=authority)
+        executor._tool_registry = registry
+
+        executor.execute(self._grant(authority, "1.0.0"), {})
+
+        assert calls, "the executor must resolve the implementation"
+        assert all(version is not None for _tool_id, version in calls), (
+            f"every resolution must name a version; saw {calls}"
+        )
+
+    def test_the_production_path_accepts_no_caller_supplied_tool(self) -> None:
+        """Structural: the signature admits no second identity authority."""
+        import inspect
+
+        params = set(inspect.signature(DefaultToolExecutor.execute).parameters)
+
+        assert "grant" in params
+        assert "descriptor" not in params
+        assert "tool" not in params
