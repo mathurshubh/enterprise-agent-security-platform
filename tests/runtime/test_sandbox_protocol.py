@@ -57,6 +57,10 @@ class StubValidSandbox:
         parameters: Mapping[str, Any],
         capabilities: ExecutionCapabilities,
         provenance: ExecutionProvenance,
+
+        implementation_id: str | None = None,
+
+        tool_version: str | None = None,
     ) -> SandboxExecutionResult:
         return SandboxExecutionResult(
             success=True,

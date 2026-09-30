@@ -101,7 +101,7 @@ def _authorize(env, path: str, session_id: str):
 
 
 class _RegressionSandbox:
-    def execute(self, *, tool, parameters, capabilities, provenance):
+    def execute(self, *, tool, parameters, capabilities, provenance, implementation_id=None, tool_version=None):
         return SandboxExecutionResult(
             success=True,
             output=tool.execute(dict(parameters)),

@@ -127,9 +127,14 @@ def register_default_tools(
     if tool_registry is not None:
         workspace_root = Path("demo_workspace")
         if not tool_registry.exists("file_read"):
-            tool_registry.register(FileReadTool(workspace_root))
+            tool_registry.register(
+                FileReadTool(workspace_root), implementation_id="file_read_v1"
+            )
         if not tool_registry.exists("directory_list"):
-            tool_registry.register(DirectoryListTool(workspace_root))
+            tool_registry.register(
+                DirectoryListTool(workspace_root),
+                implementation_id="directory_list_v1",
+            )
 
 
 def bootstrap_runtime_service(

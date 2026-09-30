@@ -66,11 +66,20 @@ class ToolRegistry:
         self._descriptors: dict[str, dict[str, ToolDescriptor]] = {}
         self._executor = DefaultToolExecutor()
 
-    def register(self, tool: BaseTool) -> BaseTool:
+    def register(
+        self, tool: BaseTool, *, implementation_id: str | None = None
+    ) -> BaseTool:
         """Register an executable BaseTool instance.
 
         Validates tool identity metadata, creates a ToolDescriptor, and stores it under
         tool_id and version.
+
+        ``implementation_id`` names the packaged implementation this registration maps to.
+        It is declared here rather than derived, because which packaged routine runs a
+        tool version is a deployment fact and not part of the tool's semantic identity —
+        a hardened replacement can back the same tool version without that version
+        changing. A registration without one produces a descriptor that cannot execute;
+        the sandbox refuses rather than guessing an identifier.
 
         Raises:
             ToolMetadataValidationError: If tool_id or name is missing/empty.
@@ -82,6 +91,7 @@ class ToolRegistry:
             metadata=tool.metadata,
             instance=tool,
             tool_class=type(tool),
+            implementation_id=implementation_id,
             enabled=True,
             registration_state="REGISTERED",
         )

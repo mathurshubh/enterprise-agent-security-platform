@@ -134,6 +134,7 @@ def test_invariant_a_probe_cannot_execute_in_a_sandbox_without_explicit_opt_in(
     default_sandbox = ProcessToolExecutionSandbox()
     refused = default_sandbox.execute(
         tool=_ProbeTool(),
+        implementation_id="test_file_op",
         parameters={"op": "mkdir", "path": str(tmp_path / "created")},
         capabilities=capabilities,
         provenance=provenance,
@@ -145,6 +146,7 @@ def test_invariant_a_probe_cannot_execute_in_a_sandbox_without_explicit_opt_in(
     opted_in = ProcessToolExecutionSandbox(enable_testing_handlers=True)
     permitted = opted_in.execute(
         tool=_ProbeTool(),
+        implementation_id="test_file_op",
         parameters={"op": "mkdir", "path": str(tmp_path / "created")},
         capabilities=capabilities,
         provenance=provenance,

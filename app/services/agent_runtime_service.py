@@ -110,9 +110,14 @@ class AgentRuntimeService:
         return self._agent
 
     def _register_executable_tools(self) -> None:
-        self._tool_registry.register(FileReadTool(self._WORKSPACE_ROOT))
+        self._tool_registry.register(
+            FileReadTool(self._WORKSPACE_ROOT), implementation_id="file_read_v1"
+        )
 
-        self._tool_registry.register(DirectoryListTool(self._WORKSPACE_ROOT))
+        self._tool_registry.register(
+            DirectoryListTool(self._WORKSPACE_ROOT),
+            implementation_id="directory_list_v1",
+        )
 
     def execute(
         self,

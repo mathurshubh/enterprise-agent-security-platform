@@ -81,14 +81,31 @@ class ProcessToolExecutionSandbox:
         parameters: Mapping[str, Any],
         capabilities: ExecutionCapabilities,
         provenance: ExecutionProvenance,
+        implementation_id: str | None = None,
+        tool_version: str | None = None,
     ) -> SandboxExecutionResult:
-        """Execute an authorized tool within the isolated subprocess sandbox."""
+        """Execute an authorized tool within the isolated subprocess sandbox.
+
+        ``implementation_id`` is supplied by the caller from the registration that
+        declared it. It is never derived here: the child registry's keys are literals, so
+        a formula on this side would agree with them only by coincidence, and a tool
+        registered at version 2.0.0 previously resolved to the ``_v1`` routine because
+        both sides independently hardcoded ``_v1``.
+
+        ``tool_version`` crosses as identity so the child's execution is attributable to a
+        concrete version. It is not a selection input — the child resolves by
+        ``implementation_id`` alone.
+        """
         start_monotonic = time.monotonic()
 
-        # 1. Resolve implementation_id
-        implementation_id = getattr(tool, "implementation_id", None)
+        # 1. Implementation identity, declared at registration
         if not implementation_id:
-            implementation_id = f"{tool.tool_id}_v1"
+            raise SandboxUnavailableError(
+                f"No implementation is registered for tool '{tool.tool_id}': execution "
+                "requires an explicitly declared implementation_id, and one is never "
+                "inferred from the tool identity",
+                tool_id=tool.tool_id,
+            )
 
         # 2. Validate workspace root existence
         workspace_path = Path(capabilities.filesystem.workspace_root).resolve()
@@ -111,6 +128,7 @@ class ProcessToolExecutionSandbox:
                 capabilities=capabilities,
                 provenance=provenance,
                 implementation_id=implementation_id,
+                tool_version=tool_version,
                 workspace_path=workspace_path,
                 scratch_path=scratch_path,
                 start_monotonic=start_monotonic,
@@ -127,6 +145,7 @@ class ProcessToolExecutionSandbox:
         capabilities: ExecutionCapabilities,
         provenance: ExecutionProvenance,
         implementation_id: str,
+        tool_version: str | None,
         workspace_path: Path,
         scratch_path: str | None,
         start_monotonic: float,
@@ -136,6 +155,7 @@ class ProcessToolExecutionSandbox:
 
         descriptor = ToolExecutionDescriptor(
             tool_id=tool.tool_id,
+            tool_version=tool_version,
             implementation_id=implementation_id,
             parameters=parameters,
             grant_id=provenance.grant_id,

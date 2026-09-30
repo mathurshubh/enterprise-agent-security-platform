@@ -89,8 +89,13 @@ def build_runtime():
 
         tool_registry = ToolRegistry()
         if workspace is not None:
-            tool_registry.register(FileReadTool(str(workspace)))
-            tool_registry.register(DirectoryListTool(str(workspace)))
+            tool_registry.register(
+                FileReadTool(str(workspace)), implementation_id="file_read_v1"
+            )
+            tool_registry.register(
+                DirectoryListTool(str(workspace)),
+                implementation_id="directory_list_v1",
+            )
 
         tool_service = create_test_tool_service(tool_registry=tool_registry)
         register_default_tools(tool_service)

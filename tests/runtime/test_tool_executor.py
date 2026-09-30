@@ -137,6 +137,10 @@ class StubSandbox:
         parameters: dict[str, Any],
         capabilities: ExecutionCapabilities,
         provenance: ExecutionProvenance,
+
+        implementation_id: str | None = None,
+
+        tool_version: str | None = None,
     ) -> SandboxExecutionResult:
         self.executions += 1
         self.last_capabilities = capabilities
@@ -204,7 +208,11 @@ def _make_executor(
 def test_tool_executor_instantiate_from_instance():
     executor = DefaultToolExecutor()
     tool = ExecutionTestTool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
 
     instantiated = executor.instantiate(descriptor)
     assert instantiated is tool
@@ -244,7 +252,11 @@ def test_tool_executor_execute_descriptor_success():
     authority = ExecutionAuthority()
     executor = _make_executor(authority=authority)
     tool = ExecutionTestTool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
 
     grant = _grant_for(
         authority, tool.tool_id, {"param": "val"}, agent_id="a1", session_id="s1"
@@ -268,7 +280,11 @@ def test_tool_executor_execute_translation_of_exceptions():
     sandbox = StubSandbox(should_fail=True, error_msg="Underlying tool failure")
     executor = _make_executor(authority=authority, sandbox=sandbox)
     tool = ExecutionTestTool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
     grant = _grant_for(authority, tool.tool_id, {})
 
     with pytest.raises(ToolExecutionError) as exc_info:
@@ -300,7 +316,11 @@ def test_execute_tool_enforces_the_grant_as_well():
 def test_executor_without_an_authority_refuses_every_execution():
     executor = _make_executor(authority=None)
     tool = ExecutionTestTool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
     grant = _grant_for(ExecutionAuthority(), tool.tool_id, {"param": "val"})
 
     with pytest.raises(ExecutionBindingError) as exc_info:
@@ -312,7 +332,11 @@ def test_executor_without_an_authority_refuses_every_execution():
 def test_executor_refuses_execution_without_a_grant():
     executor = _make_executor(authority=ExecutionAuthority())
     tool = ExecutionTestTool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
 
     with pytest.raises(ExecutionBindingError) as exc_info:
         executor.execute_descriptor(descriptor, {"param": "val"})
@@ -323,7 +347,11 @@ def test_executor_refuses_execution_without_a_grant():
 def test_refusal_is_not_reported_as_a_tool_execution_failure():
     executor = _make_executor(authority=ExecutionAuthority())
     tool = ExecutionTestTool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
 
     with pytest.raises(ExecutionBindingError) as exc_info:
         executor.execute_descriptor(descriptor, {"param": "val"})
@@ -349,7 +377,11 @@ def test_non_string_parameters_are_refused_as_an_invalid_request():
     authority = ExecutionAuthority()
     executor = _make_executor(authority=authority)
     tool = ExecutionTestTool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
     grant = _grant_for(authority, tool.tool_id, {"param": "val"})
 
     with pytest.raises(ExecutionBindingError) as exc_info:
@@ -363,7 +395,11 @@ def test_grant_is_consumed_once_verified_even_if_the_tool_then_fails():
     sandbox = StubSandbox(should_fail=True)
     executor = _make_executor(authority=authority, sandbox=sandbox)
     tool = ExecutionTestTool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
     grant = _grant_for(authority, tool.tool_id, {})
 
     with pytest.raises(ToolExecutionError):
@@ -382,7 +418,11 @@ def test_tool_executor_records_started_and_succeeded_receipt():
     executor = _make_executor(authority=authority, evidence_store=store)
 
     tool = ExecutionTestTool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
     grant = _grant_for(
         authority,
         tool.tool_id,
@@ -432,7 +472,11 @@ def test_tool_executor_records_failed_receipt_and_strips_raw_message_n3_7():
     )
 
     tool = ExecutionTestTool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
     grant = _grant_for(
         authority, tool.tool_id, {}, agent_id="agent-1", session_id="sess-fail"
     )
@@ -493,7 +537,11 @@ def test_tool_executor_fails_closed_if_store_record_started_fails_n3_3():
         authority=authority, evidence_store=mock_store, sandbox=sandbox
     )
     tool = ExecutionTestTool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
     grant = _grant_for(authority, tool.tool_id, {})
 
     with pytest.raises(ExecutionEvidenceUnavailableError) as exc_info:
@@ -523,7 +571,11 @@ def test_telemetry_failure_does_not_block_execution_n3_6():
     )
 
     tool = ExecutionTestTool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
     grant = _grant_for(authority, tool.tool_id, {})
 
     # Execution completes normally despite telemetry failures
@@ -543,7 +595,11 @@ def test_executor_fails_closed_when_sandbox_is_none():
     authority = ExecutionAuthority()
     executor = DefaultToolExecutor(authority=authority, sandbox=None)
     tool = ExecutionTestTool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
     grant = _grant_for(authority, tool.tool_id, {})
 
     with pytest.raises(SandboxUnavailableError, match="No tool execution sandbox configured"):
@@ -560,7 +616,11 @@ def test_executor_fails_closed_when_grant_missing_capability_profile():
     authority = ExecutionAuthority()
     executor = _make_executor(authority=authority)
     tool = ExecutionTestTool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
     # Issue grant with NO capability profile
     grant = _grant_for(authority, tool.tool_id, {}, profile_id=None)
 
@@ -577,7 +637,11 @@ def test_executor_fails_closed_on_capability_digest_mismatch():
     authority = ExecutionAuthority()
     executor = _make_executor(authority=authority)
     tool = ExecutionTestTool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
     # Grant specifies a digest that doesn't match the profile's computed digest
     grant = _grant_for(
         authority, tool.tool_id, {}, profile_id="test-profile", digest="bad_digest_" * 4
@@ -594,7 +658,11 @@ def test_executor_fails_closed_on_missing_capability_profile_in_registry():
     authority = ExecutionAuthority()
     executor = _make_executor(authority=authority, profile_id="profile-alpha")
     tool = ExecutionTestTool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
     # Grant bound to a profile that is NOT registered
     caps = _make_test_capabilities("profile-unregistered")
     grant = authority.issue(
@@ -718,7 +786,10 @@ def test_adversarial_in_process_canary_not_invoked():
         capability_digest=caps.compute_digest(),
     )
 
-    result = executor.execute_tool(canary, {"message": "hello"}, grant=grant)
+    result = executor.execute_tool(
+        canary, {"message": "hello"}, grant=grant,
+        implementation_id=canary.implementation_id,
+    )
 
     # Subprocess runner executed the registered implementation "test_echo"
     assert result == "hello"
@@ -773,7 +844,9 @@ def test_sandbox_pid_divergence():
         capability_digest=caps.compute_digest(),
     )
 
-    result = executor.execute_tool(tool, {}, grant=grant)
+    result = executor.execute_tool(
+        tool, {}, grant=grant, implementation_id=tool.implementation_id
+    )
 
     assert isinstance(result, dict)
     sandbox_pid = result.get("pid")
@@ -829,7 +902,11 @@ def test_successful_execution_with_failed_terminal_evidence_is_not_reported_as_s
         telemetry_emitter=telemetry,
     )
     tool = ExecutionTestTool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
     grant = _grant_for(authority, tool.tool_id, {})
 
     with pytest.raises(ExecutionEvidenceIntegrityError) as exc_info:
@@ -868,7 +945,11 @@ def test_a_failed_execution_survives_successful_terminal_evidence_unchanged():
         sandbox=StubSandbox(should_fail=True, error_msg="tool blew up"),
     )
     tool = ExecutionTestTool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
     grant = _grant_for(authority, tool.tool_id, {})
 
     with pytest.raises(ToolExecutionError, match="tool blew up") as exc_info:
@@ -892,7 +973,11 @@ def test_a_failed_execution_remains_primary_when_terminal_evidence_also_fails():
         sandbox=StubSandbox(should_fail=True, error_msg="tool blew up"),
     )
     tool = ExecutionTestTool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
     grant = _grant_for(authority, tool.tool_id, {})
 
     with pytest.raises(ToolExecutionError, match="tool blew up") as exc_info:
@@ -916,7 +1001,11 @@ def test_a_raised_execution_failure_remains_primary_when_terminal_evidence_fails
         sandbox=StubSandbox(raise_direct=TimeoutError("sandbox wall clock exceeded")),
     )
     tool = ExecutionTestTool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
     grant = _grant_for(authority, tool.tool_id, {})
 
     with pytest.raises(ToolExecutionError) as exc_info:
@@ -944,7 +1033,11 @@ def _executor_with_failing_terminal(telemetry):
         telemetry_emitter=telemetry,
     )
     tool = ExecutionTestTool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
     grant = _grant_for(authority, tool.tool_id, {})
     return executor, descriptor, grant
 
@@ -979,7 +1072,11 @@ def test_a_started_evidence_failure_emits_the_evidence_failed_event():
         telemetry_emitter=telemetry,
     )
     tool = ExecutionTestTool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
     grant = _grant_for(authority, tool.tool_id, {})
 
     with pytest.raises(ExecutionEvidenceUnavailableError):
@@ -1038,7 +1135,11 @@ def test_a_successful_execution_emits_no_evidence_failure_event():
         telemetry_emitter=telemetry,
     )
     tool = ExecutionTestTool()
-    descriptor = ToolDescriptor(metadata=tool.metadata, instance=tool)
+    descriptor = ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
     grant = _grant_for(authority, tool.tool_id, {})
 
     executor.execute_descriptor(descriptor, {}, grant=grant)
@@ -1094,7 +1195,11 @@ def _versioned_descriptor(tool_id: str, version: str) -> ToolDescriptor:
     tool._metadata = tool.metadata.model_copy(
         update={"identity": tool.metadata.identity.model_copy(update={"version": version})}
     )
-    return ToolDescriptor(metadata=tool.metadata, instance=tool)
+    return ToolDescriptor(
+        metadata=tool.metadata,
+        instance=tool,
+        implementation_id=tool.implementation_id,
+    )
 
 
 class TestBoundVersionCannotBeSubstituted:
@@ -1189,10 +1294,11 @@ class TestTheGrantIsTheSoleToolIdentityAuthority:
             super().__init__()
             self.versions: list[str] = []
 
-        def execute(self, *, tool, parameters, capabilities, provenance):
+        def execute(self, *, tool, parameters, capabilities, provenance, implementation_id=None, tool_version=None):
             self.versions.append(tool.metadata.identity.version)
             return super().execute(
                 tool=tool,
+                implementation_id=tool.implementation_id,
                 parameters=parameters,
                 capabilities=capabilities,
                 provenance=provenance,
@@ -1298,3 +1404,141 @@ class TestTheGrantIsTheSoleToolIdentityAuthority:
         assert "grant" in params
         assert "descriptor" not in params
         assert "tool" not in params
+
+
+class TestImplementationIdentityIsDeclaredNotDerived:
+    """The packaged implementation is named at registration and carried through unchanged.
+
+    The sandbox used to compute `f"{tool.tool_id}_v1"` when a tool declared nothing, and
+    the child registry's keys are literals ending in `_v1`. The two sides agreed only
+    because both hardcoded the same suffix, so `file_read@2.0.0` resolved the version-1
+    routine — the version F-04 made authoritative was discarded at the last hop.
+    """
+
+    class _RecordingSandbox(StubSandbox):
+        """Records the identity the sandbox was told to run."""
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.implementation_ids: list[str | None] = []
+            self.tool_versions: list[str | None] = []
+
+        def execute(
+            self,
+            *,
+            tool,
+            parameters,
+            capabilities,
+            provenance,
+            implementation_id=None,
+            tool_version=None,
+        ):
+            self.implementation_ids.append(implementation_id)
+            self.tool_versions.append(tool_version)
+            return super().execute(
+                tool=tool,
+                parameters=parameters,
+                capabilities=capabilities,
+                provenance=provenance,
+            )
+
+    @staticmethod
+    def _grant(authority: ExecutionAuthority, version: str):
+        caps = _make_test_capabilities("test-profile")
+        return authority.issue(
+            ExecutionBinding.from_operation("exec_test", version, {}),
+            Decision.ALLOW,
+            agent_id="agent-1",
+            session_id="session-1",
+            capability_profile_id="test-profile",
+            capability_digest=caps.compute_digest(),
+        )
+
+    def test_each_version_runs_the_implementation_its_registration_declared(self) -> None:
+        """The property the old inference could not express: v2 runs the v2 routine."""
+        for version, implementation in (("1.0.0", "exec_test_v1"), ("2.0.0", "exec_test_v2")):
+            authority = ExecutionAuthority()
+            registry = ToolRegistry()
+            registry.register(
+                _versioned_tool("exec_test", "1.0.0"), implementation_id="exec_test_v1"
+            )
+            registry.register(
+                _versioned_tool("exec_test", "2.0.0"), implementation_id="exec_test_v2"
+            )
+            sandbox = self._RecordingSandbox()
+            executor = _make_executor(authority=authority, sandbox=sandbox)
+            executor._tool_registry = registry
+
+            executor.execute(self._grant(authority, version), {})
+
+            assert sandbox.implementation_ids == [implementation]
+            assert sandbox.tool_versions == [version], "the version crosses as identity"
+
+    def test_the_declared_implementation_crosses_unchanged(self) -> None:
+        """Nothing rewrites it between registration and the sandbox."""
+        authority = ExecutionAuthority()
+        registry = ToolRegistry()
+        registry.register(
+            _versioned_tool("exec_test", "2.0.0"),
+            implementation_id="hardened_reader_2027",
+        )
+        sandbox = self._RecordingSandbox()
+        executor = _make_executor(authority=authority, sandbox=sandbox)
+        executor._tool_registry = registry
+
+        executor.execute(self._grant(authority, "2.0.0"), {})
+
+        assert sandbox.implementation_ids == ["hardened_reader_2027"], (
+            "an implementation name unrelated to the tool id must survive; a derived "
+            "identifier could not express one"
+        )
+
+    def test_a_registration_without_an_implementation_cannot_execute(self) -> None:
+        authority = ExecutionAuthority()
+        registry = ToolRegistry()
+        registry.register(_versioned_tool("exec_test", "1.0.0"))
+        executor = _make_executor(
+            authority=authority, sandbox=ProcessToolExecutionSandbox()
+        )
+        executor._tool_registry = registry
+
+        with pytest.raises(ToolExecutionError) as exc:
+            executor.execute(self._grant(authority, "1.0.0"), {})
+
+        assert "never inferred" in str(exc.value)
+
+    def test_changing_the_declared_implementation_changes_what_runs(self) -> None:
+        """The mapping is the registration's, so re-registering redirects execution."""
+        seen = []
+        for implementation in ("exec_test_v1", "exec_test_v9"):
+            authority = ExecutionAuthority()
+            registry = ToolRegistry()
+            registry.register(
+                _versioned_tool("exec_test", "1.0.0"), implementation_id=implementation
+            )
+            sandbox = self._RecordingSandbox()
+            executor = _make_executor(authority=authority, sandbox=sandbox)
+            executor._tool_registry = registry
+
+            executor.execute(self._grant(authority, "1.0.0"), {})
+            seen.extend(sandbox.implementation_ids)
+
+        assert seen == ["exec_test_v1", "exec_test_v9"]
+
+    def test_the_sandbox_cannot_derive_an_implementation_from_the_tool(self) -> None:
+        """Structural: the derivation the sandbox used to perform is gone.
+
+        Asserted against the source because the behavioural test above passes either way
+        once a registration declares an implementation — the fallback only fired when one
+        did not.
+        """
+        import inspect
+
+        from app.runtime.sandbox import process_sandbox
+
+        source = inspect.getsource(process_sandbox)
+
+        assert '_v1"' not in source, "no hardcoded version suffix may remain"
+        assert 'getattr(tool, "implementation_id"' not in source, (
+            "the sandbox must be told the implementation, not read it off the tool"
+        )
