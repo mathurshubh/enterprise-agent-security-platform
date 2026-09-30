@@ -300,3 +300,39 @@ def test_current_agent_sequence_survives_pruning(sql_repo_setup) -> None:
 
     assert pruned == 4
     assert repo.current_agent_sequence("agent-1") == 4
+
+
+def test_tool_version_is_not_yet_persisted_by_the_sql_adapter(sql_repo_setup) -> None:
+    """KNOWN SLICE-1a GAP — Slice 1b must delete this test, not satisfy it.
+
+    ``SessionEvent.tool_version`` exists in the domain as of Slice 1a, but
+    ``session_events`` has no column for it: adding one is Slice 1b, together with the
+    composite ``(tool_id, tool_version)`` reference to ``tools``. Until then this adapter
+    accepts the value and returns None.
+
+    Recorded as a test rather than left latent so the discrepancy is visible, and so it
+    fails loudly in Slice 1b if the column lands without the adapter mapping being
+    updated alongside it.
+
+    Do not "fix" this by dropping ``tool_version`` from the in-memory repository — the
+    in-memory adapter is correct and this one is incomplete. The contract the two must
+    converge on is the in-memory behaviour, verified in the shared repository contract.
+    """
+    repo, _ = sql_repo_setup
+    repo.create_session(Session(session_id="sess-version-gap", agent_id="agent-1"))
+
+    recorded = repo.record_event(
+        SessionEvent(
+            session_id="sess-version-gap",
+            agent_id="agent-1",
+            tool_id="file_read",
+            tool_version="1.2.0",
+            decision=Decision.DENY,
+        )
+    )
+
+    assert recorded.tool_id == "file_read", "family identity does round-trip"
+    assert recorded.tool_version is None, (
+        "known Slice-1a gap: no column exists yet. Slice 1b persists this and removes "
+        "this test."
+    )

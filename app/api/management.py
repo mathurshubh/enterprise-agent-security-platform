@@ -263,7 +263,9 @@ def list_audit_events() -> list[AuditEventResponse]:
             event_id=event.event_id,
             session_id=event.session_id,
             agent_id=event.agent_id,
+            requested_tool_id=event.requested_tool_id,
             tool_id=event.tool_id,
+            tool_version=event.tool_version,
             decision=event.decision.value,
             timestamp=event.timestamp,
         )

@@ -37,6 +37,7 @@ def audit_event(decision: Decision = Decision.DENY) -> AuditEvent:
         event_id="evt-immutability",
         session_id="session-1",
         agent_id="agent-1",
+        requested_tool_id="file_read",
         tool_id="file_read",
         decision=decision,
     )
@@ -141,6 +142,7 @@ def test_recording_and_reading_still_work() -> None:
             event_id="evt-second",
             session_id="session-1",
             agent_id="agent-1",
+            requested_tool_id="directory_list",
             tool_id="directory_list",
             decision=Decision.ALLOW,
         )

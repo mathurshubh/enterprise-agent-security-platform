@@ -239,6 +239,7 @@ class TestTheRecordCannotBeWrittenUnattributed:
             AuditEvent(
                 event_id="evt-unattributed",
                 agent_id="agent-1",
+                requested_tool_id="file_read",
                 tool_id="file_read",
                 decision=Decision.ALLOW,
             )

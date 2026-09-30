@@ -28,6 +28,7 @@ class BaseAuditEvidenceRepositoryContractTests(abc.ABC):
             event_id=event_id,
             session_id=session_id,
             agent_id=agent_id,
+            requested_tool_id="file_read",
             tool_id="file_read",
             decision=Decision.ALLOW,
             timestamp=timestamp or datetime.now(timezone.utc),

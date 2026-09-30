@@ -28,6 +28,7 @@ from fastapi.testclient import TestClient
 from app.api import dependencies
 from app.api.runtime import ExecuteRequest
 from app.main import app
+from app.models.agent import Agent, AgentStatus, RiskTier
 from app.models.audit_event import Decision
 from app.models.execution_binding import ExecutionBinding
 from app.models.jwt_claims import Role
@@ -800,3 +801,145 @@ class TestGovernanceDisablementIsEnforcedAtContainment:
         assert result.event.decision == Decision.ALLOW
         assert result.event.final_decision == Decision.DENY
         assert result.authorization is None
+
+
+class TestAuditRecordsRequestedAndResolvedIdentitySeparately:
+    """An audit record distinguishes what was asked for from what the pipeline established.
+
+    A single ``tool_id`` could not answer either question honestly: a record naming
+    ``file_read`` would not say whether the tool existed, resolved, or was merely claimed.
+    The distinction is what makes the record evidence rather than an echo of the request.
+    """
+
+    @staticmethod
+    def _audit_for(env, tool_id: str, **kwargs):
+        env.runtime.execute(
+            session_id=kwargs.pop("session_id", "session-audit"),
+            agent_id=env.agent_id,
+            tool_id=tool_id,
+            **kwargs,
+        )
+        return env.audit_service.list_events()[-1]
+
+    def test_a_resolved_request_records_both_identities(
+        self, build_runtime, security_workspace: Path
+    ) -> None:
+        env = build_runtime(workspace=security_workspace)
+
+        event = self._audit_for(
+            env, "file_read", resource=BENIGN_FILE, parameters={"path": BENIGN_FILE}
+        )
+
+        assert event.requested_tool_id == "file_read"
+        assert event.tool_id == "file_read", "the family resolved"
+        assert event.tool_version == "1.0.0", "and so did the implementation"
+
+    def test_an_unregistered_tool_records_only_what_was_requested(
+        self, build_runtime, security_workspace: Path
+    ) -> None:
+        """The case a single field could not express: requested, never resolved."""
+        env = build_runtime(workspace=security_workspace)
+
+        event = self._audit_for(env, "never_registered")
+
+        assert event.requested_tool_id == "never_registered"
+        assert event.tool_id is None, "nothing established that this tool exists"
+        assert event.tool_version is None
+
+    def test_a_governance_disabled_version_still_resolved_its_family(
+        self, build_runtime, security_workspace: Path
+    ) -> None:
+        """Family resolved, implementation did not — the intermediate case."""
+        env = build_runtime(workspace=security_workspace)
+        env.tool_service.disable_tool("file_read", "1.0.0")
+
+        event = self._audit_for(
+            env, "file_read", resource=BENIGN_FILE, parameters={"path": BENIGN_FILE}
+        )
+
+        assert event.requested_tool_id == "file_read"
+        assert event.tool_id == "file_read"
+        assert event.tool_version is None, "no implementation was established"
+
+    def test_a_resolved_version_never_appears_without_its_family(
+        self, build_runtime, security_workspace: Path
+    ) -> None:
+        """Coherence the model enforces by construction, asserted end to end."""
+        env = build_runtime(workspace=security_workspace)
+
+        for tool_id in ("file_read", "never_registered"):
+            env.runtime.execute(
+                session_id=f"session-coherence-{tool_id}",
+                agent_id=env.agent_id,
+                tool_id=tool_id,
+            )
+
+        for event in env.audit_service.list_events():
+            if event.tool_version is not None:
+                assert event.tool_id is not None
+
+    def test_a_resolved_request_records_the_version_on_the_session_event(
+        self, build_runtime, security_workspace: Path
+    ) -> None:
+        """The session event carries the same resolved version the audit record does.
+
+        Behavioural evidence and audit evidence describe one request, so a version present
+        in one and absent from the other would let a later reader reach two different
+        conclusions about which implementation ran.
+        """
+        env = build_runtime(workspace=security_workspace)
+        env.runtime.execute(
+            session_id="session-event-version",
+            agent_id=env.agent_id,
+            tool_id="file_read",
+            resource=BENIGN_FILE,
+            parameters={"path": BENIGN_FILE},
+        )
+
+        events = env.session_service.list_events("session-event-version")
+
+        assert [e.tool_version for e in events] == ["1.0.0"]
+
+    def test_a_trust_boundary_refusal_claims_no_resolved_identity(
+        self, build_runtime, security_workspace: Path
+    ) -> None:
+        """A request refused before resolution must not report a resolved tool.
+
+        ``_refuse_session_binding`` fires when a session belongs to another agent — before
+        any tool resolution. Echoing the requested id into the resolved field there would
+        assert that the platform established something it never looked at.
+        """
+        env = build_runtime(workspace=security_workspace)
+        env.runtime.execute(
+            session_id="session-owned",
+            agent_id=env.agent_id,
+            tool_id="file_read",
+            resource=BENIGN_FILE,
+            parameters={"path": BENIGN_FILE},
+        )
+
+        intruder = "other-agent"
+        env.agent_service.register_agent(
+            Agent(
+                agent_id=intruder,
+                name="Other",
+                owner="security-team",
+                risk_tier=RiskTier.LOW,
+                approved_tools=["file_read"],
+                status=AgentStatus.ACTIVE,
+            )
+        )
+        env.runtime.execute(
+            session_id="session-owned",
+            agent_id=intruder,
+            tool_id="file_read",
+            resource=BENIGN_FILE,
+            parameters={"path": BENIGN_FILE},
+        )
+
+        refusal = env.audit_service.list_events()[-1]
+
+        assert refusal.agent_id == intruder
+        assert refusal.requested_tool_id == "file_read", "what was asked for is recorded"
+        assert refusal.tool_id is None, "refused before any tool resolution occurred"
+        assert refusal.tool_version is None
