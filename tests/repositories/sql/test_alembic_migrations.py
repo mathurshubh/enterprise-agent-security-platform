@@ -375,3 +375,63 @@ def test_0004_refuses_rows_whose_concrete_version_is_unknown(
             command.upgrade(config, "0004")
     finally:
         engine.dispose()
+
+
+def test_0005_aligns_audit_identity_without_control_plane_coupling(
+    alembic_config: tuple[Config, str],
+) -> None:
+    """Three identity facts, the intra-record check, and no registry references.
+
+    ``tool_id`` becomes nullable so the boundary-refusal record is storable: the pipeline
+    emits it with no resolved identity, and ADR-030 makes a failed audit write deny the
+    request, so a schema that rejected it would deny requests for naming an unknown tool.
+    """
+    config, db_url = alembic_config
+    engine = create_engine(db_url)
+
+    try:
+        command.upgrade(config, "head")
+        inspector = inspect(engine)
+
+        columns = {c["name"]: c for c in inspector.get_columns("audit_events")}
+        assert columns["requested_tool_id"]["nullable"] is False
+        assert columns["tool_id"]["nullable"] is True, (
+            "a request refused before resolution has no resolved family"
+        )
+        assert columns["tool_version"]["nullable"] is True
+        assert "principal" not in columns, "schema residue with no domain field"
+
+        assert inspector.get_foreign_keys("audit_events") == [], (
+            "audit is historical evidence, not a referential-integrity participant"
+        )
+
+        check_names = {c["name"] for c in inspector.get_check_constraints("audit_events")}
+        assert "chk_audit_events_version_requires_family" in check_names
+
+    finally:
+        engine.dispose()
+
+
+def test_0005_refuses_to_invent_a_requested_identity(
+    alembic_config: tuple[Config, str],
+) -> None:
+    """``tool_id`` and ``requested_tool_id`` are different facts, so neither can supply the other."""
+    config, db_url = alembic_config
+    engine = create_engine(db_url)
+
+    try:
+        command.upgrade(config, "0004")
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO audit_events (event_id, session_id, agent_id, tool_id,"
+                    " decision, timestamp, created_at) VALUES ('ae-1', 'sess-mig',"
+                    " 'agent-mig', 'file_read', 'ALLOW', :now, :now)"
+                ),
+                {"now": NOW},
+            )
+
+        with pytest.raises(RuntimeError, match="refuses to run"):
+            command.upgrade(config, "0005")
+    finally:
+        engine.dispose()

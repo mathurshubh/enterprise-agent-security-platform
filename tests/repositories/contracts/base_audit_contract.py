@@ -3,6 +3,8 @@
 import abc
 from datetime import datetime, timezone
 
+import pytest
+
 from app.models.audit_event import AuditEvent, Decision
 from app.repositories.interfaces.audit_evidence_repository import (
     AuditEvidenceRepository,
@@ -34,18 +36,89 @@ class BaseAuditEvidenceRepositoryContractTests(abc.ABC):
             timestamp=timestamp or datetime.now(timezone.utc),
         )
 
+    @staticmethod
+    def _fully_populated_event(event_id: str = "audit-full") -> AuditEvent:
+        """Every field carries a non-default value.
+
+        A fixture built from defaults cannot distinguish "persisted correctly" from "not
+        persisted at all, and reconstructed from the default".
+        """
+        return AuditEvent(
+            event_id=event_id,
+            session_id="session-full",
+            agent_id="agent-full",
+            requested_tool_id="FiLe_ReAd@weird",
+            tool_id="file_read",
+            tool_version="2.3.4",
+            decision=Decision.APPROVAL_REQUIRED,
+            timestamp=datetime(2026, 10, 2, 11, 22, 33, tzinfo=timezone.utc),
+        )
+
     def test_append_and_get_event(self) -> None:
+        """Wholesale round-trip: every field, asserted as one equality.
+
+        Field-by-field assertions verify only the fields they name. This suite previously
+        checked four of eight and named none of the three tool-identity fields, so an
+        adapter could drop the entire identity record and pass.
+        """
         repo = self.create_repository()
-        event = self._sample_event()
+        event = self._fully_populated_event()
 
         repo.append(event)
-        retrieved = repo.get(event.event_id)
 
-        assert retrieved is not None
-        assert retrieved.event_id == event.event_id
-        assert retrieved.session_id == event.session_id
-        assert retrieved.agent_id == event.agent_id
-        assert retrieved.decision == event.decision
+        assert repo.get(event.event_id) == event
+
+    def test_query_round_trips_every_field(self) -> None:
+        """``query`` reconstructs as faithfully as ``get`` — a separate path."""
+        repo = self.create_repository()
+        event = self._fully_populated_event()
+
+        repo.append(event)
+
+        assert repo.query(session_id=event.session_id) == [event]
+
+    @pytest.mark.security_invariant
+    def test_invariant_a_boundary_refusal_is_recordable(self) -> None:
+        """A denial can be recorded even when the requested tool never existed.
+
+        This is the load-bearing property, not a persistence detail. The pipeline refuses
+        some requests at a trust boundary before any resolution occurs, so the event names
+        a tool that may not exist and carries no resolved identity at all. ADR-030 makes a
+        failed audit write deny the request, so a store that could not hold this record
+        would deny requests *because* they named an unknown tool — and the evidence for
+        the denial would be exactly what could not be kept.
+
+        ``tool_id`` and ``tool_version`` are NULL as a recorded fact: no resolution
+        occurred. They are not missing data.
+        """
+        repo = self.create_repository()
+        refusal = AuditEvent(
+            event_id="audit-refused-at-boundary",
+            session_id="session-1",
+            agent_id="agent-1",
+            requested_tool_id="nonexistent_tool",
+            tool_id=None,
+            tool_version=None,
+            decision=Decision.DENY,
+            timestamp=datetime(2026, 10, 2, 9, 0, 0, tzinfo=timezone.utc),
+        )
+
+        repo.append(refusal)
+
+        assert repo.get(refusal.event_id) == refusal
+        assert repo.query(agent_id="agent-1") == [refusal]
+
+    @pytest.mark.security_invariant
+    def test_invariant_a_resolved_family_without_a_version_is_recordable(self) -> None:
+        """The middle case: a family resolved, no implementation did."""
+        repo = self.create_repository()
+        partial = self._fully_populated_event().model_copy(
+            update={"tool_version": None}
+        )
+
+        repo.append(partial)
+
+        assert repo.get(partial.event_id) == partial
 
     def test_get_missing_event_returns_none(self) -> None:
         repo = self.create_repository()
