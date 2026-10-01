@@ -128,7 +128,13 @@ def test_invariant_a_probe_cannot_execute_in_a_sandbox_without_explicit_opt_in(
         resources=ResourceLimits(wall_clock_timeout_seconds=10.0),
     )
     provenance = ExecutionProvenance(
-        grant_id="grant-1", agent_id="agent-1", session_id="session-1", request_id="req-1"
+        grant_id="grant-1",
+        agent_id="agent-1",
+        session_id="session-1",
+        request_id="req-1",
+        tool_id="test_file_op",
+        tool_version="1.0.0",
+        implementation_id="test_file_op",
     )
 
     default_sandbox = ProcessToolExecutionSandbox()

@@ -307,7 +307,9 @@ def test_execute_tool_enforces_the_grant_as_well():
     assert exc_info.value.reason is ExecutionRefusalReason.MISSING_GRANT
 
     grant = _grant_for(authority, tool.tool_id, {"param": "val"})
-    assert executor.execute_tool(tool, {"param": "val"}, grant=grant) == {
+    assert executor.execute_tool(
+        tool, {"param": "val"}, grant=grant, implementation_id=tool.implementation_id
+    ) == {
         "executed": True,
         "param": "val",
     }
@@ -693,7 +695,10 @@ def test_tool_executor_records_distinct_failure_categories():
     )
     g1 = _grant_for(authority, "t1", {})
     with pytest.raises(ToolExecutionError):
-        exec_timeout.execute_tool(ExecutionTestTool(tool_id="t1"), {}, grant=g1)
+        exec_timeout.execute_tool(
+            ExecutionTestTool(tool_id="t1"), {}, grant=g1,
+            implementation_id="test_echo",
+        )
     r1 = store.get_by_grant(g1.grant_id)
     assert r1 is not None
     assert r1.status == ExecutionStatus.TIMEOUT
@@ -708,7 +713,10 @@ def test_tool_executor_records_distinct_failure_categories():
     )
     g2 = _grant_for(authority, "t2", {})
     with pytest.raises(ToolExecutionError):
-        exec_exhaust.execute_tool(ExecutionTestTool(tool_id="t2"), {}, grant=g2)
+        exec_exhaust.execute_tool(
+            ExecutionTestTool(tool_id="t2"), {}, grant=g2,
+            implementation_id="test_echo",
+        )
     r2 = store.get_by_grant(g2.grant_id)
     assert r2 is not None
     assert r2.status == ExecutionStatus.FAILED
@@ -723,7 +731,10 @@ def test_tool_executor_records_distinct_failure_categories():
     )
     g3 = _grant_for(authority, "t3", {})
     with pytest.raises(ToolExecutionError):
-        exec_isolation.execute_tool(ExecutionTestTool(tool_id="t3"), {}, grant=g3)
+        exec_isolation.execute_tool(
+            ExecutionTestTool(tool_id="t3"), {}, grant=g3,
+            implementation_id="test_echo",
+        )
     r3 = store.get_by_grant(g3.grant_id)
     assert r3 is not None
     assert r3.status == ExecutionStatus.FAILED
@@ -1308,7 +1319,7 @@ class TestTheGrantIsTheSoleToolIdentityAuthority:
     def _registry_with(*versions: str) -> ToolRegistry:
         registry = ToolRegistry()
         for version in versions:
-            registry.register(_versioned_tool("exec_test", version))
+            registry.register(_versioned_tool("exec_test", version), implementation_id="impl_v1")
         return registry
 
     @staticmethod
@@ -1502,10 +1513,42 @@ class TestImplementationIdentityIsDeclaredNotDerived:
         )
         executor._tool_registry = registry
 
-        with pytest.raises(ToolExecutionError) as exc:
+        with pytest.raises(ExecutionBindingError) as exc:
             executor.execute(self._grant(authority, "1.0.0"), {})
 
-        assert "never inferred" in str(exc.value)
+        assert exc.value.reason is ExecutionRefusalReason.NO_AUTHORITY
+        assert "no concrete identity" in str(exc.value)
+
+    def test_the_sandbox_independently_refuses_an_undeclared_implementation(self) -> None:
+        """Defence in depth: the executor refuses first, the isolation boundary also does.
+
+        The executor's refusal is what keeps a placeholder identity out of the evidence
+        record, since a receipt is written before the sandbox runs. The sandbox keeps its
+        own check because it is a separate trust boundary and does not assume its caller
+        performed one.
+        """
+        from app.models.execution_provenance import ExecutionProvenance
+        from app.runtime.exceptions import SandboxUnavailableError
+
+        tool = _versioned_tool("exec_test", "1.0.0")
+        provenance = ExecutionProvenance(
+            grant_id="grant-1",
+            agent_id="agent-1",
+            session_id="session-1",
+            request_id="req-1",
+            tool_id="exec_test",
+            tool_version="1.0.0",
+            implementation_id="exec_test_v1",
+        )
+
+        with pytest.raises(SandboxUnavailableError, match="never inferred"):
+            ProcessToolExecutionSandbox().execute(
+                tool=tool,
+                parameters={},
+                capabilities=_make_test_capabilities("test-profile"),
+                provenance=provenance,
+                implementation_id=None,
+            )
 
     def test_changing_the_declared_implementation_changes_what_runs(self) -> None:
         """The mapping is the registration's, so re-registering redirects execution."""
@@ -1542,3 +1585,113 @@ class TestImplementationIdentityIsDeclaredNotDerived:
         assert 'getattr(tool, "implementation_id"' not in source, (
             "the sandbox must be told the implementation, not read it off the tool"
         )
+
+
+class TestTheReceiptRecordsConcreteExecutionIdentity:
+    """Durable evidence must state what executed, not let it be reconstructed.
+
+    `binding_hash` commits to the version but is one-way: recovering it requires already
+    knowing the resource, the parameters, and a candidate version to test. The grant is
+    in-memory with an ephemeral signing key, so it cannot be looked up after the process
+    exits. Neither reconstructs what ran.
+    """
+
+    @staticmethod
+    def _grant(authority: ExecutionAuthority, version: str):
+        caps = _make_test_capabilities("test-profile")
+        return authority.issue(
+            ExecutionBinding.from_operation("file_read", version, {}),
+            Decision.ALLOW,
+            agent_id="agent-1",
+            session_id="session-1",
+            capability_profile_id="test-profile",
+            capability_digest=caps.compute_digest(),
+        )
+
+    def _executor_with(self, authority, store, *registrations):
+        registry = ToolRegistry()
+        for version, implementation in registrations:
+            registry.register(
+                _versioned_tool("file_read", version), implementation_id=implementation
+            )
+        executor = _make_executor(authority=authority, evidence_store=store)
+        executor._tool_registry = registry
+        return executor
+
+    def test_the_receipt_names_the_version_and_the_implementation_that_ran(self) -> None:
+        """The regression F-05 eliminated, asserted at the evidence layer.
+
+        The implementation name is deliberately unrelated to the tool id, so a receipt
+        that derived it instead of recording it could not produce this value.
+        """
+        authority = ExecutionAuthority()
+        store = ExecutionEvidenceService(
+            retention_policy=ExecutionEvidenceRetentionPolicy(max_terminal_receipts=10)
+        )
+        executor = self._executor_with(
+            authority,
+            store,
+            ("1.0.0", "legacy_reader"),
+            ("2.0.0", "hardened_reader_2027"),
+        )
+
+        executor.execute(self._grant(authority, "2.0.0"), {})
+
+        receipt = store.list_receipts()[-1]
+        assert receipt.tool_id == "file_read"
+        assert receipt.tool_version == "2.0.0"
+        assert receipt.implementation_id == "hardened_reader_2027"
+
+    def test_each_version_is_attributed_to_its_own_implementation(self) -> None:
+        authority = ExecutionAuthority()
+        store = ExecutionEvidenceService(
+            retention_policy=ExecutionEvidenceRetentionPolicy(max_terminal_receipts=10)
+        )
+        executor = self._executor_with(
+            authority,
+            store,
+            ("1.0.0", "legacy_reader"),
+            ("2.0.0", "hardened_reader_2027"),
+        )
+
+        executor.execute(self._grant(authority, "1.0.0"), {})
+        executor.execute(self._grant(authority, "2.0.0"), {})
+
+        attributed = [(r.tool_version, r.implementation_id) for r in store.list_receipts()]
+        assert attributed == [
+            ("1.0.0", "legacy_reader"),
+            ("2.0.0", "hardened_reader_2027"),
+        ]
+
+    def test_identity_is_recorded_before_the_outcome_is_known(self) -> None:
+        """An unknown outcome does not imply an unknown identity.
+
+        The receipt is written STARTED, before the sandbox runs. Both the grant and the
+        registration have already answered what is about to run, so a STARTED receipt
+        carries the concrete identity rather than filling it in later — which a
+        reconciled-to-UNKNOWN execution never would.
+        """
+        authority = ExecutionAuthority()
+        store = ExecutionEvidenceService(
+            retention_policy=ExecutionEvidenceRetentionPolicy(max_terminal_receipts=10)
+        )
+        executor = self._executor_with(
+            authority, store, ("2.0.0", "hardened_reader_2027")
+        )
+        executor._sandbox = StubSandbox(raise_direct=RuntimeError("boom"))
+
+        with pytest.raises(ToolExecutionError):
+            executor.execute(self._grant(authority, "2.0.0"), {})
+
+        receipt = store.list_receipts()[-1]
+        assert receipt.status is not ExecutionStatus.SUCCEEDED
+        assert receipt.tool_version == "2.0.0", "identity survives an unknown outcome"
+        assert receipt.implementation_id == "hardened_reader_2027"
+
+    def test_the_receipt_is_not_constructible_without_concrete_identity(self) -> None:
+        """Required, not nullable: a receipt that cannot answer the question is refused."""
+        from app.models.execution_receipt import ExecutionReceipt
+
+        fields = ExecutionReceipt.model_fields
+        assert fields["tool_version"].is_required()
+        assert fields["implementation_id"].is_required()

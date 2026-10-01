@@ -85,6 +85,9 @@ def _make_provenance(
         agent_id=agent_id,
         session_id=session_id,
         request_id=request_id,
+        tool_id="file_read",
+        tool_version="1.0.0",
+        implementation_id="file_read_v1",
     )
 
 

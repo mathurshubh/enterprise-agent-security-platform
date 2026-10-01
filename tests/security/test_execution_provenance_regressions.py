@@ -445,35 +445,68 @@ def test_invariant_the_request_id_stays_distinct_from_the_grant_id() -> None:
 @pytest.mark.security_invariant
 def test_invariant_no_authority_material_crosses_the_isolation_boundary() -> None:
     """The sandbox enforces a physical boundary and makes no security decision, so it
-    has no use for the grant signature and must not be in a position to serialize it."""
+    has no use for the grant signature and must not be in a position to serialize it.
+
+    The identity fields are descriptive execution context — what ran, as what version,
+    through which implementation — and the child must never read them to select an
+    implementation or override its ToolExecutionDescriptor. Authority material is a
+    different category: the signature and the issuing authority never cross.
+    """
     fields = set(ExecutionProvenance.model_fields)
 
-    assert fields == {"grant_id", "agent_id", "session_id", "request_id"}
+    assert fields == {
+        "grant_id",
+        "agent_id",
+        "session_id",
+        "request_id",
+        "tool_id",
+        "tool_version",
+        "implementation_id",
+    }
     assert "signature" not in fields
     assert "authority_id" not in fields
+    assert "capability_digest" not in fields, (
+        "confinement is applied by the parent, not asserted to the child"
+    )
 
 
 @pytest.mark.security_regression
 def test_provenance_takes_every_identity_field_from_the_grant() -> None:
-    """``from_grant`` accepts only ``request_id`` from the caller, so no code path
-    turns a caller's claim into provenance."""
+    """``from_grant`` takes every authorization fact from the grant.
+
+    The caller supplies ``request_id`` for correlation and the ``implementation_id`` the
+    registration declared — which cannot come from the grant, because a grant authorizes
+    a tool version and not a packaged implementation (F-05). Nothing a caller claims
+    becomes an authorization fact.
+    """
     authority = ExecutionAuthority()
     grant = _grant(
         authority, "provenance_tool", {}, agent_id="agent-z", session_id="session-z"
     )
 
-    provenance = ExecutionProvenance.from_grant(grant, "req-7")
+    provenance = ExecutionProvenance.from_grant(
+        grant, "req-7", implementation_id="provenance_impl_v3"
+    )
 
     assert provenance.grant_id == grant.grant_id
     assert provenance.agent_id == grant.agent_id
     assert provenance.session_id == grant.session_id
     assert provenance.request_id == "req-7"
+    assert provenance.tool_id == grant.binding.tool_id
+    assert provenance.tool_version == grant.binding.tool_version
+    assert provenance.implementation_id == "provenance_impl_v3"
 
 
 @pytest.mark.security_regression
 def test_provenance_is_immutable_and_rejects_unknown_fields() -> None:
     provenance = ExecutionProvenance(
-        grant_id="g", agent_id="a", session_id="s", request_id="r"
+        grant_id="g",
+        agent_id="a",
+        session_id="s",
+        request_id="r",
+        tool_id="t",
+        tool_version="1.0.0",
+        implementation_id="i",
     )
 
     with pytest.raises(ValidationError):

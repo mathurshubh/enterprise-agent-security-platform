@@ -88,7 +88,25 @@ class ExecutionReceipt(BaseModel):
             "identity. grant_id is the authoritative bridge to the authorization."
         ),
     )
-    tool_id: str = Field(min_length=1, description="Target tool identifier.")
+    tool_id: str = Field(min_length=1, description="Tool family the execution targeted.")
+    tool_version: str = Field(
+        min_length=1,
+        description=(
+            "Concrete authorized version. Required: an unknown outcome does not imply an "
+            "unknown identity, so a STARTED receipt carries this too."
+        ),
+    )
+    implementation_id: str = Field(
+        min_length=1,
+        description=(
+            "Packaged implementation that ran. Recorded separately from the version "
+            "because the two are independent namespaces, neither derivable from the "
+            "other, and this is the one that names the code. Logical provenance only: it "
+            "identifies which registered implementation was selected, and does not "
+            "establish that the underlying code matched an expected artifact — that is "
+            "artifact attestation, a separate capability."
+        ),
+    )
     binding_hash: str = Field(
         min_length=1, description="Canonical SHA-256 digest of the execution binding."
     )

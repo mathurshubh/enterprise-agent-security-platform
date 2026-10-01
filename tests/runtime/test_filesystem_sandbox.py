@@ -70,6 +70,9 @@ def _make_provenance() -> ExecutionProvenance:
         agent_id="agent-1",
         session_id="sess-1",
         request_id="req-1",
+        tool_id="file_read",
+        tool_version="1.0.0",
+        implementation_id="file_read_v1",
     )
 
 
