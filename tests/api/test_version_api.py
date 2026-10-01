@@ -37,7 +37,7 @@ class TestCanonicalVersionSource:
     def test_get_platform_version_returns_canonical_version(self) -> None:
         expected = VERSION_FILE_PATH.read_text(encoding="utf-8").strip()
         assert get_platform_version() == expected
-        assert get_platform_version() == "0.15.0"
+        assert get_platform_version() == "0.18.0"
 
     def test_missing_version_file_fails_closed(self, tmp_path: Path) -> None:
         missing_file = tmp_path / "NONEXISTENT_VERSION"
@@ -75,7 +75,7 @@ class TestVersionEndpoint:
         assert response.status_code == 200
         data = response.json()
         assert data["name"] == PLATFORM_NAME
-        assert data["version"] == "0.15.0"
+        assert data["version"] == "0.18.0"
         assert data["version"] == get_platform_version()
 
     def test_get_version_does_not_mix_operational_status(self) -> None:

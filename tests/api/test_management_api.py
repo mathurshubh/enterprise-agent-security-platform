@@ -381,7 +381,7 @@ class TestPlatformInfo:
         data = response.json()
         assert data["platform"] == "Enterprise Agent Security Platform"
         assert data["version"] == get_platform_version()
-        assert data["version"] == "0.15.0"
+        assert data["version"] == "0.18.0"
         assert data["api_version"] == "v1"
 
     def test_detection_rule_count_is_nonzero(self) -> None:
