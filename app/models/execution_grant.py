@@ -69,6 +69,16 @@ class ExecutionGrant(BaseModel):
     session_id: str = Field(min_length=1)
     agent_id: str = Field(min_length=1)
     tool_id: str = Field(min_length=1)
+    tool_version: str = Field(
+        min_length=1,
+        description=(
+            "Concrete version of the tool this grant authorizes. Required: a grant is a "
+            "frozen continuation of one evaluated authorization decision, which resolved "
+            "to one implementation, so there is no state in which a durable grant "
+            "legitimately lacks a version. Contrast SessionEvent.tool_version, which is "
+            "nullable because an event may record a refusal that never resolved one."
+        ),
+    )
     execution_parameters: Mapping[str, Any] = Field(default_factory=dict)
     originating_audit_event_id: str = Field(min_length=1)
     risk_score: int = Field(ge=0)
@@ -105,6 +115,7 @@ class ExecutionGrant(BaseModel):
             session_id=self.session_id,
             agent_id=self.agent_id,
             tool_id=self.tool_id,
+            tool_version=self.tool_version,
             execution_parameters=self.execution_parameters,
             originating_audit_event_id=self.originating_audit_event_id,
             risk_score=self.risk_score,

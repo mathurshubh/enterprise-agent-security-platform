@@ -8,6 +8,7 @@ from sqlalchemy import (
     BigInteger,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
@@ -24,6 +25,14 @@ class ExecutionGrantModel(Base):
     __table_args__ = (
         Index("idx_execution_grants_agent_state", "agent_id", "state"),
         Index("idx_execution_grants_expiry", "expires_at", "state"),
+        # A grant is concrete by definition, so both columns are NOT NULL and the composite
+        # reference is always checked. That makes a separate family reference redundant
+        # here, unlike on ``session_events`` where the version may legitimately be NULL.
+        ForeignKeyConstraint(
+            ["tool_id", "tool_version"],
+            ["tools.tool_id", "tools.version"],
+            ondelete="RESTRICT",
+        ),
     )
 
     grant_id: Mapped[str] = mapped_column(String(64), primary_key=True)
@@ -37,11 +46,8 @@ class ExecutionGrantModel(Base):
         ForeignKey("agents.agent_id", ondelete="RESTRICT"),
         nullable=False,
     )
-    tool_id: Mapped[str] = mapped_column(
-        String(128),
-        ForeignKey("tool_families.tool_id", ondelete="RESTRICT"),
-        nullable=False,
-    )
+    tool_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    tool_version: Mapped[str] = mapped_column(String(64), nullable=False)
     execution_parameters: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     originating_audit_event_id: Mapped[str] = mapped_column(String(64), nullable=False)
     risk_score: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

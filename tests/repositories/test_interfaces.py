@@ -444,6 +444,7 @@ class TestRepositoryProtocolConformance:
             session_id="sess-1",
             agent_id="agent-1",
             tool_id="bash",
+            tool_version="1.0.0",
             execution_parameters={"cmd": "ls"},
             originating_audit_event_id="audit-1",
             risk_score=80,

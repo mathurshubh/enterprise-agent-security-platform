@@ -35,6 +35,7 @@ class BaseApprovalGrantRepositoryContractTests(abc.ABC):
             session_id="sess-1",
             agent_id=agent_id,
             tool_id="bash",
+            tool_version="1.0.0",
             execution_parameters={"cmd": "whoami"},
             originating_audit_event_id="audit-1",
             risk_score=75,

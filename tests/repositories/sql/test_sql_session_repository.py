@@ -13,14 +13,14 @@ from app.models.session import (
     TerminalReason,
     TerminalSessionTombstone,
 )
-from app.models.session_event import SessionEvent
+from app.models.session_event import AggregationScope, HorizonQuery, SessionEvent
 from app.repositories.interfaces.session_repository import SessionRepository
 from app.repositories.sql.base import Base
 from app.repositories.sql.engine import create_sql_engine, dispose_sql_engine
 from app.repositories.sql.models.agent import AgentModel
 from app.repositories.sql.models.session import AgentSequenceCounterModel, SessionModel
 from app.repositories.sql.models.session_event import SessionEventModel
-from app.repositories.sql.models.tool import ToolFamilyModel
+from app.repositories.sql.models.tool import ToolFamilyModel, ToolModel
 from app.repositories.sql.session import create_session_factory, transactional_session
 from app.repositories.sql.session_repository import SqlSessionRepository, _ensure_utc
 from tests.repositories.contracts.base_session_contract import (
@@ -48,6 +48,10 @@ KNOWN_CONTRACT_TOOLS = [
     "shell_exec",
 ]
 
+# A non-NULL ``tool_version`` carries a composite reference to ``tools``, so the concrete
+# rows have to exist as well as the family anchors.
+KNOWN_CONTRACT_TOOL_VERSIONS = ["1.0.0", "1.2.0"]
+
 
 def _seed_test_dependencies(session_factory) -> None:
     """Explicitly provision known test agents and tools in the database fixtures."""
@@ -67,9 +71,18 @@ def _seed_test_dependencies(session_factory) -> None:
                 )
             )
         for tool_id in KNOWN_CONTRACT_TOOLS:
-            db.merge(
-                ToolFamilyModel(tool_id=tool_id, created_at=now)
-            )
+            db.merge(ToolFamilyModel(tool_id=tool_id, created_at=now))
+            for version in KNOWN_CONTRACT_TOOL_VERSIONS:
+                db.merge(
+                    ToolModel(
+                        tool_id=tool_id,
+                        version=version,
+                        governance_enabled=True,
+                        risk_level="LOW",
+                        metadata_payload={},
+                        created_at=now,
+                    )
+                )
 
 
 class TestSqlSessionRepository(BaseSessionRepositoryContractTests):
@@ -293,28 +306,19 @@ def test_current_agent_sequence_survives_pruning(sql_repo_setup) -> None:
     assert repo.current_agent_sequence("agent-1") == 4
 
 
-def test_tool_version_is_not_yet_persisted_by_the_sql_adapter(sql_repo_setup) -> None:
-    """KNOWN SLICE-1a GAP — Slice 1b must delete this test, not satisfy it.
+def test_tool_version_round_trips_through_every_read_path(sql_repo_setup) -> None:
+    """The concrete version survives record_event, list_events and list_eligible_events.
 
-    ``SessionEvent.tool_version`` exists in the domain as of Slice 1a, but
-    ``session_events`` has no column for it: adding one is Slice 1b, together with the
-    composite ``(tool_id, tool_version)`` reference to ``tools``. Until then this adapter
-    accepts the value and returns None.
-
-    Recorded as a test rather than left latent so the discrepancy is visible, and so it
-    fails loudly in Slice 1b if the column lands without the adapter mapping being
-    updated alongside it.
-
-    Do not "fix" this by dropping ``tool_version`` from the in-memory repository — the
-    in-memory adapter is correct and this one is incomplete. The contract the two must
-    converge on is the in-memory behaviour, verified in the shared repository contract.
+    Three separate reconstruction paths build ``SessionEvent`` from a row, so one mapping
+    the column says nothing about the others. This replaces the Slice-1a gap test that
+    asserted the value was dropped.
     """
     repo, _ = sql_repo_setup
-    repo.create_session(Session(session_id="sess-version-gap", agent_id="agent-1"))
+    repo.create_session(Session(session_id="sess-version", agent_id="agent-1"))
 
     recorded = repo.record_event(
         SessionEvent(
-            session_id="sess-version-gap",
+            session_id="sess-version",
             agent_id="agent-1",
             tool_id="file_read",
             tool_version="1.2.0",
@@ -322,8 +326,42 @@ def test_tool_version_is_not_yet_persisted_by_the_sql_adapter(sql_repo_setup) ->
         )
     )
 
-    assert recorded.tool_id == "file_read", "family identity does round-trip"
-    assert recorded.tool_version is None, (
-        "known Slice-1a gap: no column exists yet. Slice 1b persists this and removes "
-        "this test."
+    assert recorded.tool_id == "file_read"
+    assert recorded.tool_version == "1.2.0", "record_event's own return value"
+
+    listed = repo.list_events("sess-version")
+    assert [e.tool_version for e in listed] == ["1.2.0"], "list_events"
+
+    eligible = repo.list_eligible_events(
+        HorizonQuery(
+            agent_id="agent-1",
+            scope=AggregationScope.SESSION,
+            session_id="sess-version",
+            window_seconds=3600.0,
+            evaluation_time=datetime.now(timezone.utc) + timedelta(minutes=1),
+            baseline_agent_sequence=0,
+        )
     )
+    assert [e.tool_version for e in eligible] == ["1.2.0"], "list_eligible_events"
+
+
+def test_an_event_without_a_resolved_version_persists_as_null(sql_repo_setup) -> None:
+    """NULL is a recorded fact, not missing data: no implementation was established.
+
+    This is the row shape on which the composite reference is vacuous, which is why the
+    family reference is retained alongside it.
+    """
+    repo, _ = sql_repo_setup
+    repo.create_session(Session(session_id="sess-unresolved", agent_id="agent-1"))
+
+    recorded = repo.record_event(
+        SessionEvent(
+            session_id="sess-unresolved",
+            agent_id="agent-1",
+            tool_id="file_read",
+            decision=Decision.DENY,
+        )
+    )
+
+    assert recorded.tool_version is None
+    assert repo.list_events("sess-unresolved")[0].tool_version is None
