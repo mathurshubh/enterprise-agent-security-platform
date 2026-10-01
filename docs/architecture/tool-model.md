@@ -27,7 +27,7 @@ The `ToolRegistry` is the single source of truth for all registered tool descrip
 - **Registration**: Register `BaseTool` instances or lazy factories with strict metadata validation (`tool_id`, `name`, `version`).
 - **Validation**: Enforce metadata non-emptiness and reject duplicate tool identifiers (`DuplicateToolRegistrationError`, `ToolMetadataValidationError`).
 - **Resolution**: `resolve(tool_id, version)` returns a passive `ToolDescriptor`, separating lookup/resolution from execution handle instantiation.
-- **Version Evolution Preparation**: Internal storage `_descriptors[tool_id][version]` and isolated `_match_version()` helper prepare the registry for future multi-version loading.
+- **Versioned Identity**: Internal storage `_descriptors[tool_id][version]` and the isolated `_match_version()` helper hold one descriptor per concrete `(tool_id, version)`. Resolution always yields exactly one version: an omitted version resolves only where a single version is registered, and several registered versions refuse rather than selecting one, so registration order never decides which implementation a grant covers. `(tool_id, version)` is also the durable identity — `tool_families` plus `tools(tool_id, version)` — and the identity the catalog exposes ([ADR-033](../adr/ADR-033-tool-catalog-contract.md), [ADR-030](../adr/ADR-030-durable-state-repository-architecture.md)). `tool_id` alone names a *family*, the unit an agent is approved for; it does not identify an implementation.
 - **Discovery**: Expose defensive copies of tool metadata (`discover_tools()`) to the management plane.
 - **Immutability**: All listing methods return immutable tuples (`tuple[ToolDescriptor, ...]`, `tuple[BaseTool, ...]`).
 

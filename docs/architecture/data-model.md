@@ -19,6 +19,17 @@ The models support:
 
 The platform follows a Zero Trust model. User prompts, provider outputs, Tool Invocations, tool outputs, and external content are treated as untrusted input. Security decisions are represented through deterministic domain models and evaluated by platform services rather than by the AI model.
 
+> [!NOTE]
+> This document describes **domain models**, not their durable representation. Where a model's
+> persistence carries semantics of its own — tool identity split across `tool_families` and
+> `tools(tool_id, version)`, the absence of registry references on audit storage, or which
+> fields are authoritative versus projected — the deciding record is the ADR, not this
+> document:
+>
+> - Tool identity and catalog semantics: [ADR-033](../adr/ADR-033-tool-catalog-contract.md)
+> - Audit evidence identity and its referential-integrity boundary: [ADR-034](../adr/ADR-034-audit-identity-contract.md)
+> - Durable state and repository architecture: [ADR-030](../adr/ADR-030-durable-state-repository-architecture.md)
+
 ---
 
 ## Domain Model Principles

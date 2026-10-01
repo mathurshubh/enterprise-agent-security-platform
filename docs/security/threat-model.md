@@ -85,7 +85,7 @@ flowchart TD
 2. **LLM Output (Untrusted):** The raw response returned by the foundation model. Treated as untrusted and parsed into a validated `ToolInvocation` object.
 3. **Runtime Security Pipeline (Deterministic Boundary):** The core entry point where security enforcement happens. Every request must pass through this boundary before executing tools.
 4. **Execution Authority & Tool Registry Boundary (Secure Zone):** The trust boundary for resolving registered tools and issuing single-use, cryptographically signed `ExecutionGrant` tokens bound to immutable capability profiles.
-5. **Audit Boundary (Immutable):** The audit logging point. Event recording happens immediately after the final calculated decision, preserving the integrity of compliance logs.
+5. **Audit Boundary (Immutable):** The audit logging point. Event recording happens immediately after the final calculated decision, preserving the integrity of compliance logs. The boundary is one-directional: audit depends on the decision, and nothing on the audit side of it may become a precondition for recording. Audit storage therefore holds no reference to the tool registry, so control-plane state cannot make evidence unrecordable ([ADR-034](../adr/ADR-034-audit-identity-contract.md)).
 6. **Process Sandbox Execution Boundary (Level 2 Boundary):** Authorized tool execution occurs exclusively in an isolated child process managed by `ProcessToolExecutionSandbox`. Tools do not inherit gateway process memory, secrets, or ambient filesystem/network capabilities. The gateway never executes tools in-process, failing closed on sandbox absence or error.
 
 ### Process Sandbox Security Boundary
@@ -112,6 +112,8 @@ The platform maintains the following immutable architectural guarantees:
 13. **Tool execution never runs in-process within the security gateway:** Authorized tool invocations execute strictly across the process sandbox boundary via structured JSON IPC. No exception or fallback path executes code within the platform host process ([ADR-032](../adr/ADR-032-runtime-tool-execution-isolation.md)).
 14. **Capability bindings are immutable and signed:** Execution grants carry an explicit `capability_profile_id` and SHA-256 `capability_digest` signed by the ExecutionAuthority. Tampered or modified profiles fail closed.
 15. **Execution evidence preconditions:** STARTED evidence is a mandatory precondition for execution. Terminal evidence records post-execution outcomes (SUCCEEDED, TIMEOUT, RESOURCE_EXHAUSTED, ISOLATION_FAILURE, TOOL_EXECUTION_ERROR) and SHA-256 output digests for deterministic integrity evidence linking results to receipts.
+16. **Recording audit evidence never depends on control-plane state:** a failed audit write fails the request closed ([ADR-030](../adr/ADR-030-durable-state-repository-architecture.md)), so audit storage carries no foreign key to the tool registry and no constraint that reads another table. A request may therefore be denied at a trust boundary — including for naming a tool that does not exist — and its denial evidence still be durably recorded. Divergence between evidence and registry is detected by reconciliation and reported, never refused ([ADR-034](../adr/ADR-034-audit-identity-contract.md)).
+17. **An audit record is interpretable without the registry:** the requested identity and the resolved `(tool_id, tool_version)` are stored as separate facts, so a record's meaning is fixed when written and cannot be reinterpreted through later registry state ([ADR-034](../adr/ADR-034-audit-identity-contract.md)).
 
 ---
 
