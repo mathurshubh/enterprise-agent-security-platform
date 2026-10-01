@@ -20,7 +20,7 @@ from app.repositories.sql.engine import create_sql_engine, dispose_sql_engine
 from app.repositories.sql.models.agent import AgentModel
 from app.repositories.sql.models.session import AgentSequenceCounterModel, SessionModel
 from app.repositories.sql.models.session_event import SessionEventModel
-from app.repositories.sql.models.tool import ToolModel
+from app.repositories.sql.models.tool import ToolFamilyModel
 from app.repositories.sql.session import create_session_factory, transactional_session
 from app.repositories.sql.session_repository import SqlSessionRepository, _ensure_utc
 from tests.repositories.contracts.base_session_contract import (
@@ -68,16 +68,7 @@ def _seed_test_dependencies(session_factory) -> None:
             )
         for tool_id in KNOWN_CONTRACT_TOOLS:
             db.merge(
-                ToolModel(
-                    tool_id=tool_id,
-                    name=tool_id,
-                    description=f"Test fixture tool {tool_id}",
-                    risk_level="LOW",
-                    required_permissions=[],
-                    metadata_payload={},
-                    is_active=True,
-                    created_at=now,
-                )
+                ToolFamilyModel(tool_id=tool_id, created_at=now)
             )
 
 

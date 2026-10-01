@@ -9,7 +9,7 @@ from app.repositories.sql.models.enforcement import (
 from app.repositories.sql.models.execution_grant import ExecutionGrantModel
 from app.repositories.sql.models.session import AgentSequenceCounterModel, SessionModel
 from app.repositories.sql.models.session_event import SessionEventModel
-from app.repositories.sql.models.tool import ToolModel
+from app.repositories.sql.models.tool import ToolFamilyModel, ToolModel
 
 __all__ = [
     "AgentModel",
@@ -20,5 +20,6 @@ __all__ = [
     "ExecutionGrantModel",
     "SessionModel",
     "SessionEventModel",
+    "ToolFamilyModel",
     "ToolModel",
 ]

@@ -14,6 +14,7 @@ from app.repositories.sql.base import Base
 
 EXPECTED_TABLES = {
     "agents",
+    "tool_families",
     "tools",
     "agent_enforcement_state",
     "agent_enforcement_transitions",
@@ -148,5 +149,140 @@ def test_0002_preserves_existing_rows_and_defaults_the_new_namespace(
 
         assert legacy == 7
 
+    finally:
+        engine.dispose()
+
+
+def test_0003_makes_concrete_tool_version_identity_durable(
+    alembic_config: tuple[Config, str],
+) -> None:
+    """The durable model gains the two levels the domain already had.
+
+    ``tools`` becomes keyed ``(tool_id, version)``, matching the in-memory repository and
+    the identity the execution pipeline carries end to end. The family level moves to its
+    own table so ``tool_id`` alone remains referable, which a refused ``SessionEvent``
+    needs: it records the family it named without having resolved a version.
+    """
+    config, db_url = alembic_config
+    engine = create_engine(db_url)
+
+    try:
+        command.upgrade(config, "head")
+        inspector = inspect(engine)
+
+        assert inspector.get_pk_constraint("tools")["constrained_columns"] == [
+            "tool_id",
+            "version",
+        ]
+
+        tool_columns = {c["name"] for c in inspector.get_columns("tools")}
+        assert "governance_enabled" in tool_columns
+        assert "is_active" not in tool_columns, (
+            "family-level activation is dropped; enablement is version-level"
+        )
+
+        # The family carries identity and provenance only: no current_version, no family
+        # risk projection, no activation flag.
+        assert {c["name"] for c in inspector.get_columns("tool_families")} == {
+            "tool_id",
+            "created_at",
+        }
+
+        # Both dependents re-anchor to the family, because tools.tool_id is no longer unique.
+        for table in ("session_events", "execution_grants"):
+            referred = {fk["referred_table"] for fk in inspector.get_foreign_keys(table)}
+            assert "tool_families" in referred, table
+            assert "tools" not in referred, (
+                f"{table} must not reference a non-unique key"
+            )
+
+    finally:
+        engine.dispose()
+
+
+def _seed_0002_prerequisites(engine, now: str) -> None:
+    """Agent, tool and session rows the guarded tables reference."""
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO agents (agent_id, name, owner, risk_tier, status,"
+                " approved_tools, created_at, updated_at) VALUES"
+                " ('agent-mig', 'Mig', 'secops', 'LOW', 'ACTIVE', '[]', :now, :now)"
+            ),
+            {"now": now},
+        )
+        conn.execute(
+            text(
+                "INSERT INTO sessions (session_id, agent_id, status,"
+                " next_session_sequence, created_at, updated_at) VALUES"
+                " ('sess-mig', 'agent-mig', 'ACTIVE', 1, :now, :now)"
+            ),
+            {"now": now},
+        )
+
+
+def _insert_legacy_tool(engine, now: str) -> None:
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO tools (tool_id, name, description, risk_level,"
+                " required_permissions, metadata_payload, is_active, created_at)"
+                " VALUES ('file_read', 'File Read', 'desc', 'LOW', '[]', '{}', 1, :now)"
+            ),
+            {"now": now},
+        )
+
+
+NOW = "2026-10-01 12:00:00+00:00"
+
+
+def test_0003_refuses_a_populated_tools_table(
+    alembic_config: tuple[Config, str],
+) -> None:
+    """Fail closed rather than fabricate a version for a family-level row.
+
+    There is no deterministic ``tool_id -> version`` function once several versions exist,
+    so an existing row has no honest answer. Refusing is preferable to selecting whichever
+    version happens to be registered, defaulting to ``1.0.0``, or dropping the row.
+    """
+    config, db_url = alembic_config
+    engine = create_engine(db_url)
+
+    try:
+        command.upgrade(config, "0002")
+        _seed_0002_prerequisites(engine, NOW)
+        _insert_legacy_tool(engine, NOW)
+
+        with pytest.raises(RuntimeError, match="refuses to run"):
+            command.upgrade(config, "0003")
+    finally:
+        engine.dispose()
+
+
+def test_0003_refuses_a_populated_execution_grants_table(
+    alembic_config: tuple[Config, str],
+) -> None:
+    """A durable grant must name a concrete version, and an existing one names none."""
+    config, db_url = alembic_config
+    engine = create_engine(db_url)
+
+    try:
+        command.upgrade(config, "0002")
+        _seed_0002_prerequisites(engine, NOW)
+        _insert_legacy_tool(engine, NOW)
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO execution_grants (grant_id, session_id, agent_id,"
+                    " tool_id, execution_parameters, originating_audit_event_id,"
+                    " risk_score, required_response, enforcement_epoch, state,"
+                    " created_at, expires_at) VALUES ('g-1', 'sess-mig', 'agent-mig',"
+                    " 'file_read', '{}', 'ae-1', 10, 'ALLOW', 0, 'PENDING', :now, :now)"
+                ),
+                {"now": NOW},
+            )
+
+        with pytest.raises(RuntimeError, match="refuses to run"):
+            command.upgrade(config, "0003")
     finally:
         engine.dispose()

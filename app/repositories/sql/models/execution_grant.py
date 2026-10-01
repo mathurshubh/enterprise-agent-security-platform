@@ -39,7 +39,7 @@ class ExecutionGrantModel(Base):
     )
     tool_id: Mapped[str] = mapped_column(
         String(128),
-        ForeignKey("tools.tool_id", ondelete="RESTRICT"),
+        ForeignKey("tool_families.tool_id", ondelete="RESTRICT"),
         nullable=False,
     )
     execution_parameters: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)

@@ -45,6 +45,7 @@ def test_sqlite_schema_creation_and_constraints() -> None:
     created_tables = set(inspector.get_table_names())
     expected_tables = {
         "agents",
+        "tool_families",
         "tools",
         "agent_enforcement_state",
         "agent_enforcement_transitions",
@@ -84,4 +85,6 @@ def test_sqlite_schema_creation_and_constraints() -> None:
 
     session_event_fks = inspector.get_foreign_keys("session_events")
     ref_tables = {fk["referred_table"] for fk in session_event_fks}
-    assert {"sessions", "agents", "tools"}.issubset(ref_tables)
+    # The family anchor, not ``tools``: ``tools`` is keyed ``(tool_id, version)``, so
+    # ``tools.tool_id`` is not a unique key and cannot be referenced on its own.
+    assert {"sessions", "agents", "tool_families"}.issubset(ref_tables)
