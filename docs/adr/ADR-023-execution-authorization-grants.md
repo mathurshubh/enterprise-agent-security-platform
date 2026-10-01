@@ -122,6 +122,37 @@ Authorization → Policy → Detection → Risk → Response → final decision
 Unconsumed grants are pruned when they expire.
 ```
 
+## Revocation Semantics
+
+**A grant represents authorized execution under the governance state observed at issuance, subject to immediate revocation by agent containment and bounded by its TTL.**
+
+Revocation is asymmetric, and the asymmetry is the decision:
+
+| Change after issuance | Effect on outstanding grants |
+|---|---|
+| Agent suspended | **revoked immediately** — `suspend_issuance` closes the gate and revokes in one lock hold |
+| Agent reinstated | revoked grants stay revoked; reinstatement restores the ability to obtain authority, not the authority itself |
+| Tool governance-disabled | none — effective for grants issued afterwards |
+| Tool version unregistered | none — effective for grants issued afterwards |
+| Capability profile altered | none — effective for grants issued afterwards |
+| Enforcement epoch advanced | gates *issuance* via CAS; does not revoke |
+
+Suspension is the containment action the detection pipeline produces, so a delay there would leave a hole in the enforcement loop. An operator disabling a tool can tolerate the grant TTL; a containment decision cannot.
+
+### The TTL is the compensating control
+
+`MAX_GRANT_TTL_SECONDS = 30.0` therefore bounds how long a governance change other than agent suspension can remain ineffective. It is a security policy parameter, not an implementation default, and `ExecutionAuthority` refuses a longer TTL rather than clamping it — a caller asking for a wider window has a different security model in mind, and silently narrowing it would hide the disagreement.
+
+### Accepted residual risk
+
+Stale non-containment governance authority may be exercised until an outstanding grant expires. Accepted, bounded by the TTL above.
+
+### Why not re-check at claim time
+
+Re-validating the governance plane when a grant is claimed would make claiming a second authorization, with the tool and capability services in its dependency path, and would turn their availability into execution availability. It would also require defining why `ALLOW` at issuance and `DENY` at claim is expected rather than anomalous. That is a separate capability — continuous revocation — warranted only if a requirement for sub-second administrative revocation is established. It is not an extension of this decision.
+
+---
+
 ## Failure Behaviour
 
 Every refusal raises `ExecutionBindingError`, a `PermissionError` deliberately distinct from `ToolExecutionError`: a refusal means the platform declined to run the tool, not that the tool failed while running.

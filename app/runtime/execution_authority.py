@@ -12,6 +12,30 @@ Security invariants
    by the grant signature. The authority is the sole source of that identity, so no
    downstream component has to trust a caller's claim about who is executing.
 
+Revocation is asymmetric, by decision
+-------------------------------------
+A grant represents authorized execution **under the governance state observed at
+issuance**, subject to immediate revocation by agent containment and bounded by its TTL.
+
+``suspend_issuance`` closes the gate and revokes the agent's outstanding grants in the
+same lock hold. Suspension is the containment action the detection pipeline produces, so a
+delay there would leave a hole in the enforcement loop. Reinstatement reopens issuance
+without restoring revoked grants: it returns the ability to obtain authority, not the
+authority itself.
+
+No other governance or configuration change revokes an outstanding grant. Disabling a
+tool, unregistering a version, or altering a capability profile takes effect for grants
+issued afterwards; grants already issued remain claimable until they expire. That is a
+deliberate asymmetry rather than an omission — an operator disabling a tool can tolerate
+the TTL, whereas a containment decision cannot — and ``MAX_GRANT_TTL_SECONDS`` is the
+compensating bound on it.
+
+Seeing ``suspend_issuance`` revoke grants and concluding that every governance change
+should is the mistake this section exists to prevent. Re-checking the governance plane at
+claim time would make claiming a second authorization, with the capability and tool
+services in its dependency path, and would turn their availability into execution
+availability. That is a separate capability, not an extension of this one.
+
 Key material
 ------------
 The signing key is random per process. That is deliberate and differs from the JWT
@@ -38,7 +62,21 @@ from app.repositories.interfaces.enforcement_state_repository import (
     EnforcementStateRepository,
 )
 
-DEFAULT_GRANT_TTL_SECONDS = 30.0
+# The grant TTL is a security policy parameter, not an implementation default.
+#
+# Revocation is deliberately asymmetric (ADR-023). Agent suspension revokes outstanding
+# grants immediately, because suspension is the containment action the detection pipeline
+# produces and a delay there would leave a hole in the enforcement loop. Every other
+# governance or configuration change — a tool disabled, a version unregistered, a
+# capability profile altered — takes effect for grants issued afterwards, while grants
+# already outstanding stay valid.
+#
+# So this value is the upper bound on how long such a change can remain ineffective. It is
+# the compensating control for that accepted staleness, which is why a ceiling is enforced
+# rather than leaving the TTL to a caller: raising it would silently widen the window the
+# architecture commits to.
+MAX_GRANT_TTL_SECONDS = 30.0
+DEFAULT_GRANT_TTL_SECONDS = MAX_GRANT_TTL_SECONDS
 
 
 class _OutstandingGrant(NamedTuple):
@@ -101,6 +139,15 @@ class ExecutionAuthority:
     ) -> None:
         if ttl_seconds <= 0:
             raise ValueError("ttl_seconds must be positive")
+        if ttl_seconds > MAX_GRANT_TTL_SECONDS:
+            # Refused rather than clamped: a caller asking for a longer window has a
+            # different security model in mind than the one documented, and silently
+            # giving them a shorter one would hide the disagreement.
+            raise ValueError(
+                f"ttl_seconds must not exceed {MAX_GRANT_TTL_SECONDS}s: the grant TTL "
+                "bounds how long a governance change other than agent suspension can "
+                "remain ineffective, so raising it widens that window"
+            )
 
         self._key = secrets.token_bytes(32)
         self._authority_id = f"authority-{uuid4()}"

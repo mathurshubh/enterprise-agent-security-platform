@@ -1094,3 +1094,80 @@ class TestAPersistedEventIsTheAuthoritativeRecord:
                 sequence_number=persisted.sequence_number,
                 final_decision=Decision.ALLOW,
             )
+
+
+class TestGovernanceChangesDoNotRevokeOutstandingGrants:
+    """The accepted staleness, exercised against a real governance change.
+
+    ADR-023 Revocation Semantics: a grant carries the governance state observed at
+    issuance. Agent containment revokes immediately; disabling a tool does not. Asserted
+    end to end rather than at the authority alone, because the authority has no view of
+    the governance plane — the point is that nothing upstream revokes on its behalf.
+    """
+
+    def test_disabling_a_tool_leaves_an_issued_grant_claimable(
+        self, build_runtime, security_workspace: Path
+    ) -> None:
+        env = build_runtime(workspace=security_workspace)
+
+        issued = env.runtime.execute(
+            session_id="s-stale-grant",
+            agent_id=env.agent_id,
+            tool_id="file_read",
+            resource=BENIGN_FILE,
+            parameters={"path": BENIGN_FILE},
+        )
+        grant = issued.authorization
+        assert grant is not None
+
+        env.tool_service.disable_tool("file_read", "1.0.0")
+
+        assert env.execution_authority.outstanding_grant_count == 1, (
+            "a governance change does not revoke; only containment does"
+        )
+        env.execution_authority.verify_grant(grant, grant.binding)
+
+        # And the change does take effect for anything issued afterwards.
+        later = env.runtime.execute(
+            session_id="s-after-disable",
+            agent_id=env.agent_id,
+            tool_id="file_read",
+            resource=BENIGN_FILE,
+            parameters={"path": BENIGN_FILE},
+        )
+        assert later.authorization is None, "no new grant for a disabled version"
+        assert later.event.final_decision == Decision.DENY
+
+    def test_containment_revokes_the_same_grant_a_governance_change_leaves_alone(
+        self, build_runtime, security_workspace: Path
+    ) -> None:
+        """The opposing half, on an identically-issued grant, to make the contrast concrete.
+
+        Containment is invoked through the authority rather than the pipeline: the
+        pipeline's own suspension path is covered by
+        ``test_invariant_suspension_withdraws_outstanding_execution_authority``, and
+        duplicating it here would test the trigger instead of the contrast.
+
+        Note the coupling it relies on — ``AgentService.suspend_agent`` writes agent state
+        and does not revoke. ``RuntimeService._suspend_agent`` pairs the two, revoking
+        first so that when it returns the agent holds no usable authority and can obtain
+        none. It is the only caller.
+        """
+        env = build_runtime(workspace=security_workspace)
+
+        issued = env.runtime.execute(
+            session_id="s-contained-grant",
+            agent_id=env.agent_id,
+            tool_id="file_read",
+            resource=BENIGN_FILE,
+            parameters={"path": BENIGN_FILE},
+        )
+        grant = issued.authorization
+        assert grant is not None
+
+        assert env.execution_authority.suspend_issuance(env.agent_id) == 1
+
+        assert env.execution_authority.outstanding_grant_count == 0
+        with pytest.raises(ExecutionBindingError) as exc:
+            env.execution_authority.verify_grant(grant, grant.binding)
+        assert exc.value.reason is ExecutionRefusalReason.REVOKED
