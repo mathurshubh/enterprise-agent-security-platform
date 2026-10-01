@@ -17,7 +17,7 @@ from app.repositories.sql.engine import create_sql_engine, dispose_sql_engine
 from app.repositories.sql.models.agent import AgentModel
 from app.repositories.sql.models.execution_grant import ExecutionGrantModel
 from app.repositories.sql.models.session import SessionModel
-from app.repositories.sql.models.tool import ToolModel
+from app.repositories.sql.models.tool import ToolFamilyModel
 from app.repositories.sql.session import create_session_factory, transactional_session
 from tests.repositories.contracts.base_approval_grant_contract import (
     BaseApprovalGrantRepositoryContractTests,
@@ -47,16 +47,7 @@ def _seed_grant_dependencies(session_factory) -> None:
             )
         for tool_id in KNOWN_GRANT_TOOLS:
             db.merge(
-                ToolModel(
-                    tool_id=tool_id,
-                    name=tool_id,
-                    description="Test tool",
-                    risk_level="LOW",
-                    required_permissions=[],
-                    metadata_payload={},
-                    is_active=True,
-                    created_at=now,
-                )
+                ToolFamilyModel(tool_id=tool_id, created_at=now)
             )
         for session_id in KNOWN_GRANT_SESSIONS:
             db.merge(

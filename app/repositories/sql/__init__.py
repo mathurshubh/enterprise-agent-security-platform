@@ -6,6 +6,7 @@ from app.repositories.sql.enforcement_repository import SqlEnforcementStateRepos
 from app.repositories.sql.engine import create_sql_engine, dispose_sql_engine
 from app.repositories.sql.session import create_session_factory, transactional_session
 from app.repositories.sql.session_repository import SqlSessionRepository
+from app.repositories.sql.tool_repository import SqlToolRepository
 
 __all__ = [
     "Base",
@@ -15,5 +16,6 @@ __all__ = [
     "SqlApprovalGrantRepository",
     "SqlEnforcementStateRepository",
     "SqlSessionRepository",
+    "SqlToolRepository",
     "transactional_session",
 ]

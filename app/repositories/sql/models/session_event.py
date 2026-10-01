@@ -49,7 +49,7 @@ class SessionEventModel(Base):
     )
     tool_id: Mapped[str] = mapped_column(
         String(128),
-        ForeignKey("tools.tool_id", ondelete="RESTRICT"),
+        ForeignKey("tool_families.tool_id", ondelete="RESTRICT"),
         nullable=False,
     )
     sequence_number: Mapped[int] = mapped_column(BigInteger, nullable=False)

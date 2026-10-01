@@ -23,7 +23,7 @@ from app.models.session_event import SessionEvent
 from app.repositories.sql.base import Base
 from app.repositories.sql.engine import create_sql_engine, dispose_sql_engine
 from app.repositories.sql.models.agent import AgentModel
-from app.repositories.sql.models.tool import ToolModel
+from app.repositories.sql.models.tool import ToolFamilyModel
 from app.repositories.sql.session import create_session_factory, transactional_session
 from app.repositories.sql.session_repository import SqlSessionRepository
 
@@ -59,16 +59,7 @@ def pg_session_repo():
             created_at=now,
             updated_at=now,
         )
-        tool = ToolModel(
-            tool_id="file_read",
-            name="file_read",
-            description="Read file",
-            risk_level="LOW",
-            required_permissions=[],
-            metadata_payload={},
-            is_active=True,
-            created_at=now,
-        )
+        tool = ToolFamilyModel(tool_id="file_read", created_at=now)
         db.add(agent)
         db.add(tool)
 

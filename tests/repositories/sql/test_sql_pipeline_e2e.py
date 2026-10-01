@@ -36,7 +36,7 @@ from app.repositories import create_repositories
 from app.repositories.sql.base import Base
 from app.repositories.sql.engine import create_sql_engine, dispose_sql_engine
 from app.repositories.sql.models.agent import AgentModel
-from app.repositories.sql.models.tool import ToolModel
+from app.repositories.sql.models.tool import ToolFamilyModel
 from app.runtime.capability_registry import InMemoryCapabilityProfileRegistry
 from app.runtime.execution_authority import (
     ExecutionAuthority,
@@ -96,11 +96,7 @@ def sql_pipeline_setup():
             )
         )
         session.add(
-            ToolModel(
-                tool_id="file_read",
-                name="File Read Tool",
-                risk_level="LOW",
-            )
+            ToolFamilyModel(tool_id="file_read")
         )
         session.commit()
 

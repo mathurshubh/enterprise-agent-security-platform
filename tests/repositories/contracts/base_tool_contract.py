@@ -44,20 +44,81 @@ class BaseToolRepositoryContractTests(abc.ABC):
             )
         )
 
+    @staticmethod
+    def _fully_populated_tool(
+        tool_id: str = "tool-full", version: str = "3.1.4"
+    ) -> Tool:
+        """A tool with a non-default value in every nested model.
+
+        Every field differs from its default, so an adapter that silently drops one is
+        caught. A fixture built from defaults cannot distinguish "persisted correctly" from
+        "not persisted at all, and reconstructed from the default".
+        """
+        return Tool(
+            metadata=ToolMetadata(
+                identity=ToolIdentity(
+                    tool_id=tool_id,
+                    name="Fully Populated Tool",
+                    version=version,
+                    description="Every field carries a non-default value",
+                ),
+                governance=ToolGovernance(
+                    risk_level=ToolRiskLevel.CRITICAL,
+                    required_permissions=["file.read", "file.write"],
+                    owner="secops@enterprise.internal",
+                    approval_required=True,
+                ),
+                capability=ToolCapability(
+                    category="filesystem",
+                    reads_files=True,
+                    writes_files=True,
+                    network_access=True,
+                    internet_access=True,
+                    database_access=True,
+                    shell_access=True,
+                ),
+                operational=ToolOperational(
+                    enabled=False,
+                    timeout_seconds=97,
+                    supports_streaming=True,
+                ),
+            )
+        )
+
     def test_save_and_get_tool(self) -> None:
+        """Wholesale round-trip: every field, asserted as one equality.
+
+        Field-by-field assertions verify only the fields they name, which lets an adapter
+        drop everything else and still pass. ``==`` over a fully-populated tool is what
+        makes a dropped field a failure.
+        """
         repo = self.create_repository()
-        tool = self._sample_tool()
+        tool = self._fully_populated_tool()
 
         repo.save(tool)
-        retrieved = repo.get(tool.tool_id, tool.version)
 
-        assert retrieved is not None
-        assert retrieved.tool_id == tool.tool_id
-        assert retrieved.metadata.identity.name == tool.metadata.identity.name
-        assert (
-            retrieved.metadata.governance.risk_level
-            == tool.metadata.governance.risk_level
-        )
+        assert repo.get(tool.tool_id, tool.version) == tool
+
+    def test_list_round_trips_every_field(self) -> None:
+        """``list`` reconstructs as faithfully as ``get``.
+
+        A separate reconstruction path, so ``get`` being exact says nothing about this one.
+        """
+        repo = self.create_repository()
+        tool = self._fully_populated_tool()
+
+        repo.save(tool)
+
+        assert repo.list() == [tool]
+
+    def test_list_versions_round_trips_every_field(self) -> None:
+        """The third reconstruction path, for the same reason."""
+        repo = self.create_repository()
+        tool = self._fully_populated_tool()
+
+        repo.save(tool)
+
+        assert repo.list_versions(tool.tool_id) == [tool]
 
     def test_get_missing_tool_returns_none(self) -> None:
         repo = self.create_repository()

@@ -29,7 +29,7 @@ from app.repositories.sql.models.agent import AgentModel
 from app.repositories.sql.models.enforcement import AgentEnforcementStateModel
 from app.repositories.sql.models.execution_grant import ExecutionGrantModel
 from app.repositories.sql.models.session import SessionModel
-from app.repositories.sql.models.tool import ToolModel
+from app.repositories.sql.models.tool import ToolFamilyModel
 from app.repositories.sql.session import create_session_factory, transactional_session
 
 POSTGRES_URL = os.environ.get("TEST_DATABASE_URL")
@@ -64,16 +64,7 @@ def pg_grant_env():
             created_at=now,
             updated_at=now,
         )
-        tool = ToolModel(
-            tool_id="bash",
-            name="bash",
-            description="Bash tool",
-            risk_level="HIGH",
-            required_permissions=[],
-            metadata_payload={},
-            is_active=True,
-            created_at=now,
-        )
+        tool = ToolFamilyModel(tool_id="bash", created_at=now)
         session = SessionModel(
             session_id="sess-pg-grant",
             agent_id="agent-pg-grant",
