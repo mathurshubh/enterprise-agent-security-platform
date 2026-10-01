@@ -10,6 +10,7 @@ from app.models.execution_binding import ExecutionBinding
 from app.models.runtime_execution_grant import RuntimeExecutionGrant
 from app.runtime.execution_authority import (
     DEFAULT_GRANT_TTL_SECONDS,
+    MAX_GRANT_TTL_SECONDS,
     ExecutionAuthority,
     ExecutionBindingError,
     ExecutionRefusalReason,
@@ -635,3 +636,80 @@ class TestExecutionIdentity:
 
         assert authority.outstanding_grant_count == 1
         authority.verify_and_consume(grant, NOTES)
+
+
+class TestRevocationIsAsymmetricByDecision:
+    """Agent containment revokes outstanding grants; other governance changes do not.
+
+    The asymmetry is the decision, not an omission (ADR-023 Revocation Semantics).
+    Suspension is the containment action the detection pipeline produces, so a delay there
+    would leave a hole in the enforcement loop; an operator disabling a tool can tolerate
+    the grant TTL. These tests make both halves executable, so a future change that made
+    revocation uniformly aggressive — or uniformly lax — fails here rather than passing
+    quietly.
+    """
+
+    @staticmethod
+    def _issue(authority: ExecutionAuthority, agent_id: str = "agent-1"):
+        return authority.issue(
+            NOTES, Decision.ALLOW, agent_id=agent_id, session_id="session-1"
+        )
+
+    # Reinstatement not resurrecting a revoked grant is the other half of containment.
+    # It is asserted by TestIssuanceGate::
+    # test_reinstatement_reopens_issuance_without_restoring_old_grants, which already
+    # covers it exactly; restating it here would add a second copy and no coverage.
+
+    def test_suspension_revokes_an_outstanding_grant_immediately(self) -> None:
+        authority = ExecutionAuthority()
+        grant = self._issue(authority)
+
+        authority.verify_grant(grant, NOTES)  # claimable before suspension
+
+        assert authority.suspend_issuance("agent-1") == 1
+
+        _refused(
+            ExecutionRefusalReason.REVOKED,
+            lambda: authority.verify_and_consume(grant, NOTES),
+        )
+
+    def test_suspension_does_not_reach_another_agent_s_grants(self) -> None:
+        authority = ExecutionAuthority()
+        other = self._issue(authority, agent_id="agent-2")
+
+        authority.suspend_issuance("agent-1")
+
+        authority.verify_grant(other, NOTES)
+
+    def test_a_grant_outlives_a_governance_change_until_it_expires(self) -> None:
+        """The accepted staleness, and its bound, in one test.
+
+        Nothing here disables a tool — the authority has no view of the governance plane,
+        which is exactly the point: it cannot react to such a change, so the TTL is the
+        only thing that ends the window.
+        """
+        clock = FakeClock()
+        authority = ExecutionAuthority(ttl_seconds=30.0, clock=clock)
+        grant = self._issue(authority)
+
+        clock.advance(29.0)
+        authority.verify_grant(grant, NOTES)  # still claimable inside the window
+
+        clock.advance(2.0)
+        _refused(
+            ExecutionRefusalReason.EXPIRED,
+            lambda: authority.verify_and_consume(grant, NOTES),
+        )
+
+    def test_the_ttl_cannot_exceed_the_policy_maximum(self) -> None:
+        """Refused, not clamped: a wider window is a different security model."""
+        ExecutionAuthority(ttl_seconds=MAX_GRANT_TTL_SECONDS)
+
+        with pytest.raises(ValueError, match="must not exceed"):
+            ExecutionAuthority(ttl_seconds=MAX_GRANT_TTL_SECONDS + 0.1)
+        with pytest.raises(ValueError, match="must not exceed"):
+            ExecutionAuthority(ttl_seconds=300.0)
+
+    def test_the_default_ttl_is_the_policy_maximum(self) -> None:
+        """The documented bound and the shipped behaviour are the same number."""
+        assert DEFAULT_GRANT_TTL_SECONDS == MAX_GRANT_TTL_SECONDS == 30.0
