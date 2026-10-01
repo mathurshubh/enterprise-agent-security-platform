@@ -361,7 +361,7 @@ def test_execute_uses_tool_registry_for_approved_tool() -> None:
         "file_read",
         "registry output",
     )
-    registry.register(tool)
+    registry.register(tool, implementation_id="impl_v1")
     runtime_service = AllowingRuntimeService()
     service = AgentRuntimeService(
         agent=FakeAgent(),
@@ -388,7 +388,7 @@ def test_execute_denied_decision_does_not_execute_tool() -> None:
         "file_read",
         "registry output",
     )
-    registry.register(tool)
+    registry.register(tool, implementation_id="impl_v1")
     service = AgentRuntimeService(
         agent=FakeAgent(),
         runtime_service=StubRuntimeService(
@@ -412,7 +412,7 @@ def test_execute_approval_required_decision_does_not_execute_tool() -> None:
         "file_read",
         "registry output",
     )
-    registry.register(tool)
+    registry.register(tool, implementation_id="impl_v1")
     service = AgentRuntimeService(
         agent=FakeAgent(),
         runtime_service=StubRuntimeService(
@@ -436,7 +436,7 @@ def test_monitor_response_does_not_override_approval_required() -> None:
         "file_read",
         "registry output",
     )
-    registry.register(tool)
+    registry.register(tool, implementation_id="impl_v1")
     service = AgentRuntimeService(
         agent=FakeAgent(),
         runtime_service=StubRuntimeService(
@@ -578,7 +578,7 @@ def test_identity_spoofing_privilege_escalation_attack_denied() -> None:
 
 def test_execute_passes_invocation_parameters_to_the_runtime() -> None:
     registry = ToolRegistry()
-    registry.register(RecordingTool("file_read", "registry output"))
+    registry.register(RecordingTool("file_read", "registry output"), implementation_id="impl_v1")
     runtime_service = AllowingRuntimeService()
     service = AgentRuntimeService(
         agent=FakeAgent(),
@@ -594,7 +594,7 @@ def test_execute_passes_invocation_parameters_to_the_runtime() -> None:
 
 def test_execute_presents_the_decision_grant_and_it_is_consumed() -> None:
     registry = ToolRegistry()
-    registry.register(RecordingTool("file_read", "registry output"))
+    registry.register(RecordingTool("file_read", "registry output"), implementation_id="impl_v1")
     runtime_service = AllowingRuntimeService()
     service = AgentRuntimeService(
         agent=FakeAgent(),
@@ -611,7 +611,7 @@ def test_execute_presents_the_decision_grant_and_it_is_consumed() -> None:
 def test_allow_decision_without_a_grant_is_refused_at_execution() -> None:
     registry = ToolRegistry()
     tool = RecordingTool("file_read", "registry output")
-    registry.register(tool)
+    registry.register(tool, implementation_id="impl_v1")
     service = AgentRuntimeService(
         agent=FakeAgent(),
         runtime_service=StubRuntimeService(
@@ -631,7 +631,7 @@ def test_allow_decision_without_a_grant_is_refused_at_execution() -> None:
 def test_executor_bound_to_another_authority_refuses_the_runtime_grant() -> None:
     registry = ToolRegistry()
     tool = RecordingTool("file_read", "registry output")
-    registry.register(tool)
+    registry.register(tool, implementation_id="impl_v1")
     service = AgentRuntimeService(
         agent=FakeAgent(),
         runtime_service=AllowingRuntimeService(),
@@ -660,8 +660,8 @@ def test_execution_uses_the_granted_version_not_a_fresh_resolution() -> None:
     v2._metadata = v2.metadata.model_copy(
         update={"identity": v2.metadata.identity.model_copy(update={"version": "2.0.0"})}
     )
-    registry.register(v1)
-    registry.register(v2)
+    registry.register(v1, implementation_id="impl_v1")
+    registry.register(v2, implementation_id="impl_v1")
 
     with pytest.raises(AmbiguousToolVersionError):
         registry.resolve("file_read")

@@ -557,6 +557,19 @@ class DefaultToolExecutor:
         context: RuntimeContext | None = None,
         implementation_id: str | None = None,
     ) -> Any:
+        if not implementation_id:
+            # Refused before any evidence is written. The sandbox refuses this too, and
+            # keeps doing so as a separate trust boundary — but a receipt is recorded
+            # first, and a receipt cannot carry an identity nobody declared. Writing one
+            # with a placeholder would be the inference F-05 removed, reappearing inside
+            # the evidence record.
+            raise ExecutionBindingError(
+                ExecutionRefusalReason.NO_AUTHORITY,
+                tool.tool_id,
+                "no implementation is declared for this tool, so the execution has no "
+                "concrete identity to record or run",
+            )
+
         start_utc = datetime.now(timezone.utc)
         start_monotonic = self._monotonic_clock()
 
@@ -570,7 +583,9 @@ class DefaultToolExecutor:
         # Everything crossing the isolation boundary is derived from the verified grant.
         # The sandbox receives no caller-supplied context, so there is no fabricated
         # identity left to construct.
-        provenance = ExecutionProvenance.from_grant(grant, trace_id)
+        provenance = ExecutionProvenance.from_grant(
+            grant, trace_id, implementation_id=implementation_id
+        )
 
         binding_hash = hashlib.sha256(
             grant.binding.canonical_json().encode("utf-8")
@@ -591,6 +606,11 @@ class DefaultToolExecutor:
                     agent_id=agent_id,
                     request_id=trace_id,
                     tool_id=tool.tool_id,
+                    # An unknown outcome does not mean an unknown identity: the
+                    # grant and the registration have both already answered what
+                    # is about to run.
+                    tool_version=grant.binding.tool_version,
+                    implementation_id=implementation_id,
                     binding_hash=binding_hash,
                     capability_profile_id=grant.capability_profile_id,
                     capability_digest=grant.capability_digest,

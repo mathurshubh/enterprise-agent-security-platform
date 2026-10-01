@@ -199,6 +199,8 @@ class ExecutionEvidenceStoreProtocol(Protocol):
         agent_id: str,
         request_id: str,
         tool_id: str,
+        tool_version: str,
+        implementation_id: str,
         binding_hash: str,
         capability_profile_id: str,
         capability_digest: str,

@@ -159,6 +159,7 @@ def sql_pipeline_setup():
         enabled=True,
         metadata=test_tool.metadata,
         instance=test_tool,
+        implementation_id="file_read_v1",
     )
 
     caps = ExecutionCapabilities(
