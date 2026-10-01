@@ -167,7 +167,10 @@ def test_0003_makes_concrete_tool_version_identity_durable(
     engine = create_engine(db_url)
 
     try:
-        command.upgrade(config, "head")
+        # Pinned to 0003, not head: this asserts the intermediate state, in which the
+        # dependents carry the family reference and no concrete one yet. 0004 adds the
+        # composite references, and has its own test below.
+        command.upgrade(config, "0003")
         inspector = inspect(engine)
 
         assert inspector.get_pk_constraint("tools")["constrained_columns"] == [
@@ -284,5 +287,91 @@ def test_0003_refuses_a_populated_execution_grants_table(
 
         with pytest.raises(RuntimeError, match="refuses to run"):
             command.upgrade(config, "0003")
+    finally:
+        engine.dispose()
+
+
+def test_0004_references_the_concrete_tool_version(
+    alembic_config: tuple[Config, str],
+) -> None:
+    """Both dependents record the version; only one keeps a family reference too.
+
+    A composite foreign key is MATCH SIMPLE, so it is not checked when any referencing
+    column is NULL. ``session_events.tool_version`` is nullable by design, so on refused
+    paths the composite constraint is vacuous and the family reference is what still holds.
+    ``execution_grants`` has both columns NOT NULL, so the composite subsumes it.
+    """
+    config, db_url = alembic_config
+    engine = create_engine(db_url)
+
+    try:
+        command.upgrade(config, "head")
+        inspector = inspect(engine)
+
+        event_cols = {c["name"]: c for c in inspector.get_columns("session_events")}
+        assert event_cols["tool_version"]["nullable"] is True, (
+            "an event may record a refusal that never resolved an implementation"
+        )
+        grant_cols = {c["name"]: c for c in inspector.get_columns("execution_grants")}
+        assert grant_cols["tool_version"]["nullable"] is False, (
+            "a durable grant is a frozen continuation of one resolved decision"
+        )
+
+        def _refs(table: str) -> set[tuple[str, tuple[str, ...]]]:
+            return {
+                (fk["referred_table"], tuple(fk["constrained_columns"]))
+                for fk in inspector.get_foreign_keys(table)
+            }
+
+        event_refs = _refs("session_events")
+        assert ("tools", ("tool_id", "tool_version")) in event_refs
+        assert ("tool_families", ("tool_id",)) in event_refs, (
+            "the family reference must survive: the composite one is vacuous on NULL"
+        )
+
+        grant_refs = _refs("execution_grants")
+        assert ("tools", ("tool_id", "tool_version")) in grant_refs
+        assert ("tool_families", ("tool_id",)) not in grant_refs, (
+            "redundant: both grant columns are NOT NULL, so the composite always applies"
+        )
+
+    finally:
+        engine.dispose()
+
+
+def test_0004_refuses_rows_whose_concrete_version_is_unknown(
+    alembic_config: tuple[Config, str],
+) -> None:
+    """A legacy event has no honest version: not a value, and not NULL either.
+
+    NULL asserts that no implementation was ever established, which for a row recorded
+    before versions were persisted is not known to be true.
+    """
+    config, db_url = alembic_config
+    engine = create_engine(db_url)
+
+    try:
+        command.upgrade(config, "0003")
+        _seed_0002_prerequisites(engine, NOW)
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO tool_families (tool_id, created_at)"
+                    " VALUES ('file_read', :now)"
+                ),
+                {"now": NOW},
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO session_events (event_id, session_id, agent_id, tool_id,"
+                    " sequence_number, agent_sequence, decision, timestamp, created_at)"
+                    " VALUES ('evt-1', 'sess-mig', 'agent-mig', 'file_read', 1, 1,"
+                    " 'ALLOW', :now, :now)"
+                ),
+                {"now": NOW},
+            )
+
+        with pytest.raises(RuntimeError, match="refuses to run"):
+            command.upgrade(config, "0004")
     finally:
         engine.dispose()

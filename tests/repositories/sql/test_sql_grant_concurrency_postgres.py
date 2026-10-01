@@ -29,7 +29,7 @@ from app.repositories.sql.models.agent import AgentModel
 from app.repositories.sql.models.enforcement import AgentEnforcementStateModel
 from app.repositories.sql.models.execution_grant import ExecutionGrantModel
 from app.repositories.sql.models.session import SessionModel
-from app.repositories.sql.models.tool import ToolFamilyModel
+from app.repositories.sql.models.tool import ToolFamilyModel, ToolModel
 from app.repositories.sql.session import create_session_factory, transactional_session
 
 POSTGRES_URL = os.environ.get("TEST_DATABASE_URL")
@@ -65,6 +65,9 @@ def pg_grant_env():
             updated_at=now,
         )
         tool = ToolFamilyModel(tool_id="bash", created_at=now)
+        db.add(ToolModel(tool_id="bash", version="1.0.0",
+                         governance_enabled=True, risk_level="LOW",
+                         metadata_payload={}, created_at=now))
         session = SessionModel(
             session_id="sess-pg-grant",
             agent_id="agent-pg-grant",
@@ -105,6 +108,7 @@ def test_postgres_concurrent_double_grant_consumption_exactly_once(pg_grant_env)
         session_id="sess-pg-grant",
         agent_id="agent-pg-grant",
         tool_id="bash",
+        tool_version="1.0.0",
         execution_parameters={"cmd": "deploy"},
         originating_audit_event_id="audit-pg-1",
         risk_score=80,

@@ -36,7 +36,7 @@ from app.repositories import create_repositories
 from app.repositories.sql.base import Base
 from app.repositories.sql.engine import create_sql_engine, dispose_sql_engine
 from app.repositories.sql.models.agent import AgentModel
-from app.repositories.sql.models.tool import ToolFamilyModel
+from app.repositories.sql.models.tool import ToolFamilyModel, ToolModel
 from app.runtime.capability_registry import InMemoryCapabilityProfileRegistry
 from app.runtime.execution_authority import (
     ExecutionAuthority,
@@ -97,6 +97,11 @@ def sql_pipeline_setup():
         )
         session.add(
             ToolFamilyModel(tool_id="file_read")
+        )
+        session.add(
+            ToolModel(tool_id="file_read", version="1.0.0",
+                      governance_enabled=True, risk_level="LOW",
+                      metadata_payload={})
         )
         session.commit()
 
@@ -368,6 +373,7 @@ def test_e2e_case_5_human_in_the_loop_resumption_exactly_once(sql_pipeline_setup
         session_id=session_id,
         agent_id=agent_id,
         tool_id="file_read",
+        tool_version="1.0.0",
         execution_parameters={"path": "sensitive.txt"},
         originating_audit_event_id=f"audit-{uuid4()}",
         risk_score=75,

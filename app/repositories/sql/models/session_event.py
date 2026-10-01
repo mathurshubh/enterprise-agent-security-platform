@@ -8,6 +8,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     String,
     UniqueConstraint,
@@ -30,6 +31,18 @@ class SessionEventModel(Base):
         Index("idx_session_events_agent_horizon", "agent_id", "timestamp", "agent_sequence"),
         Index("idx_session_events_session_horizon", "session_id", "timestamp", "sequence_number"),
         Index("idx_session_events_timestamp_prune", "timestamp"),
+        # Both references are required, and neither substitutes for the other.
+        #
+        # ``tool_version`` is nullable by design: a refused event records the family it
+        # named without ever resolving an implementation. A composite foreign key is
+        # MATCH SIMPLE, so it is not checked at all when any referencing column is NULL —
+        # meaning on exactly those refused paths the composite constraint is vacuous. The
+        # family reference on ``tool_id`` alone is what still holds there.
+        ForeignKeyConstraint(
+            ["tool_id", "tool_version"],
+            ["tools.tool_id", "tools.version"],
+            ondelete="RESTRICT",
+        ),
     )
 
     event_id: Mapped[str] = mapped_column(
@@ -52,6 +65,7 @@ class SessionEventModel(Base):
         ForeignKey("tool_families.tool_id", ondelete="RESTRICT"),
         nullable=False,
     )
+    tool_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
     sequence_number: Mapped[int] = mapped_column(BigInteger, nullable=False)
     agent_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
     decision: Mapped[str] = mapped_column(String(32), nullable=False)

@@ -17,7 +17,7 @@ from app.repositories.sql.engine import create_sql_engine, dispose_sql_engine
 from app.repositories.sql.models.agent import AgentModel
 from app.repositories.sql.models.execution_grant import ExecutionGrantModel
 from app.repositories.sql.models.session import SessionModel
-from app.repositories.sql.models.tool import ToolFamilyModel
+from app.repositories.sql.models.tool import ToolFamilyModel, ToolModel
 from app.repositories.sql.session import create_session_factory, transactional_session
 from tests.repositories.contracts.base_approval_grant_contract import (
     BaseApprovalGrantRepositoryContractTests,
@@ -46,8 +46,18 @@ def _seed_grant_dependencies(session_factory) -> None:
                 )
             )
         for tool_id in KNOWN_GRANT_TOOLS:
+            db.merge(ToolFamilyModel(tool_id=tool_id, created_at=now))
+            # A grant's (tool_id, tool_version) is a composite reference to ``tools``,
+            # so the concrete version row has to exist, not only the family anchor.
             db.merge(
-                ToolFamilyModel(tool_id=tool_id, created_at=now)
+                ToolModel(
+                    tool_id=tool_id,
+                    version="1.0.0",
+                    governance_enabled=True,
+                    risk_level="LOW",
+                    metadata_payload={},
+                    created_at=now,
+                )
             )
         for session_id in KNOWN_GRANT_SESSIONS:
             db.merge(
@@ -95,6 +105,7 @@ def test_illegal_state_transitions_raise_error(grant_repo_setup) -> None:
         session_id="sess-1",
         agent_id="agent-1",
         tool_id="bash",
+        tool_version="1.0.0",
         execution_parameters={"cmd": "ls"},
         originating_audit_event_id="audit-1",
         risk_score=50,
@@ -124,6 +135,7 @@ def test_atomic_cas_failure_leaves_grant_unmutated(grant_repo_setup) -> None:
         session_id="sess-1",
         agent_id="agent-1",
         tool_id="bash",
+        tool_version="1.0.0",
         execution_parameters={"cmd": "whoami"},
         originating_audit_event_id="audit-1",
         risk_score=60,
@@ -167,6 +179,7 @@ def test_strict_foreign_keys_on_grant_creation(grant_repo_setup) -> None:
         session_id="sess-1",
         agent_id="nonexistent-agent",
         tool_id="bash",
+        tool_version="1.0.0",
         execution_parameters={},
         originating_audit_event_id="audit-1",
         risk_score=10,

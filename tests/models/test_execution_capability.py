@@ -321,6 +321,7 @@ class TestExecutionGrantIntegration:
             session_id="session-1",
             agent_id="agent-1",
             tool_id="file_read",
+            tool_version="1.0.0",
             execution_parameters={"path": "report.txt"},
             originating_audit_event_id="audit-1",
             risk_score=0,
