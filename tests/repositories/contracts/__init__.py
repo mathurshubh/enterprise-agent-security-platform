@@ -3,8 +3,8 @@
 from tests.repositories.contracts.base_agent_contract import (
     BaseAgentRepositoryContractTests,
 )
-from tests.repositories.contracts.base_approval_grant_contract import (
-    BaseApprovalGrantRepositoryContractTests,
+from tests.repositories.contracts.base_approval_continuation_contract import (
+    BaseApprovalContinuationRepositoryContractTests,
 )
 from tests.repositories.contracts.base_audit_contract import (
     BaseAuditEvidenceRepositoryContractTests,
@@ -21,7 +21,7 @@ from tests.repositories.contracts.base_tool_contract import (
 
 __all__ = [
     "BaseAgentRepositoryContractTests",
-    "BaseApprovalGrantRepositoryContractTests",
+    "BaseApprovalContinuationRepositoryContractTests",
     "BaseAuditEvidenceRepositoryContractTests",
     "BaseEnforcementStateRepositoryContractTests",
     "BaseSessionRepositoryContractTests",

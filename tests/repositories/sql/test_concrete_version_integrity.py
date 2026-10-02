@@ -2,7 +2,7 @@
 
 Two invariants, asymmetric because the domain is:
 
-1. A durable ``ExecutionGrant`` cannot exist unless its ``(tool_id, tool_version)``
+1. A durable ``ApprovalContinuation`` cannot exist unless its ``(tool_id, tool_version)``
    identifies a registered ``Tool`` version.
 2. A durable ``SessionEvent`` may represent a family-level or refused interaction without a
    concrete version, but its ``tool_id`` must still identify a registered ``ToolFamily``.
@@ -21,7 +21,7 @@ from sqlalchemy.exc import IntegrityError
 from app.repositories.sql.base import Base
 from app.repositories.sql.engine import create_sql_engine
 from app.repositories.sql.models.agent import AgentModel
-from app.repositories.sql.models.execution_grant import ExecutionGrantModel
+from app.repositories.sql.models.approval_continuation import ApprovalContinuationModel
 from app.repositories.sql.models.session import SessionModel
 from app.repositories.sql.models.session_event import SessionEventModel
 from app.repositories.sql.models.tool import ToolFamilyModel, ToolModel
@@ -74,7 +74,7 @@ def seeded_factory():
     return factory
 
 
-def _grant(**overrides) -> ExecutionGrantModel:
+def _grant(**overrides) -> ApprovalContinuationModel:
     fields = {
         "grant_id": "g-1",
         "session_id": "sess-1",
@@ -91,7 +91,7 @@ def _grant(**overrides) -> ExecutionGrantModel:
         "expires_at": NOW + timedelta(minutes=15),
     }
     fields.update(overrides)
-    return ExecutionGrantModel(**fields)
+    return ApprovalContinuationModel(**fields)
 
 
 def _event(**overrides) -> SessionEventModel:
@@ -138,7 +138,7 @@ def test_a_grant_naming_a_registered_version_is_accepted(seeded_factory) -> None
         db.add(_grant())
 
     with transactional_session(seeded_factory) as db:
-        stored = db.get(ExecutionGrantModel, "g-1")
+        stored = db.get(ApprovalContinuationModel, "g-1")
         assert stored is not None
         assert (stored.tool_id, stored.tool_version) == ("file_read", "1.0.0")
 

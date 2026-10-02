@@ -1,4 +1,9 @@
-"""ExecutionGrant — Domain entity for human-in-the-loop authorization resumption (ADR-031)."""
+"""ApprovalContinuation — Durable human-approved authority awaiting a single claim (ADR-031 §7, §10).
+
+Renamed from the former ``ExecutionGrant`` as a terminology-only change: this object is **not**
+executable authority (ADR-031 §7.1). ``RuntimeExecutionGrant`` is the sole executable authority
+type, and the previous name invited exactly the confusion that amendment prohibits.
+"""
 
 from datetime import datetime
 from enum import Enum
@@ -8,8 +13,8 @@ from typing import Any, Mapping
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 
-class GrantState(str, Enum):
-    """Lifecycle states of an ExecutionGrant per ADR-031."""
+class ContinuationState(str, Enum):
+    """Lifecycle states of an ApprovalContinuation per ADR-031."""
 
     PENDING = "PENDING"
     APPROVED = "APPROVED"
@@ -18,12 +23,12 @@ class GrantState(str, Enum):
     CONSUMED = "CONSUMED"
 
 
-ALLOWED_GRANT_TRANSITIONS: frozenset[tuple[GrantState, GrantState]] = frozenset(
+ALLOWED_CONTINUATION_TRANSITIONS: frozenset[tuple[ContinuationState, ContinuationState]] = frozenset(
     {
-        (GrantState.PENDING, GrantState.APPROVED),
-        (GrantState.PENDING, GrantState.REJECTED),
-        (GrantState.PENDING, GrantState.EXPIRED),
-        (GrantState.APPROVED, GrantState.CONSUMED),
+        (ContinuationState.PENDING, ContinuationState.APPROVED),
+        (ContinuationState.PENDING, ContinuationState.REJECTED),
+        (ContinuationState.PENDING, ContinuationState.EXPIRED),
+        (ContinuationState.APPROVED, ContinuationState.CONSUMED),
     }
 )
 
@@ -50,7 +55,7 @@ def _deep_unfreeze(val: Any) -> Any:
     return val
 
 
-class ExecutionGrant(BaseModel):
+class ApprovalContinuation(BaseModel):
     """Bound authority token permitting a single execution attempt of a specific tool invocation.
 
     Invariants (ADR-031):
@@ -84,7 +89,7 @@ class ExecutionGrant(BaseModel):
     risk_score: int = Field(ge=0)
     required_response: str = Field(min_length=1)
     enforcement_epoch: int = Field(ge=0)
-    state: GrantState = Field(default=GrantState.PENDING)
+    state: ContinuationState = Field(default=ContinuationState.PENDING)
     created_at: datetime
     expires_at: datetime
     approved_by: str | None = None
@@ -101,14 +106,14 @@ class ExecutionGrant(BaseModel):
     def _serialize_parameters(self, v: Any) -> Any:
         return _deep_unfreeze(v)
 
-    def __deepcopy__(self, memo: dict[int, Any] | None = None) -> "ExecutionGrant":
+    def __deepcopy__(self, memo: dict[int, Any] | None = None) -> "ApprovalContinuation":
         """Controlled deep copy preserving immutability without global interpreter dispatch mutation."""
         if memo is None:
             memo = {}
         if id(self) in memo:
             return memo[id(self)]
 
-        # ExecutionGrant is frozen and execution_parameters is already deeply frozen/immutable.
+        # ApprovalContinuation is frozen and execution_parameters is already deeply frozen/immutable.
         # Construct a distinct instance with copied attributes for complete object isolation.
         copied = self.__class__.model_construct(
             grant_id=self.grant_id,

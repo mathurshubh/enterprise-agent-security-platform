@@ -18,7 +18,7 @@ from app.registry.scenario_registry import ScenarioRegistry
 from app.registry.tool_registry import ToolRegistry
 from app.repositories.in_memory import (
     InMemoryAgentRepository,
-    InMemoryApprovalGrantRepository,
+    InMemoryApprovalContinuationRepository,
     InMemoryAuditEvidenceRepository,
     InMemoryEnforcementStateRepository,
     InMemorySessionRepository,
@@ -56,8 +56,8 @@ enforcement_repository: InMemoryEnforcementStateRepository = (
 audit_repository: InMemoryAuditEvidenceRepository = InMemoryAuditEvidenceRepository()
 session_repository: InMemorySessionRepository = InMemorySessionRepository()
 tool_repository: InMemoryToolRepository = InMemoryToolRepository()
-approval_grant_repository: InMemoryApprovalGrantRepository = (
-    InMemoryApprovalGrantRepository()
+approval_grant_repository: InMemoryApprovalContinuationRepository = (
+    InMemoryApprovalContinuationRepository()
 )
 
 # ── Shared service singletons ────────────────────────────────────────────────

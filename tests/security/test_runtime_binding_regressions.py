@@ -11,7 +11,7 @@ discipline; and the HTTP ``ExecuteRequest`` could not express a resource at all.
 
 Hardened in ``feat/decision-execution-binding`` (ADR-023). Each decision is bound to
 a canonical ``ExecutionBinding``; only a final ALLOW produces a signed, single-use,
-short-lived ``ExecutionGrant``; and ``DefaultToolExecutor`` refuses any execution
+short-lived ``RuntimeExecutionGrant``; and ``DefaultToolExecutor`` refuses any execution
 whose grant is invalid or whose operation differs from the grant's binding. The
 HTTP API is decision-only and carries the resource being evaluated.
 

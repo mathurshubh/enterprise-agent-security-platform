@@ -8,8 +8,8 @@ from app.repositories.sql.models import (
     AgentEnforcementTransitionModel,
     AgentModel,
     AgentSequenceCounterModel,
+    ApprovalContinuationModel,
     AuditEventModel,
-    ExecutionGrantModel,
     SessionEventModel,
     SessionModel,
     ToolModel,
@@ -26,7 +26,7 @@ def test_sql_models_metadata_registration() -> None:
         SessionModel,
         AgentSequenceCounterModel,
         SessionEventModel,
-        ExecutionGrantModel,
+        ApprovalContinuationModel,
         AuditEventModel,
     ]
     assert len(models) == 9
@@ -52,7 +52,7 @@ def test_sqlite_schema_creation_and_constraints() -> None:
         "sessions",
         "agent_sequence_counters",
         "session_events",
-        "execution_grants",
+        "approval_continuations",
         "audit_events",
     }
     assert expected_tables.issubset(created_tables)

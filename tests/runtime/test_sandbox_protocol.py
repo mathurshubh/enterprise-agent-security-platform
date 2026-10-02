@@ -5,13 +5,13 @@ from typing import Any
 
 import pytest
 
+from app.models.approval_continuation import ApprovalContinuation, ContinuationState
 from app.models.execution_capability import (
     ExecutionCapabilities,
     FilesystemCapability,
     NetworkCapability,
     ResourceLimits,
 )
-from app.models.execution_grant import ExecutionGrant, GrantState
 from app.models.execution_provenance import ExecutionProvenance
 from app.models.sandbox_execution_result import SandboxExecutionResult
 from app.runtime.capability_registry import (
@@ -125,7 +125,7 @@ class TestCapabilityBindingVerification:
 
         from datetime import datetime, timezone
 
-        grant = ExecutionGrant(
+        grant = ApprovalContinuation(
             grant_id="grant-1",
             session_id="session-1",
             agent_id="agent-1",
@@ -136,7 +136,7 @@ class TestCapabilityBindingVerification:
             risk_score=0,
             required_response="ALLOW",
             enforcement_epoch=1,
-            state=GrantState.APPROVED,
+            state=ContinuationState.APPROVED,
             created_at=datetime.now(timezone.utc),
             expires_at=datetime.now(timezone.utc),
             capability_profile_id="profile-alpha",
@@ -152,7 +152,7 @@ class TestCapabilityBindingVerification:
 
         from datetime import datetime, timezone
 
-        grant = ExecutionGrant(
+        grant = ApprovalContinuation(
             grant_id="grant-1",
             session_id="session-1",
             agent_id="agent-1",
@@ -163,7 +163,7 @@ class TestCapabilityBindingVerification:
             risk_score=0,
             required_response="ALLOW",
             enforcement_epoch=1,
-            state=GrantState.APPROVED,
+            state=ContinuationState.APPROVED,
             created_at=datetime.now(timezone.utc),
             expires_at=datetime.now(timezone.utc),
             capability_profile_id="profile-expected",
@@ -180,7 +180,7 @@ class TestCapabilityBindingVerification:
 
         from datetime import datetime, timezone
 
-        grant = ExecutionGrant(
+        grant = ApprovalContinuation(
             grant_id="grant-1",
             session_id="session-1",
             agent_id="agent-1",
@@ -191,7 +191,7 @@ class TestCapabilityBindingVerification:
             risk_score=0,
             required_response="ALLOW",
             enforcement_epoch=1,
-            state=GrantState.APPROVED,
+            state=ContinuationState.APPROVED,
             created_at=datetime.now(timezone.utc),
             expires_at=datetime.now(timezone.utc),
             capability_profile_id="profile-alpha",
@@ -216,7 +216,7 @@ class TestCapabilityBindingVerification:
 
         The executor refuses a profile-less grant upstream, so this was unreachable in
         production. It is fixed in the helper so any other caller inherits the same
-        fail-closed answer. ADR-031 note: a persisted ExecutionGrant with no capability
+        fail-closed answer. ADR-031 note: a persisted ApprovalContinuation with no capability
         fields is consequently not executable, which is intended — it has no capability
         binding to enforce.
         """
@@ -224,7 +224,7 @@ class TestCapabilityBindingVerification:
 
         from datetime import datetime, timezone
 
-        grant = ExecutionGrant(
+        grant = ApprovalContinuation(
             grant_id="grant-legacy",
             session_id="session-1",
             agent_id="agent-1",
@@ -235,7 +235,7 @@ class TestCapabilityBindingVerification:
             risk_score=0,
             required_response="ALLOW",
             enforcement_epoch=1,
-            state=GrantState.APPROVED,
+            state=ContinuationState.APPROVED,
             created_at=datetime.now(timezone.utc),
             expires_at=datetime.now(timezone.utc),
             # capability_profile_id and capability_digest are None
@@ -256,7 +256,7 @@ class TestCapabilityBindingVerification:
 
         from datetime import datetime, timezone
 
-        grant = ExecutionGrant(
+        grant = ApprovalContinuation(
             grant_id="grant-no-digest",
             session_id="session-1",
             agent_id="agent-1",
@@ -267,7 +267,7 @@ class TestCapabilityBindingVerification:
             risk_score=0,
             required_response="ALLOW",
             enforcement_epoch=1,
-            state=GrantState.APPROVED,
+            state=ContinuationState.APPROVED,
             created_at=datetime.now(timezone.utc),
             expires_at=datetime.now(timezone.utc),
             capability_profile_id="profile-alpha",

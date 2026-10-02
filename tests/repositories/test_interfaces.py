@@ -11,8 +11,8 @@ from app.models.agent_enforcement import (
     EnforcementAction,
     EnforcementTransition,
 )
+from app.models.approval_continuation import ApprovalContinuation, ContinuationState
 from app.models.audit_event import AuditEvent, Decision
-from app.models.execution_grant import ExecutionGrant, GrantState
 from app.models.session import Session, TerminalReason, TerminalSessionTombstone
 from app.models.session_event import SessionEvent
 from app.models.tool import Tool
@@ -24,10 +24,10 @@ from app.models.tool_operational import ToolOperational
 from app.models.tool_risk_level import ToolRiskLevel
 from app.repositories.interfaces import (
     AgentRepository,
-    ApprovalGrantRepository,
+    ApprovalContinuationRepository,
     AuditEvidenceRepository,
     EnforcementStateRepository,
-    InvalidGrantTransitionError,
+    InvalidContinuationTransitionError,
     SessionRepository,
     ToolRepository,
 )
@@ -235,35 +235,35 @@ class MockSessionRepository:
         raise ValueError(f"Event with sequence {sequence_number} not found")
 
 
-class MockApprovalGrantRepository:
-    """In-memory stub verifying ApprovalGrantRepository protocol compliance."""
+class MockApprovalContinuationRepository:
+    """In-memory stub verifying ApprovalContinuationRepository protocol compliance."""
 
     def __init__(self) -> None:
-        self._grants: dict[str, ExecutionGrant] = {}
+        self._grants: dict[str, ApprovalContinuation] = {}
 
-    def create_grant(self, grant: ExecutionGrant) -> None:
+    def create_continuation(self, grant: ApprovalContinuation) -> None:
         self._grants[grant.grant_id] = grant
 
-    def get_grant(self, grant_id: str) -> ExecutionGrant | None:
+    def get_continuation(self, grant_id: str) -> ApprovalContinuation | None:
         return self._grants.get(grant_id)
 
-    def transition_grant(
+    def transition_continuation(
         self,
         grant_id: str,
         *,
-        from_state: GrantState,
-        to_state: GrantState,
+        from_state: ContinuationState,
+        to_state: ContinuationState,
         consumed_at: datetime | None = None,
         approved_by: str | None = None,
     ) -> bool:
         allowed = {
-            (GrantState.PENDING, GrantState.APPROVED),
-            (GrantState.PENDING, GrantState.REJECTED),
-            (GrantState.PENDING, GrantState.EXPIRED),
-            (GrantState.APPROVED, GrantState.CONSUMED),
+            (ContinuationState.PENDING, ContinuationState.APPROVED),
+            (ContinuationState.PENDING, ContinuationState.REJECTED),
+            (ContinuationState.PENDING, ContinuationState.EXPIRED),
+            (ContinuationState.APPROVED, ContinuationState.CONSUMED),
         }
         if (from_state, to_state) not in allowed:
-            raise InvalidGrantTransitionError(
+            raise InvalidContinuationTransitionError(
                 f"Transition from {from_state} to {to_state} is illegal under ADR-031"
             )
 
@@ -281,12 +281,12 @@ class MockApprovalGrantRepository:
         self._grants[grant_id] = updated
         return True
 
-    def list_grants(
+    def list_continuations(
         self,
         *,
         agent_id: str | None = None,
-        state: GrantState | None = None,
-    ) -> list[ExecutionGrant]:
+        state: ContinuationState | None = None,
+    ) -> list[ApprovalContinuation]:
         res = list(self._grants.values())
         if agent_id is not None:
             res = [g for g in res if g.agent_id == agent_id]
@@ -437,9 +437,9 @@ class TestRepositoryProtocolConformance:
         assert repo.terminalize_session(session_id, tombstone) is False
 
     def test_approval_grant_repository_state_transitions(self) -> None:
-        repo: ApprovalGrantRepository = MockApprovalGrantRepository()
+        repo: ApprovalContinuationRepository = MockApprovalContinuationRepository()
         now = datetime.now(timezone.utc)
-        grant = ExecutionGrant(
+        grant = ApprovalContinuation(
             grant_id="grant-flow-1",
             session_id="sess-1",
             agent_id="agent-1",
@@ -450,26 +450,26 @@ class TestRepositoryProtocolConformance:
             risk_score=80,
             required_response="REQUIRE_APPROVAL",
             enforcement_epoch=0,
-            state=GrantState.PENDING,
+            state=ContinuationState.PENDING,
             created_at=now,
             expires_at=now,
         )
-        repo.create_grant(grant)
+        repo.create_continuation(grant)
 
-        # Illegal transition: PENDING -> CONSUMED must raise InvalidGrantTransitionError
-        with pytest.raises(InvalidGrantTransitionError):
-            repo.transition_grant(
+        # Illegal transition: PENDING -> CONSUMED must raise InvalidContinuationTransitionError
+        with pytest.raises(InvalidContinuationTransitionError):
+            repo.transition_continuation(
                 "grant-flow-1",
-                from_state=GrantState.PENDING,
-                to_state=GrantState.CONSUMED,
+                from_state=ContinuationState.PENDING,
+                to_state=ContinuationState.CONSUMED,
             )
 
         # Legal transition: PENDING -> APPROVED
         assert (
-            repo.transition_grant(
+            repo.transition_continuation(
                 "grant-flow-1",
-                from_state=GrantState.PENDING,
-                to_state=GrantState.APPROVED,
+                from_state=ContinuationState.PENDING,
+                to_state=ContinuationState.APPROVED,
                 approved_by="alice",
             )
             is True
@@ -478,27 +478,27 @@ class TestRepositoryProtocolConformance:
         # Legal transition: APPROVED -> CONSUMED (with consumed_at timestamp)
         consumed_time = datetime.now(timezone.utc)
         assert (
-            repo.transition_grant(
+            repo.transition_continuation(
                 "grant-flow-1",
-                from_state=GrantState.APPROVED,
-                to_state=GrantState.CONSUMED,
+                from_state=ContinuationState.APPROVED,
+                to_state=ContinuationState.CONSUMED,
                 consumed_at=consumed_time,
             )
             is True
         )
 
-        retrieved = repo.get_grant("grant-flow-1")
+        retrieved = repo.get_continuation("grant-flow-1")
         assert retrieved is not None
-        assert retrieved.state == GrantState.CONSUMED
+        assert retrieved.state == ContinuationState.CONSUMED
         assert retrieved.approved_by == "alice"
         assert retrieved.consumed_at == consumed_time
 
         # Attempting second consumption (APPROVED -> CONSUMED) fails CAS
         assert (
-            repo.transition_grant(
+            repo.transition_continuation(
                 "grant-flow-1",
-                from_state=GrantState.APPROVED,
-                to_state=GrantState.CONSUMED,
+                from_state=ContinuationState.APPROVED,
+                to_state=ContinuationState.CONSUMED,
                 consumed_at=consumed_time,
             )
             is False

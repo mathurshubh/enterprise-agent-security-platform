@@ -350,7 +350,7 @@ Content addressing resolves this without duplicating capability content on every
 
 ## 6. Dependent decision — grant durability (D-G1)
 
-`SqlApprovalGrantRepository` does not persist `capability_profile_id` or `capability_digest`, and `execution_grants` has no columns for them. An `ExecutionGrant` is a frozen continuation of an evaluated decision, so an approval resumed after a restart cannot establish the capability binding it was issued under.
+`SqlApprovalContinuationRepository` does not persist `capability_profile_id` or `capability_digest`, and `approval_continuations` has no columns for them. An `ApprovalContinuation` is a frozen continuation of an evaluated decision, so an approval resumed after a restart cannot establish the capability binding it was issued under.
 
 This is a real gap and it is **not part of this decision**. The questions differ: evidence asks *can we reconstruct what authority governed an execution afterwards*, while the grant asks *can an outstanding continuation be safely resumed*. They are adjacent lifecycle boundaries, and the grant question is recorded here as a dependency this decision surfaces rather than absorbed into it.
 

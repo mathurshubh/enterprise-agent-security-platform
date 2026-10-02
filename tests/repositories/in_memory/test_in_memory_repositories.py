@@ -2,7 +2,7 @@
 
 from app.repositories.in_memory import (
     InMemoryAgentRepository,
-    InMemoryApprovalGrantRepository,
+    InMemoryApprovalContinuationRepository,
     InMemoryAuditEvidenceRepository,
     InMemoryEnforcementStateRepository,
     InMemorySessionRepository,
@@ -10,7 +10,7 @@ from app.repositories.in_memory import (
 )
 from app.repositories.interfaces import (
     AgentRepository,
-    ApprovalGrantRepository,
+    ApprovalContinuationRepository,
     AuditEvidenceRepository,
     EnforcementStateRepository,
     SessionRepository,
@@ -18,7 +18,7 @@ from app.repositories.interfaces import (
 )
 from tests.repositories.contracts import (
     BaseAgentRepositoryContractTests,
-    BaseApprovalGrantRepositoryContractTests,
+    BaseApprovalContinuationRepositoryContractTests,
     BaseAuditEvidenceRepositoryContractTests,
     BaseEnforcementStateRepositoryContractTests,
     BaseSessionRepositoryContractTests,
@@ -53,6 +53,6 @@ class TestInMemorySessionRepository(BaseSessionRepositoryContractTests):
         return InMemorySessionRepository()
 
 
-class TestInMemoryApprovalGrantRepository(BaseApprovalGrantRepositoryContractTests):
-    def create_repository(self) -> ApprovalGrantRepository:
-        return InMemoryApprovalGrantRepository()
+class TestInMemoryApprovalContinuationRepository(BaseApprovalContinuationRepositoryContractTests):
+    def create_repository(self) -> ApprovalContinuationRepository:
+        return InMemoryApprovalContinuationRepository()

@@ -4,7 +4,7 @@ import pytest
 
 from app.repositories import (
     InMemoryAgentRepository,
-    InMemoryApprovalGrantRepository,
+    InMemoryApprovalContinuationRepository,
     InMemoryAuditEvidenceRepository,
     InMemoryEnforcementStateRepository,
     InMemorySessionRepository,
@@ -13,7 +13,7 @@ from app.repositories import (
     create_repositories,
 )
 from app.repositories.sql import (
-    SqlApprovalGrantRepository,
+    SqlApprovalContinuationRepository,
     SqlEnforcementStateRepository,
     SqlSessionRepository,
     create_session_factory,
@@ -29,7 +29,7 @@ def test_create_repositories_memory_defaults() -> None:
     assert isinstance(container.tool_repository, InMemoryToolRepository)
     assert isinstance(container.session_repository, InMemorySessionRepository)
     assert isinstance(container.enforcement_repository, InMemoryEnforcementStateRepository)
-    assert isinstance(container.approval_grant_repository, InMemoryApprovalGrantRepository)
+    assert isinstance(container.approval_grant_repository, InMemoryApprovalContinuationRepository)
     assert isinstance(container.audit_repository, InMemoryAuditEvidenceRepository)
 
 
@@ -66,7 +66,7 @@ def test_create_repositories_sql_with_engine() -> None:
     assert isinstance(container, RepositoryContainer)
     assert isinstance(container.session_repository, SqlSessionRepository)
     assert isinstance(container.enforcement_repository, SqlEnforcementStateRepository)
-    assert isinstance(container.approval_grant_repository, SqlApprovalGrantRepository)
+    assert isinstance(container.approval_grant_repository, SqlApprovalContinuationRepository)
 
 
 def test_create_repositories_sql_with_session_factory() -> None:
@@ -78,7 +78,7 @@ def test_create_repositories_sql_with_session_factory() -> None:
     assert isinstance(container, RepositoryContainer)
     assert isinstance(container.session_repository, SqlSessionRepository)
     assert isinstance(container.enforcement_repository, SqlEnforcementStateRepository)
-    assert isinstance(container.approval_grant_repository, SqlApprovalGrantRepository)
+    assert isinstance(container.approval_grant_repository, SqlApprovalContinuationRepository)
 
 
 def test_create_repositories_rejects_unknown_backend() -> None:
