@@ -3,9 +3,9 @@
 ![Python](https://img.shields.io/badge/Python-3.13-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.116+-009688)
 ![Tests](https://img.shields.io/badge/Tests-1619%2B_Passing-success)
-![GitHub Release](https://img.shields.io/badge/GitHub_Release-v0.15.0-blue)
-![Git Tag](https://img.shields.io/badge/Git_Tag-v0.15.0-blue)
-![Development Cycle](https://img.shields.io/badge/Release_Target-v0.18.0--prepared-orange)
+![GitHub Release](https://img.shields.io/badge/GitHub_Release-v0.18.0-blue)
+![Git Tag](https://img.shields.io/badge/Git_Tag-v0.18.0-blue)
+![Development Cycle](https://img.shields.io/badge/Release-v0.18.0--published-brightgreen)
 ![Providers](https://img.shields.io/badge/Providers-Ollama_|_Gemini-orange)
 ![Security](https://img.shields.io/badge/Security-Zero_Trust-red)
 ![License](https://img.shields.io/badge/License-MIT-green)
@@ -89,9 +89,9 @@ Identity → Authority → Policy → Capability → Runtime → Resource → Te
 
 ## Release & Platform Status
 
-- **Latest Published GitHub Release:** `v0.15.0`
-- **Latest Repository Tag:** `v0.15.0`
-- **Current Release Target:** `v0.18.0` — Prepared; tag and GitHub release pending ([release notes](docs/releases/v0.18.0.md))
+- **Latest Published GitHub Release:** `v0.18.0`
+- **Latest Repository Tag:** `v0.18.0`
+- **Current Release:** `v0.18.0` — Published ([release notes](docs/releases/v0.18.0.md))
 - **Strategic Architecture Baseline:** Jan–Aug 2026 AI Security Architecture Baseline Review (`4abf2b6`)
 - **Automated Test Coverage:** **1,619 automated tests passing** (11 skipped, 7 xfailed, `.venv/bin/python -m pytest`)
 - **Frontend Build Status:** Passing (`npm run build` & `npm run lint`)
@@ -104,9 +104,9 @@ Identity → Authority → Policy → Capability → Runtime → Resource → Te
 | Metric | Value |
 |----------|---------|
 | Automated Tests | 1,619 Passing (11 skipped, 7 xfailed) |
-| Latest Published GitHub Release | v0.15.0 |
-| Latest Repository Tag | v0.15.0 |
-| Current Release Target | v0.18.0 (Prepared; tag pending) |
+| Latest Published GitHub Release | v0.18.0 |
+| Latest Repository Tag | v0.18.0 |
+| Current Release | v0.18.0 (Published) |
 | Architecture Baseline Commit | 4abf2b6134d894d15bad76a0ec45db6adecb6262 |
 | Detection Rules | 4 (`PROMPT_INJECTION`, `SENSITIVE_FILE_ACCESS`, `DATA_EXFILTRATION`, `EXCESSIVE_DENIALS`) |
 | Security Framework Mappings | 3 (OWASP LLM Top 10, MITRE ATLAS, MITRE ATT&CK) |
