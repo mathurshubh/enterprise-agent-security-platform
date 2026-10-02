@@ -1,4 +1,4 @@
-"""Tests for ADR-031 ExecutionGrant domain model and deep parameter immutability."""
+"""Tests for ADR-031 ApprovalContinuation domain model and deep parameter immutability."""
 
 import copy
 from datetime import datetime, timedelta, timezone
@@ -7,14 +7,14 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from app.models.execution_grant import (
-    ALLOWED_GRANT_TRANSITIONS,
-    ExecutionGrant,
-    GrantState,
+from app.models.approval_continuation import (
+    ALLOWED_CONTINUATION_TRANSITIONS,
+    ApprovalContinuation,
+    ContinuationState,
 )
 
 
-def _sample_grant(**kwargs: Any) -> ExecutionGrant:
+def _sample_grant(**kwargs: Any) -> ApprovalContinuation:
     now = datetime.now(timezone.utc)
     defaults = {
         "grant_id": "grant-test-1",
@@ -30,23 +30,23 @@ def _sample_grant(**kwargs: Any) -> ExecutionGrant:
         "risk_score": 75,
         "required_response": "REQUIRE_APPROVAL",
         "enforcement_epoch": 0,
-        "state": GrantState.PENDING,
+        "state": ContinuationState.PENDING,
         "created_at": now,
         "expires_at": now + timedelta(minutes=15),
         "approved_by": None,
         "consumed_at": None,
     }
     defaults.update(kwargs)
-    return ExecutionGrant(**defaults)
+    return ApprovalContinuation(**defaults)
 
 
-class TestExecutionGrantImmutability:
-    """Rigorous verification of ADR-031 ExecutionGrant deep immutability."""
+class TestApprovalContinuationImmutability:
+    """Rigorous verification of ADR-031 ApprovalContinuation deep immutability."""
 
     def test_top_level_model_mutation_is_rejected(self) -> None:
         grant = _sample_grant()
         with pytest.raises(ValidationError):
-            grant.state = GrantState.APPROVED  # type: ignore[misc]
+            grant.state = ContinuationState.APPROVED  # type: ignore[misc]
 
         with pytest.raises(ValidationError):
             grant.approved_by = "operator-alice"  # type: ignore[misc]
@@ -111,9 +111,9 @@ class TestExecutionGrantImmutability:
         assert copied1.execution_parameters == grant.execution_parameters
 
         # Copy with update
-        copied2 = grant.model_copy(update={"state": GrantState.APPROVED}, deep=True)
+        copied2 = grant.model_copy(update={"state": ContinuationState.APPROVED}, deep=True)
         assert copied2 is not grant
-        assert copied2.state == GrantState.APPROVED
+        assert copied2.state == ContinuationState.APPROVED
 
         # Standard library copy.deepcopy
         copied3 = copy.deepcopy(grant)
@@ -124,8 +124,8 @@ class TestExecutionGrantImmutability:
         assert MappingProxyType not in copy._deepcopy_dispatch
 
 
-class TestExecutionGrantSerialization:
-    """Verify serialization and roundtrip of deeply frozen ExecutionGrant."""
+class TestApprovalContinuationSerialization:
+    """Verify serialization and roundtrip of deeply frozen ApprovalContinuation."""
 
     def test_model_dump_returns_standard_mutable_dict_for_json(self) -> None:
         grant = _sample_grant()
@@ -139,7 +139,7 @@ class TestExecutionGrantSerialization:
         assert "file_read" in json_str
         assert "/etc/sensitive.conf" in json_str
 
-        reconstituted = ExecutionGrant.model_validate_json(json_str)
+        reconstituted = ApprovalContinuation.model_validate_json(json_str)
         assert reconstituted.grant_id == grant.grant_id
         assert reconstituted.execution_parameters["path"] == "/etc/sensitive.conf"
         # Reconstituted grant must also be deeply immutable
@@ -147,31 +147,31 @@ class TestExecutionGrantSerialization:
             reconstituted.execution_parameters["path"] = "/mutated"  # type: ignore[index]
 
 
-class TestExecutionGrantStateLifecycle:
+class TestExecutionContinuationStateLifecycle:
     """Verify ADR-031 state semantics and allowed transitions."""
 
     def test_grant_states_taxonomy(self) -> None:
         expected = {"PENDING", "APPROVED", "REJECTED", "EXPIRED", "CONSUMED"}
-        assert {s.value for s in GrantState} == expected
+        assert {s.value for s in ContinuationState} == expected
 
     def test_allowed_grant_transitions_table(self) -> None:
         expected = {
-            (GrantState.PENDING, GrantState.APPROVED),
-            (GrantState.PENDING, GrantState.REJECTED),
-            (GrantState.PENDING, GrantState.EXPIRED),
-            (GrantState.APPROVED, GrantState.CONSUMED),
+            (ContinuationState.PENDING, ContinuationState.APPROVED),
+            (ContinuationState.PENDING, ContinuationState.REJECTED),
+            (ContinuationState.PENDING, ContinuationState.EXPIRED),
+            (ContinuationState.APPROVED, ContinuationState.CONSUMED),
         }
-        assert ALLOWED_GRANT_TRANSITIONS == expected
+        assert ALLOWED_CONTINUATION_TRANSITIONS == expected
 
     def test_consumed_at_and_approved_by_semantics(self) -> None:
         now = datetime.now(timezone.utc)
         consumed_time = now + timedelta(minutes=5)
         grant = _sample_grant(
-            state=GrantState.CONSUMED,
+            state=ContinuationState.CONSUMED,
             approved_by="operator-sec",
             consumed_at=consumed_time,
         )
-        assert grant.state == GrantState.CONSUMED
+        assert grant.state == ContinuationState.CONSUMED
         assert grant.approved_by == "operator-sec"
         assert grant.consumed_at == consumed_time
 
@@ -211,7 +211,7 @@ class TestDeepCopyCarriesEveryField:
 
         missing = [
             name
-            for name in ExecutionGrant.model_fields
+            for name in ApprovalContinuation.model_fields
             if getattr(copied, name, None) != getattr(grant, name)
         ]
         assert missing == [], f"__deepcopy__ dropped: {missing}"

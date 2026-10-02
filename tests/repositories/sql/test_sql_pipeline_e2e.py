@@ -6,7 +6,7 @@ using the concrete SQL repository adapters:
 - Case 2: SUSPENDED agent halts authorization, issues no grant, fails execution
 - Case 3: Stale enforcement epoch between authorization and issuance fails closed at the authority boundary
 - Case 4: Stale already-issued grant cannot execute after agent containment
-- Case 5: Durable human-in-the-loop ExecutionGrant resumption with atomic exactly-once claim
+- Case 5: Durable human-in-the-loop ApprovalContinuation resumption with atomic exactly-once claim
 """
 
 from datetime import datetime, timezone
@@ -17,10 +17,10 @@ from sqlalchemy.orm import Session as OrmSession
 
 from app.auth.authorization_service import AuthorizationService
 from app.models.agent import Agent, AgentStatus, RiskTier
+from app.models.approval_continuation import ApprovalContinuation, ContinuationState
 from app.models.audit_event import Decision
 from app.models.execution_binding import ExecutionBinding
 from app.models.execution_capability import ExecutionCapabilities, FilesystemCapability
-from app.models.execution_grant import ExecutionGrant, GrantState
 from app.models.sandbox_execution_result import SandboxExecutionResult
 from app.models.session_event import SessionEvent
 from app.models.tool import Tool
@@ -356,7 +356,7 @@ def test_e2e_case_4_stale_issued_grant_rejected_after_containment(sql_pipeline_s
 
 
 def test_e2e_case_5_human_in_the_loop_resumption_exactly_once(sql_pipeline_setup) -> None:
-    """Case 5: Human-in-the-loop ExecutionGrant resumption with atomic exactly-once claim."""
+    """Case 5: Human-in-the-loop ApprovalContinuation resumption with atomic exactly-once claim."""
     env = sql_pipeline_setup
     now = datetime.now(timezone.utc)
     grant_repo = env["container"].approval_grant_repository
@@ -368,7 +368,7 @@ def test_e2e_case_5_human_in_the_loop_resumption_exactly_once(sql_pipeline_setup
     env["session_service"].bind_or_validate(session_id, agent_id, now_utc=now)
 
     # 1. Pipeline emitted REQUIRE_APPROVAL -> create PENDING grant in SQL
-    pending_grant = ExecutionGrant(
+    pending_grant = ApprovalContinuation(
         grant_id=grant_id,
         session_id=session_id,
         agent_id=agent_id,
@@ -379,42 +379,42 @@ def test_e2e_case_5_human_in_the_loop_resumption_exactly_once(sql_pipeline_setup
         risk_score=75,
         required_response="REQUIRE_APPROVAL",
         enforcement_epoch=0,
-        state=GrantState.PENDING,
+        state=ContinuationState.PENDING,
         created_at=now,
         expires_at=now,
     )
-    grant_repo.create_grant(pending_grant)
+    grant_repo.create_continuation(pending_grant)
 
     # 2. Operator approves grant
-    approved = grant_repo.transition_grant(
+    approved = grant_repo.transition_continuation(
         grant_id,
-        from_state=GrantState.PENDING,
-        to_state=GrantState.APPROVED,
+        from_state=ContinuationState.PENDING,
+        to_state=ContinuationState.APPROVED,
         approved_by="sec-admin",
     )
     assert approved is True
 
     # 3. Worker 1 claims grant for execution attempt -> succeeds
-    claimed_1 = grant_repo.transition_grant(
+    claimed_1 = grant_repo.transition_continuation(
         grant_id,
-        from_state=GrantState.APPROVED,
-        to_state=GrantState.CONSUMED,
+        from_state=ContinuationState.APPROVED,
+        to_state=ContinuationState.CONSUMED,
         consumed_at=now,
     )
     assert claimed_1 is True
 
     # 4. Worker 2 attempts concurrent claim -> CAS fails, returns False
-    claimed_2 = grant_repo.transition_grant(
+    claimed_2 = grant_repo.transition_continuation(
         grant_id,
-        from_state=GrantState.APPROVED,
-        to_state=GrantState.CONSUMED,
+        from_state=ContinuationState.APPROVED,
+        to_state=ContinuationState.CONSUMED,
         consumed_at=now,
     )
     assert claimed_2 is False
 
     # Stored state is CONSUMED
-    stored = grant_repo.get_grant(grant_id)
+    stored = grant_repo.get_continuation(grant_id)
     assert stored is not None
-    assert stored.state == GrantState.CONSUMED
+    assert stored.state == ContinuationState.CONSUMED
     assert stored.approved_by == "sec-admin"
     assert stored.consumed_at is not None

@@ -23,7 +23,7 @@ from app.models.tool_operational import ToolOperational
 from app.models.tool_risk_level import ToolRiskLevel
 from app.repositories.in_memory import (
     InMemoryAgentRepository,
-    InMemoryApprovalGrantRepository,
+    InMemoryApprovalContinuationRepository,
     InMemoryAuditEvidenceRepository,
     InMemoryEnforcementStateRepository,
     InMemorySessionRepository,
@@ -31,7 +31,7 @@ from app.repositories.in_memory import (
 )
 from app.repositories.interfaces import (
     AgentRepository,
-    ApprovalGrantRepository,
+    ApprovalContinuationRepository,
     AuditEvidenceRepository,
     EnforcementStateRepository,
     SessionRepository,
@@ -117,7 +117,7 @@ class TestProtocolCompliance:
         audit_repo: AuditEvidenceRepository = InMemoryAuditEvidenceRepository()
         enf_repo: EnforcementStateRepository = InMemoryEnforcementStateRepository()
         session_repo: SessionRepository = InMemorySessionRepository()
-        grant_repo: ApprovalGrantRepository = InMemoryApprovalGrantRepository()
+        grant_repo: ApprovalContinuationRepository = InMemoryApprovalContinuationRepository()
 
         # Check required protocol methods exist on the adapter classes
         assert (
@@ -156,10 +156,10 @@ class TestProtocolCompliance:
             and hasattr(session_repo, "update_event_final_decision")
         )
         assert (
-            hasattr(grant_repo, "create_grant")
-            and hasattr(grant_repo, "get_grant")
-            and hasattr(grant_repo, "transition_grant")
-            and hasattr(grant_repo, "list_grants")
+            hasattr(grant_repo, "create_continuation")
+            and hasattr(grant_repo, "get_continuation")
+            and hasattr(grant_repo, "transition_continuation")
+            and hasattr(grant_repo, "list_continuations")
         )
 
 
@@ -176,7 +176,7 @@ class TestImportBoundaries:
             "InMemoryAuditEvidenceRepository",
             "InMemoryEnforcementStateRepository",
             "InMemorySessionRepository",
-            "InMemoryApprovalGrantRepository",
+            "InMemoryApprovalContinuationRepository",
         ]
 
         # Scan all service files except composition roots (runtime_bootstrap.py, scenario_sandbox.py)

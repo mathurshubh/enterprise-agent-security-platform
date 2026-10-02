@@ -18,13 +18,13 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.repositories.sql.base import Base
 
 
-class ExecutionGrantModel(Base):
+class ApprovalContinuationModel(Base):
     """Relational representation of an authorized execution grant."""
 
-    __tablename__ = "execution_grants"
+    __tablename__ = "approval_continuations"
     __table_args__ = (
-        Index("idx_execution_grants_agent_state", "agent_id", "state"),
-        Index("idx_execution_grants_expiry", "expires_at", "state"),
+        Index("idx_approval_continuations_agent_state", "agent_id", "state"),
+        Index("idx_approval_continuations_expiry", "expires_at", "state"),
         # A grant is concrete by definition, so both columns are NOT NULL and the composite
         # reference is always checked. That makes a separate family reference redundant
         # here, unlike on ``session_events`` where the version may legitimately be NULL.

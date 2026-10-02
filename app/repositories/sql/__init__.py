@@ -1,6 +1,8 @@
 """SQL persistence layer and repository adapters (Plane 3, ADR-030)."""
 
-from app.repositories.sql.approval_grant_repository import SqlApprovalGrantRepository
+from app.repositories.sql.approval_continuation_repository import (
+    SqlApprovalContinuationRepository,
+)
 from app.repositories.sql.audit_evidence_repository import SqlAuditEvidenceRepository
 from app.repositories.sql.base import Base
 from app.repositories.sql.enforcement_repository import SqlEnforcementStateRepository
@@ -14,7 +16,7 @@ __all__ = [
     "create_session_factory",
     "create_sql_engine",
     "dispose_sql_engine",
-    "SqlApprovalGrantRepository",
+    "SqlApprovalContinuationRepository",
     "SqlAuditEvidenceRepository",
     "SqlEnforcementStateRepository",
     "SqlSessionRepository",

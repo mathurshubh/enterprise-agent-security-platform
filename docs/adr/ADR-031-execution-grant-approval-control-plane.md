@@ -9,7 +9,10 @@
 
 **Implementation Status:**
 - **Adopted, not implemented.** The capability is now a decided platform capability rather than a proposal, subject to the amendments in §7 (semantics), §8 (durable authority), §9 (atomic claim) and §10 (model and name).
-- The persisted model is renamed `ApprovalContinuation` in a **terminology-only** change that precedes implementation (§10.5). This ADR continues to say `ExecutionGrant` where it describes the model as it exists today.
+- The persisted model **has been renamed** `ApprovalContinuation`, with its repository and the
+  `approval_continuations` table following, in the terminology-only Phase A of §10.5. Sections 1
+  to 6 retain the original `ExecutionGrant` wording: they record the decision as it was taken,
+  and rewriting them would misrepresent when the name changed.
 - Nothing drives this lifecycle today. `ExecutionAuthority.issue()` returns `None` for any decision other than `ALLOW`, so `APPROVAL_REQUIRED` currently produces no grant at all; no service constructs an `ExecutionGrant`; and the `ApprovalGrantRepository` singleton is instantiated in the composition root without being injected anywhere. The domain model, both repository adapters, their shared contract tests and the frontend's `PendingApproval` type all exist unused.
 - Scaffolding existing at three layers is not evidence the decision was taken. §7 is what takes it.
 - Formalizes the control-plane resumption lifecycle for `REQUIRE_APPROVAL` responses emitted by the runtime security pipeline ([ADR-004](ADR-004-deterministic-security-pipeline.md), [ADR-019](ADR-019-behavioral-enforcement-engine.md), [ADR-023](ADR-023-execution-authorization-grants.md)).

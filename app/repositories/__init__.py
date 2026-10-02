@@ -3,7 +3,7 @@
 from app.repositories.factory import RepositoryContainer, create_repositories
 from app.repositories.in_memory import (
     InMemoryAgentRepository,
-    InMemoryApprovalGrantRepository,
+    InMemoryApprovalContinuationRepository,
     InMemoryAuditEvidenceRepository,
     InMemoryEnforcementStateRepository,
     InMemorySessionRepository,
@@ -11,26 +11,26 @@ from app.repositories.in_memory import (
 )
 from app.repositories.interfaces import (
     AgentRepository,
-    ApprovalGrantRepository,
+    ApprovalContinuationRepository,
     AuditEvidenceRepository,
     EnforcementStateRepository,
-    InvalidGrantTransitionError,
+    InvalidContinuationTransitionError,
     SessionRepository,
     ToolRepository,
 )
 
 __all__ = [
     "AgentRepository",
-    "ApprovalGrantRepository",
+    "ApprovalContinuationRepository",
     "AuditEvidenceRepository",
     "EnforcementStateRepository",
     "InMemoryAgentRepository",
-    "InMemoryApprovalGrantRepository",
+    "InMemoryApprovalContinuationRepository",
     "InMemoryAuditEvidenceRepository",
     "InMemoryEnforcementStateRepository",
     "InMemorySessionRepository",
     "InMemoryToolRepository",
-    "InvalidGrantTransitionError",
+    "InvalidContinuationTransitionError",
     "RepositoryContainer",
     "SessionRepository",
     "ToolRepository",

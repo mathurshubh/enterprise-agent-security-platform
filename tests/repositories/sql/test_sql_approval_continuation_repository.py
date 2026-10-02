@@ -1,4 +1,4 @@
-"""Contract and verification tests for SqlApprovalGrantRepository (Plane 3, ADR-030, ADR-031)."""
+"""Contract and verification tests for SqlApprovalContinuationRepository (Plane 3, ADR-030, ADR-031)."""
 
 from datetime import datetime, timezone
 
@@ -6,21 +6,23 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from app.models.execution_grant import ExecutionGrant, GrantState
-from app.repositories.interfaces.approval_grant_repository import (
-    ApprovalGrantRepository,
-    InvalidGrantTransitionError,
+from app.models.approval_continuation import ApprovalContinuation, ContinuationState
+from app.repositories.interfaces.approval_continuation_repository import (
+    ApprovalContinuationRepository,
+    InvalidContinuationTransitionError,
 )
-from app.repositories.sql.approval_grant_repository import SqlApprovalGrantRepository
+from app.repositories.sql.approval_continuation_repository import (
+    SqlApprovalContinuationRepository,
+)
 from app.repositories.sql.base import Base
 from app.repositories.sql.engine import create_sql_engine, dispose_sql_engine
 from app.repositories.sql.models.agent import AgentModel
-from app.repositories.sql.models.execution_grant import ExecutionGrantModel
+from app.repositories.sql.models.approval_continuation import ApprovalContinuationModel
 from app.repositories.sql.models.session import SessionModel
 from app.repositories.sql.models.tool import ToolFamilyModel, ToolModel
 from app.repositories.sql.session import create_session_factory, transactional_session
-from tests.repositories.contracts.base_approval_grant_contract import (
-    BaseApprovalGrantRepositoryContractTests,
+from tests.repositories.contracts.base_approval_continuation_contract import (
+    BaseApprovalContinuationRepositoryContractTests,
 )
 
 KNOWN_GRANT_AGENTS = ["agent-1", "a-1", "a-2"]
@@ -72,35 +74,35 @@ def _seed_grant_dependencies(session_factory) -> None:
             )
 
 
-class TestSqlApprovalGrantRepository(BaseApprovalGrantRepositoryContractTests):
-    """Run the exhaustive ADR-031 approval grant contract suite against SqlApprovalGrantRepository."""
+class TestSqlApprovalContinuationRepository(BaseApprovalContinuationRepositoryContractTests):
+    """Run the exhaustive ADR-031 approval grant contract suite against SqlApprovalContinuationRepository."""
 
-    def create_repository(self) -> ApprovalGrantRepository:
+    def create_repository(self) -> ApprovalContinuationRepository:
         """Create fresh in-memory SQLite database and seed fixture dependencies."""
         engine = create_sql_engine("sqlite:///:memory:")
         Base.metadata.create_all(engine)
         session_factory = create_session_factory(engine)
         _seed_grant_dependencies(session_factory)
-        return SqlApprovalGrantRepository(session_factory)
+        return SqlApprovalContinuationRepository(session_factory)
 
 
 @pytest.fixture
 def grant_repo_setup():
-    """Fixture providing a configured SqlApprovalGrantRepository and session factory."""
+    """Fixture providing a configured SqlApprovalContinuationRepository and session factory."""
     engine = create_sql_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     session_factory = create_session_factory(engine)
     _seed_grant_dependencies(session_factory)
-    repo = SqlApprovalGrantRepository(session_factory)
+    repo = SqlApprovalContinuationRepository(session_factory)
     yield repo, session_factory
     dispose_sql_engine(engine)
 
 
 def test_illegal_state_transitions_raise_error(grant_repo_setup) -> None:
-    """Verify illegal transitions (e.g. PENDING -> CONSUMED) raise InvalidGrantTransitionError."""
+    """Verify illegal transitions (e.g. PENDING -> CONSUMED) raise InvalidContinuationTransitionError."""
     repo, _ = grant_repo_setup
     now = datetime.now(timezone.utc)
-    grant = ExecutionGrant(
+    grant = ApprovalContinuation(
         grant_id="grant-illegal",
         session_id="sess-1",
         agent_id="agent-1",
@@ -111,17 +113,17 @@ def test_illegal_state_transitions_raise_error(grant_repo_setup) -> None:
         risk_score=50,
         required_response="REQUIRE_APPROVAL",
         enforcement_epoch=0,
-        state=GrantState.PENDING,
+        state=ContinuationState.PENDING,
         created_at=now,
         expires_at=now,
     )
-    repo.create_grant(grant)
+    repo.create_continuation(grant)
 
-    with pytest.raises(InvalidGrantTransitionError):
-        repo.transition_grant(
+    with pytest.raises(InvalidContinuationTransitionError):
+        repo.transition_continuation(
             "grant-illegal",
-            from_state=GrantState.PENDING,
-            to_state=GrantState.CONSUMED,
+            from_state=ContinuationState.PENDING,
+            to_state=ContinuationState.CONSUMED,
             consumed_at=now,
         )
 
@@ -130,7 +132,7 @@ def test_atomic_cas_failure_leaves_grant_unmutated(grant_repo_setup) -> None:
     """Verify CAS mismatch leaves state and metadata unmutated in database."""
     repo, session_factory = grant_repo_setup
     now = datetime.now(timezone.utc)
-    grant = ExecutionGrant(
+    grant = ApprovalContinuation(
         grant_id="grant-cas-fail",
         session_id="sess-1",
         agent_id="agent-1",
@@ -141,18 +143,18 @@ def test_atomic_cas_failure_leaves_grant_unmutated(grant_repo_setup) -> None:
         risk_score=60,
         required_response="REQUIRE_APPROVAL",
         enforcement_epoch=0,
-        state=GrantState.PENDING,
+        state=ContinuationState.PENDING,
         created_at=now,
         expires_at=now,
     )
-    repo.create_grant(grant)
+    repo.create_continuation(grant)
 
     # Attempt CAS from APPROVED when current state is PENDING
     assert (
-        repo.transition_grant(
+        repo.transition_continuation(
             "grant-cas-fail",
-            from_state=GrantState.APPROVED,
-            to_state=GrantState.CONSUMED,
+            from_state=ContinuationState.APPROVED,
+            to_state=ContinuationState.CONSUMED,
             consumed_at=now,
         )
         is False
@@ -161,7 +163,7 @@ def test_atomic_cas_failure_leaves_grant_unmutated(grant_repo_setup) -> None:
     # Verify storage remains PENDING with None consumed_at
     with transactional_session(session_factory) as db:
         row = db.execute(
-            select(ExecutionGrantModel).where(ExecutionGrantModel.grant_id == "grant-cas-fail")
+            select(ApprovalContinuationModel).where(ApprovalContinuationModel.grant_id == "grant-cas-fail")
         ).scalar_one()
         assert row.state == "PENDING"
         assert row.consumed_at is None
@@ -174,7 +176,7 @@ def test_strict_foreign_keys_on_grant_creation(grant_repo_setup) -> None:
     now = datetime.now(timezone.utc)
 
     # Unknown agent
-    invalid_grant = ExecutionGrant(
+    invalid_grant = ApprovalContinuation(
         grant_id="grant-invalid-agent",
         session_id="sess-1",
         agent_id="nonexistent-agent",
@@ -185,9 +187,9 @@ def test_strict_foreign_keys_on_grant_creation(grant_repo_setup) -> None:
         risk_score=10,
         required_response="REQUIRE_APPROVAL",
         enforcement_epoch=0,
-        state=GrantState.PENDING,
+        state=ContinuationState.PENDING,
         created_at=now,
         expires_at=now,
     )
     with pytest.raises(IntegrityError):
-        repo.create_grant(invalid_grant)
+        repo.create_continuation(invalid_grant)

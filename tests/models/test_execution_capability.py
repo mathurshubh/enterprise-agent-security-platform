@@ -3,6 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
+from app.models.approval_continuation import ApprovalContinuation, ContinuationState
 from app.models.execution_capability import (
     ExecutionCapabilities,
     FilesystemCapability,
@@ -10,7 +11,6 @@ from app.models.execution_capability import (
     NetworkEgressMode,
     ResourceLimits,
 )
-from app.models.execution_grant import ExecutionGrant, GrantState
 from app.models.runtime_execution_grant import RuntimeExecutionGrant
 from app.models.sandbox_execution_result import SandboxExecutionResult
 from app.runtime.exceptions import (
@@ -310,13 +310,13 @@ class TestSandboxExecutionResultAndExceptions:
         assert mismatch_err.actual_digest == "act-2"
 
 
-class TestExecutionGrantIntegration:
-    """Invariant 8: ExecutionGrant integrates capability references preserving state machine."""
+class TestApprovalContinuationIntegration:
+    """Invariant 8: ApprovalContinuation integrates capability references preserving state machine."""
 
     def test_execution_grant_accepts_capability_reference_and_digest(self) -> None:
         from datetime import datetime, timezone
 
-        grant = ExecutionGrant(
+        grant = ApprovalContinuation(
             grant_id="grant-101",
             session_id="session-1",
             agent_id="agent-1",
@@ -327,7 +327,7 @@ class TestExecutionGrantIntegration:
             risk_score=0,
             required_response="ALLOW",
             enforcement_epoch=1,
-            state=GrantState.APPROVED,
+            state=ContinuationState.APPROVED,
             created_at=datetime.now(timezone.utc),
             expires_at=datetime.now(timezone.utc),
             capability_profile_id="profile-default-fs",

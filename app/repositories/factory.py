@@ -14,7 +14,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.repositories.in_memory import (
     InMemoryAgentRepository,
-    InMemoryApprovalGrantRepository,
+    InMemoryApprovalContinuationRepository,
     InMemoryAuditEvidenceRepository,
     InMemoryEnforcementStateRepository,
     InMemorySessionRepository,
@@ -22,14 +22,14 @@ from app.repositories.in_memory import (
 )
 from app.repositories.interfaces import (
     AgentRepository,
-    ApprovalGrantRepository,
+    ApprovalContinuationRepository,
     AuditEvidenceRepository,
     EnforcementStateRepository,
     SessionRepository,
     ToolRepository,
 )
 from app.repositories.sql import (
-    SqlApprovalGrantRepository,
+    SqlApprovalContinuationRepository,
     SqlEnforcementStateRepository,
     SqlSessionRepository,
     create_session_factory,
@@ -48,7 +48,7 @@ class RepositoryContainer:
     tool_repository: ToolRepository
     session_repository: SessionRepository
     enforcement_repository: EnforcementStateRepository
-    approval_grant_repository: ApprovalGrantRepository
+    approval_grant_repository: ApprovalContinuationRepository
     audit_repository: AuditEvidenceRepository
 
 
@@ -78,7 +78,7 @@ def create_repositories(
             tool_repository=tool_repository or InMemoryToolRepository(),
             session_repository=InMemorySessionRepository(),
             enforcement_repository=InMemoryEnforcementStateRepository(),
-            approval_grant_repository=InMemoryApprovalGrantRepository(),
+            approval_grant_repository=InMemoryApprovalContinuationRepository(),
             audit_repository=audit_repository or InMemoryAuditEvidenceRepository(),
         )
 
@@ -99,7 +99,7 @@ def create_repositories(
             tool_repository=tool_repository or InMemoryToolRepository(),
             session_repository=SqlSessionRepository(sf),
             enforcement_repository=SqlEnforcementStateRepository(sf),
-            approval_grant_repository=SqlApprovalGrantRepository(sf),
+            approval_grant_repository=SqlApprovalContinuationRepository(sf),
             audit_repository=audit_repository or InMemoryAuditEvidenceRepository(),
         )
 

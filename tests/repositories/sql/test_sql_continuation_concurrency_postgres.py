@@ -1,4 +1,4 @@
-"""PostgreSQL MVCC concurrency test suite for SqlApprovalGrantRepository and Authorization Interlock (Plane 3, ADR-030, ADR-031).
+"""PostgreSQL MVCC concurrency test suite for SqlApprovalContinuationRepository and Authorization Interlock (Plane 3, ADR-030, ADR-031).
 
 Authority Note:
 While SQLite validates the functional grant state machine and metadata invariants,
@@ -20,14 +20,16 @@ from app.models.agent_enforcement import (
     EnforcementAction,
     EnforcementTransition,
 )
-from app.models.execution_grant import ExecutionGrant, GrantState
-from app.repositories.sql.approval_grant_repository import SqlApprovalGrantRepository
+from app.models.approval_continuation import ApprovalContinuation, ContinuationState
+from app.repositories.sql.approval_continuation_repository import (
+    SqlApprovalContinuationRepository,
+)
 from app.repositories.sql.base import Base
 from app.repositories.sql.enforcement_repository import SqlEnforcementStateRepository
 from app.repositories.sql.engine import create_sql_engine, dispose_sql_engine
 from app.repositories.sql.models.agent import AgentModel
+from app.repositories.sql.models.approval_continuation import ApprovalContinuationModel
 from app.repositories.sql.models.enforcement import AgentEnforcementStateModel
-from app.repositories.sql.models.execution_grant import ExecutionGrantModel
 from app.repositories.sql.models.session import SessionModel
 from app.repositories.sql.models.tool import ToolFamilyModel, ToolModel
 from app.repositories.sql.session import create_session_factory, transactional_session
@@ -80,7 +82,7 @@ def pg_grant_env():
         db.add(tool)
         db.add(session)
 
-    grant_repo = SqlApprovalGrantRepository(session_factory)
+    grant_repo = SqlApprovalContinuationRepository(session_factory)
     enforcement_repo = SqlEnforcementStateRepository(session_factory)
 
     yield grant_repo, enforcement_repo, session_factory
@@ -103,7 +105,7 @@ def test_postgres_concurrent_double_grant_consumption_exactly_once(pg_grant_env)
     grant_id = "grant-pg-race4"
 
     # 1. Create and approve the grant
-    grant = ExecutionGrant(
+    grant = ApprovalContinuation(
         grant_id=grant_id,
         session_id="sess-pg-grant",
         agent_id="agent-pg-grant",
@@ -114,17 +116,17 @@ def test_postgres_concurrent_double_grant_consumption_exactly_once(pg_grant_env)
         risk_score=80,
         required_response="REQUIRE_APPROVAL",
         enforcement_epoch=0,
-        state=GrantState.PENDING,
+        state=ContinuationState.PENDING,
         created_at=now,
         expires_at=now,
     )
-    grant_repo.create_grant(grant)
+    grant_repo.create_continuation(grant)
 
     assert (
-        grant_repo.transition_grant(
+        grant_repo.transition_continuation(
             grant_id,
-            from_state=GrantState.PENDING,
-            to_state=GrantState.APPROVED,
+            from_state=ContinuationState.PENDING,
+            to_state=ContinuationState.APPROVED,
             approved_by="secops-operator",
         )
         is True
@@ -135,10 +137,10 @@ def test_postgres_concurrent_double_grant_consumption_exactly_once(pg_grant_env)
     # 2. Race 10 workers attempting to consume the approved grant
     def worker(idx: int) -> bool:
         worker_consumed_at = datetime.now(timezone.utc)
-        return grant_repo.transition_grant(
+        return grant_repo.transition_continuation(
             grant_id,
-            from_state=GrantState.APPROVED,
-            to_state=GrantState.CONSUMED,
+            from_state=ContinuationState.APPROVED,
+            to_state=ContinuationState.CONSUMED,
             consumed_at=worker_consumed_at,
         )
 
@@ -150,16 +152,16 @@ def test_postgres_concurrent_double_grant_consumption_exactly_once(pg_grant_env)
     assert results.count(False) == num_workers - 1
 
     # Database assertions
-    persisted = grant_repo.get_grant(grant_id)
+    persisted = grant_repo.get_continuation(grant_id)
     assert persisted is not None
-    assert persisted.state == GrantState.CONSUMED
+    assert persisted.state == ContinuationState.CONSUMED
     assert persisted.approved_by == "secops-operator"
     assert persisted.consumed_at is not None
 
     # Storage direct inspection
     with transactional_session(session_factory) as db:
         row = db.execute(
-            select(ExecutionGrantModel).where(ExecutionGrantModel.grant_id == grant_id)
+            select(ApprovalContinuationModel).where(ApprovalContinuationModel.grant_id == grant_id)
         ).scalar_one()
         assert row.state == "CONSUMED"
         assert row.approved_by == "secops-operator"
@@ -208,7 +210,7 @@ def test_postgres_issuance_vs_containment_interlock_serialization(pg_grant_env) 
                 return False
 
             # Step 2: Insert execution grant within the same serialized transaction
-            grant_row = ExecutionGrantModel(
+            grant_row = ApprovalContinuationModel(
                 grant_id=grant_id,
                 session_id="sess-pg-grant",
                 agent_id=agent_id,
@@ -227,7 +229,7 @@ def test_postgres_issuance_vs_containment_interlock_serialization(pg_grant_env) 
 
     # Case A: Issuance while active at expected_epoch=1 succeeds
     assert issue_grant_if_active("grant-case-a", expected_epoch=1) is True
-    grant_a = grant_repo.get_grant("grant-case-a")
+    grant_a = grant_repo.get_continuation("grant-case-a")
     assert grant_a is not None
     assert grant_a.enforcement_epoch == 1
 
@@ -247,4 +249,4 @@ def test_postgres_issuance_vs_containment_interlock_serialization(pg_grant_env) 
 
     # Case B: Issuance attempt now observes SUSPENDED posture and epoch mismatch -> fails closed
     assert issue_grant_if_active("grant-case-b", expected_epoch=1) is False
-    assert grant_repo.get_grant("grant-case-b") is None
+    assert grant_repo.get_continuation("grant-case-b") is None

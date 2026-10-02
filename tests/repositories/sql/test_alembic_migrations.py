@@ -21,7 +21,7 @@ EXPECTED_TABLES = {
     "sessions",
     "agent_sequence_counters",
     "session_events",
-    "execution_grants",
+    "approval_continuations",
     "audit_events",
 }
 
@@ -305,7 +305,9 @@ def test_0004_references_the_concrete_tool_version(
     engine = create_engine(db_url)
 
     try:
-        command.upgrade(config, "head")
+        # Pinned to 0004, not head: 0006 renames ``execution_grants``, and this test asserts
+        # the state at the revision that introduced the concrete-version references.
+        command.upgrade(config, "0004")
         inspector = inspect(engine)
 
         event_cols = {c["name"]: c for c in inspector.get_columns("session_events")}
@@ -433,5 +435,116 @@ def test_0005_refuses_to_invent_a_requested_identity(
 
         with pytest.raises(RuntimeError, match="refuses to run"):
             command.upgrade(config, "0005")
+    finally:
+        engine.dispose()
+
+
+def test_0006_renames_the_table_without_changing_its_schema(
+    alembic_config: tuple[Config, str],
+) -> None:
+    """Terminology only: the same columns and constraints under the new name.
+
+    ADR-031 §7.1 establishes that the persisted object is not executable authority, so the old
+    name said the opposite of what it was. §10 renames it; this asserts that nothing else moved.
+    """
+    config, db_url = alembic_config
+    engine = create_engine(db_url)
+
+    try:
+        command.upgrade(config, "0005")
+        before = inspect(engine)
+        old_columns = {c["name"]: (str(c["type"]), c["nullable"]) for c in before.get_columns("execution_grants")}
+        old_pk = before.get_pk_constraint("execution_grants")["constrained_columns"]
+        old_fks = {
+            (fk["referred_table"], tuple(fk["constrained_columns"]))
+            for fk in before.get_foreign_keys("execution_grants")
+        }
+        assert old_columns, "precondition: the table exists before the rename"
+
+        command.upgrade(config, "0006")
+        after = inspect(engine)
+
+        assert "execution_grants" not in after.get_table_names()
+        assert "approval_continuations" in after.get_table_names()
+
+        new_columns = {
+            c["name"]: (str(c["type"]), c["nullable"])
+            for c in after.get_columns("approval_continuations")
+        }
+        assert new_columns == old_columns, "the rename must not alter columns, types or nullability"
+        assert after.get_pk_constraint("approval_continuations")["constrained_columns"] == old_pk
+        assert {
+            (fk["referred_table"], tuple(fk["constrained_columns"]))
+            for fk in after.get_foreign_keys("approval_continuations")
+        } == old_fks, "foreign keys must survive the rename"
+
+        assert {i["name"] for i in after.get_indexes("approval_continuations")} == {
+            "idx_approval_continuations_agent_state",
+            "idx_approval_continuations_expiry",
+        }
+
+    finally:
+        engine.dispose()
+
+
+def test_0006_preserves_rows_through_a_true_rename(
+    alembic_config: tuple[Config, str],
+) -> None:
+    """A rename carries rows; a drop-and-recreate would not.
+
+    Migrations 0003 to 0005 recreated tables, which was legitimate only because a guard had
+    established they were empty. Reusing that pattern here by habit would silently discard data.
+    """
+    config, db_url = alembic_config
+    engine = create_engine(db_url)
+
+    try:
+        command.upgrade(config, "0005")
+        _seed_0002_prerequisites(engine, NOW)
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO tool_families (tool_id, created_at) VALUES ('file_read', :now)"
+                ),
+                {"now": NOW},
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO tools (tool_id, version, governance_enabled, risk_level,"
+                    " metadata_payload, created_at) VALUES ('file_read', '1.0.0', 1, 'LOW',"
+                    " '{}', :now)"
+                ),
+                {"now": NOW},
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO execution_grants (grant_id, session_id, agent_id, tool_id,"
+                    " tool_version, execution_parameters, originating_audit_event_id, risk_score,"
+                    " required_response, enforcement_epoch, state, created_at, expires_at)"
+                    " VALUES ('g-rename', 'sess-mig', 'agent-mig', 'file_read', '1.0.0', '{}',"
+                    " 'ae-1', 75, 'REQUIRE_APPROVAL', 0, 'APPROVED', :now, :now)"
+                ),
+                {"now": NOW},
+            )
+
+        command.upgrade(config, "0006")
+
+        with engine.connect() as conn:
+            row = conn.execute(
+                text(
+                    "SELECT grant_id, state, risk_score FROM approval_continuations"
+                    " WHERE grant_id = 'g-rename'"
+                )
+            ).one()
+        assert (row.grant_id, row.state, row.risk_score) == ("g-rename", "APPROVED", 75)
+
+        # And the rename reverses without losing the row either.
+        command.downgrade(config, "0005")
+        with engine.connect() as conn:
+            back = conn.execute(
+                text("SELECT grant_id FROM execution_grants WHERE grant_id = 'g-rename'")
+            ).one()
+        assert back.grant_id == "g-rename"
+
     finally:
         engine.dispose()
