@@ -43,6 +43,7 @@ Every pull request must pass all mandatory quality gates before merge eligibilit
 | **Secret Scanning** | `gitleaks` | Git commit history & PR diffs | 0 exposed secrets or credentials |
 | **Dependency Reproducibility** | `scripts/compile-requirements.sh --check` (Python 3.13) | `requirements.in` + committed pins → `requirements.txt` | 0 differences from the committed `requirements.txt`; never upgrades dependencies |
 | **Dependency Audit** | `npm audit` / `pip-audit` | `frontend/package-lock.json` / `requirements.txt` | npm: 0 high/critical findings; pip-audit: 0 known vulnerabilities |
+| **Canonical Version Invariants** | `hygiene-quality` shell validation | `VERSION`, `frontend/package.json`, `frontend/package-lock.json`, release tags | VERSION is valid semver; both frontend manifests match it; any existing `vVERSION` tag belongs to this history |
 
 ---
 
@@ -80,11 +81,68 @@ npm run lint:md
 
 # Run Git whitespace check
 git diff --check
+
+# Canonical version invariants (prevention branch)
+VERSION_VAL=$(tr -d '[:space:]' < VERSION)
+test "$(node -p "require('./frontend/package.json').version")" = "$VERSION_VAL"
+test "$(node -p "require('./frontend/package-lock.json').version")" = "$VERSION_VAL"
+git rev-parse -q --verify "refs/tags/v${VERSION_VAL}" >/dev/null \
+  && git merge-base --is-ancestor "v${VERSION_VAL}" HEAD
 ```
 
 ---
 
-## 5. Workflow Security Model
+## 5. Release Version Integrity
+
+`VERSION` at the repository root is the machine-readable version authority; Git tags are the
+release authority. Two controls keep those consistent, and they address different failure
+modes.
+
+### Prevention — ordinary branch and pull-request runs
+
+```text
+VERSION = X.Y.Z
+   ├── frontend/package.json      == X.Y.Z
+   ├── frontend/package-lock.json == X.Y.Z
+   └── if tag vX.Y.Z exists       → its commit must be an ancestor of HEAD
+```
+
+Every version-bearing manifest must agree with `VERSION`. The lockfile is checked
+separately from `package.json`, because it mirrors the version and can diverge on its own —
+a release once reached CI with `VERSION` bumped and both frontend manifests left behind.
+
+The tag rule is deliberately about **provenance, not existence**. A tag for the current
+version normally exists: that is the steady state immediately after a release, and it must
+stay green. What must fail is a tag for this version that belongs to a different line of
+development, which means the version names a release this history did not produce.
+
+### Detection — release tag runs
+
+```text
+push tag vX.Y.Z
+   ↓
+checkout the tag ref
+   ↓
+read VERSION from the tagged tree
+   ↓
+assert vX.Y.Z == vVERSION
+```
+
+The comparison is against the **tagged tree**, not whatever `main` holds when the workflow
+runs, so the check asserts that the tag name describes the version declared by the exact
+commit it names.
+
+A tag-triggered check cannot prevent a mismatched tag, only report one — by the time it
+runs, the tag exists. It is therefore a second, independent signal at the artifact boundary
+rather than the primary control, which is why prevention runs on the ordinary path instead
+of relying on the tag run.
+
+Tag pushes run **only** the hygiene job. The remaining jobs are skipped on tag refs, because
+they would re-validate a tree already validated on `main`.
+
+---
+
+## 6. Workflow Security Model
 
 The CI/CD pipeline conforms to strict security and supply-chain guarantees:
 
