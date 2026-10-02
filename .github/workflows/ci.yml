@@ -3,6 +3,10 @@ name: DevSecOps Quality Pipeline
 on:
   push:
     branches: [ main ]
+    # Release tags run the hygiene job alone, to assert that the tag name matches the
+    # VERSION declared by the tagged tree. Without this trigger the tag assertion in
+    # hygiene-quality was unreachable.
+    tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
 
@@ -13,6 +17,7 @@ jobs:
   backend-quality:
     name: Backend Quality (Ruff & Pytest)
     runs-on: ubuntu-latest
+    if: github.ref_type != 'tag'
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -46,6 +51,7 @@ jobs:
   frontend-quality:
     name: Frontend Quality (ESLint & Vite Build)
     runs-on: ubuntu-latest
+    if: github.ref_type != 'tag'
     defaults:
       run:
         working-directory: frontend
@@ -75,6 +81,7 @@ jobs:
   docs-quality:
     name: Documentation Quality (Markdownlint)
     runs-on: ubuntu-latest
+    if: github.ref_type != 'tag'
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -106,36 +113,76 @@ jobs:
 
       - name: Validate Canonical Version Invariants
         run: |
+          set -euo pipefail
+
+          # VERSION is the machine-readable version authority. Two controls protect it:
+          #
+          #   prevention  (branch/PR runs) the frontend manifests must agree with VERSION,
+          #               and if a release tag for that version already exists it must
+          #               belong to this history.
+          #   detection   (tag runs) the pushed tag name must match the VERSION declared by
+          #               the tagged tree itself.
+          #
+          # A tag-triggered check cannot prevent a bad tag, only report one, which is why
+          # prevention runs on the ordinary path rather than relying on the tag run.
+
           if [ ! -f VERSION ]; then
             echo "Error: Canonical VERSION file missing from repository root." >&2
             exit 1
           fi
-          VERSION_VAL=$(cat VERSION | tr -d '[:space:]')
+          VERSION_VAL=$(tr -d '[:space:]' < VERSION)
           SEMVER_PATTERN='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'
           if ! echo "$VERSION_VAL" | grep -Eq "$SEMVER_PATTERN"; then
             echo "Error: VERSION '$VERSION_VAL' does not follow semantic versioning." >&2
             exit 1
           fi
+          EXPECTED_TAG="v${VERSION_VAL}"
 
+          # Every version-bearing manifest must agree with VERSION. package.json alone is
+          # not sufficient: the lockfile mirrors the version and can diverge on its own.
           PKG_VERSION=$(node -p "require('./frontend/package.json').version")
           if [ "$PKG_VERSION" != "$VERSION_VAL" ]; then
             echo "Error: frontend/package.json version '$PKG_VERSION' does not match root VERSION '$VERSION_VAL'." >&2
             exit 1
           fi
+          LOCK_VERSION=$(node -p "require('./frontend/package-lock.json').version")
+          if [ "$LOCK_VERSION" != "$VERSION_VAL" ]; then
+            echo "Error: frontend/package-lock.json version '$LOCK_VERSION' does not match root VERSION '$VERSION_VAL'." >&2
+            exit 1
+          fi
 
           if [ "${{ github.ref_type }}" = "tag" ]; then
-            EXPECTED_TAG="v${VERSION_VAL}"
+            # The checkout is the tag ref, so VERSION above was read from the tagged tree.
+            # That is the comparison that matters: the tag name must describe the version
+            # declared by the exact commit it names, not whatever main happens to hold now.
             if [ "${{ github.ref_name }}" != "$EXPECTED_TAG" ]; then
-              echo "Error: Release tag '${{ github.ref_name }}' does not match expected tag '$EXPECTED_TAG' for VERSION '$VERSION_VAL'." >&2
+              echo "Error: release tag '${{ github.ref_name }}' does not match '$EXPECTED_TAG', the version declared by the tagged tree." >&2
               exit 1
             fi
-            echo "Release tag '${{ github.ref_name }}' matches VERSION '$VERSION_VAL'."
+            echo "Release tag '${{ github.ref_name }}' matches the tagged tree's VERSION '$VERSION_VAL'."
+          else
+            # If this version was already released, its tag must belong to this history.
+            # Coexistence is the normal steady state after a release and must stay green;
+            # a tag for this version on unrelated history is the collision worth failing.
+            if git rev-parse -q --verify "refs/tags/${EXPECTED_TAG}" >/dev/null; then
+              if git merge-base --is-ancestor "$EXPECTED_TAG" HEAD; then
+                echo "Tag '$EXPECTED_TAG' exists and belongs to this history."
+              else
+                echo "Error: tag '$EXPECTED_TAG' exists but does not belong to this history." >&2
+                echo "VERSION '$VERSION_VAL' names a release published from a different line of development." >&2
+                exit 1
+              fi
+            else
+              echo "Version '$VERSION_VAL' is unreleased; no tag '$EXPECTED_TAG' exists yet."
+            fi
           fi
+
           echo "Canonical VERSION '$VERSION_VAL' validated successfully."
 
   security-quality:
     name: Secret & Vulnerability Scanning
     runs-on: ubuntu-latest
+    if: github.ref_type != 'tag'
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
