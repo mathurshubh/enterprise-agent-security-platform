@@ -2,14 +2,14 @@
 
 **Status:** Accepted
 
-**Date:** 2026-10-02 (D-C1 refined 2026-10-02)
+**Date:** 2026-10-02 (D-C1 refined and its physical representation decided 2026-10-02)
 
 **Authors:**
 - Shubhankar Mathur
 
 **Implementation Status:**
 - **Not implemented.** This ADR locks three contracts; no persistence for execution evidence or capability definitions exists yet. `ExecutionReceipt` is recorded on the production path but held in a bounded in-memory store ([ADR-032](ADR-032-runtime-tool-execution-isolation.md) §12), and `CapabilityApplicability` does not exist in any form.
-- Capability **identity** is now decided (`capability_digest`, §3). The physical **table representation** remains deliberately open (§7).
+- Capability **identity and physical representation** are both decided (§3). Retention policy remains open (§7).
 - Grant durability is a **dependent decision**, not part of this one (§6).
 
 ---
@@ -180,16 +180,138 @@ A definition referenced by retained evidence or by outstanding authority **canno
 which makes the store append-only in practice. Unreferenced definitions still accumulate;
 broader retention and archival semantics remain coupled to D-E1.7 rather than separable from it.
 
-### Repository surface
+### Existing surface and migration
 
 Greenfield: no capability repository exists in any form. The existing read surface is
 `resolve_profile` at two call sites — issuance and execution — plus one `exists` check, and the
 write surface is `register_profile`, called only from bootstrap. The durable contract is
-correspondingly small: resolve-by-digest, put-if-absent, exists.
+specified under "Repository contract" below.
 
 **Migration:** nothing to migrate. No table exists, definitions live only in memory and are
 rebuilt at bootstrap, so this is clean creation with no backfill guard of the kind migrations
 0003 to 0005 required.
+
+### Physical representation
+
+Decided 2026-10-02. The decision is not JSON versus relational columns; it is that **the exact
+canonical byte sequence hashed to produce `capability_digest` is the sole reconstruction
+authority**.
+
+```text
+canonical capability object → canonical JSON bytes → SHA-256 → capability_digest
+```
+
+```text
+CapabilityDefinition
+────────────────────────────────
+capability_digest   PRIMARY KEY
+canonical_payload   BLOB NOT NULL
+created_at          NOT NULL
+```
+
+**`BLOB`, not `TEXT` or a JSON column.** The identity is defined over bytes, so no database
+text-encoding or JSON-normalization semantics may intervene. A `jsonb` column reorders keys and
+normalizes numbers, which would silently break the equality below while appearing to store the
+same document. Verification is then literally:
+
+```text
+SHA256(canonical_payload) == capability_digest
+```
+
+The primary key supplies both uniqueness and the only index resolution needs; lookup is by
+digest alone, so no secondary index is required.
+
+**Why the canonical form rather than a model dump.** `ExecutionCapabilities.model_dump_json()`
+currently raises `PydanticSerializationError`, because a validator freezes
+`environment_variables` to a `mappingproxy`. Storing the canonical form sidesteps that path
+entirely, and gains three properties a re-serialized dump would not have: digest re-derivation
+is a hash of the stored bytes with no model instantiation; reconstruction fidelity is exact by
+definition, since the stored bytes *are* what was digested; and **D-C1.2's `destinations`
+divergence closes by construction** — the field is absent from the canonical form, so it cannot
+be persisted in conflict, and reconstruction derives it from the digested union. Verified: a
+model rebuilt from the canonical form reproduces the original digest exactly, with
+`destinations` normalized to the set the digest describes.
+
+Adding a `field_serializer` to repair `model_dump_json()` is **deliberately out of scope**. The
+representation does not need it, and including it would widen a persistence contract into the
+general serialization behaviour of the model. It is recorded as a separate latent improvement.
+
+**Projections are permitted and are never authority.** Following the pattern already locked for
+`tools`, any relational projection is written from the payload in the same statement and never
+read during reconstruction:
+
+```text
+canonical_payload  ← authoritative
+      │
+      └── projections → query convenience only
+```
+
+The repository reconstructs from the canonical payload, then verifies the digest. The same
+enforcement that `tools` uses is required here: a test that corrupts every projection while
+leaving the payload unchanged must observe reconstruction unaffected. That is what makes
+"never a second source of truth" checkable rather than aspirational.
+
+### Repository contract
+
+```text
+resolve_by_digest(digest)
+put_if_absent(definition)
+exists(digest)
+```
+
+**Insertion derives identity from content.** The repository canonicalizes, computes the digest,
+and verifies any supplied identity against it. It must not become a
+*store-these-bytes-under-this-digest* API, because that would let a caller name content it did
+not produce.
+
+**`put_if_absent` distinguishes three cases**, and the third is the reason `ON CONFLICT DO
+NOTHING` is the wrong primitive — it would silently accept a hash collision, corrupted input,
+corrupted storage, or a programming error as a benign conflict:
+
+| Condition | Outcome |
+|---|---|
+| digest absent | insert |
+| digest present, identical bytes | idempotent success |
+| digest present, **different** bytes | **integrity failure** |
+
+**Reads verify.** `SHA256(canonical_payload) != capability_digest` is a content-addressed
+**storage integrity** failure and fails closed. This is a different fault from the registry
+drift the pre-persistence check was written for (D-C1.5): drift was mutable state diverging,
+this is stored bytes not matching their own key.
+
+```text
+lookup digest → payload → SHA256(payload) == digest ?
+                              ├── no  → fail closed, integrity error
+                              └── yes → deserialize → reconstruct ExecutionCapabilities
+```
+
+Both operations are single-row and single-statement, so no cross-repository transaction is
+required — unlike `ToolRepository`, which must materialise a family anchor in the same
+transaction.
+
+### No foreign key from evidence
+
+Evidence holds a **logical** digest reference, with no runtime-enforced foreign key:
+
+```text
+ExecutionReceipt.capability_digest  ──logical──▶  CapabilityDefinition
+```
+
+This follows the principle locked in [ADR-034](ADR-034-audit-identity-contract.md): evidence
+must not acquire a control-plane dependency that can turn evidence persistence into a runtime or
+authorization availability dependency.
+
+The historical invariant is preserved without the constraint, by enforcing retention at the
+**capability repository** instead:
+
+```text
+delete capability X
+    ├── referenced by retained evidence or outstanding authority → REJECT
+    └── unreferenced → subject to retention policy (D-E1.7)
+```
+
+So the evidence plane depends on no referential enforcement, while a referenced definition still
+cannot disappear.
 
 ## 4. Decision D-C2 — Capability Applicability
 
@@ -240,16 +362,13 @@ digest. `capability_digest` is therefore the sole identity (D-C1.1), and the
 `profile_id`-plus-revision alternative this ADR originally listed is not merely less clean — it
 is unnecessary.
 
-What remains open is the **physical table representation**: whether the store holds canonical
-serialized capability content, normalized relational columns, both, or a canonical payload plus
-query projections. The semantic contract in §3 is what that design must satisfy:
+The **physical representation is also now decided** (§3, "Physical representation"): canonical
+bytes in a `BLOB` keyed by digest, with non-authoritative projections.
 
-```text
-PRIMARY IDENTITY  capability_digest
-                  immutable
-                  content-addressable
-                  reconstructable to equivalent enforcement semantics
-```
+What remains open for the capability plane is only **retention and archival policy**, which is
+coupled to D-E1.7 rather than separable from it, and the **`field_serializer`** that would repair
+`ExecutionCapabilities.model_dump_json()` — a latent model defect this representation does not
+depend on.
 
 Also out of scope: retention and archival policy (D-E1.7), artifact attestation (`implementation_id` remains logical provenance only, per ADR-032), and the production switch from in-memory to SQL repositories.
 
