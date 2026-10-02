@@ -2,13 +2,14 @@
 
 **Status:** Accepted
 
-**Date:** 2026-09-24 (amended 2026-10-02: §7 continuation semantics, §8–§9 durability and claim)
+**Date:** 2026-09-24 (amended 2026-10-02: §7 continuation semantics, §8–§9 durability and claim, §10 model and name)
 
 **Authors:**
 - Shubhankar Mathur
 
 **Implementation Status:**
-- **Adopted, not implemented.** The capability is now a decided platform capability rather than a proposal, subject to the amendments in §7 (semantics), §8 (durable authority) and §9 (atomic claim).
+- **Adopted, not implemented.** The capability is now a decided platform capability rather than a proposal, subject to the amendments in §7 (semantics), §8 (durable authority), §9 (atomic claim) and §10 (model and name).
+- The persisted model is renamed `ApprovalContinuation` in a **terminology-only** change that precedes implementation (§10.5). This ADR continues to say `ExecutionGrant` where it describes the model as it exists today.
 - Nothing drives this lifecycle today. `ExecutionAuthority.issue()` returns `None` for any decision other than `ALLOW`, so `APPROVAL_REQUIRED` currently produces no grant at all; no service constructs an `ExecutionGrant`; and the `ApprovalGrantRepository` singleton is instantiated in the composition root without being injected anywhere. The domain model, both repository adapters, their shared contract tests and the frontend's `PendingApproval` type all exist unused.
 - Scaffolding existing at three layers is not evidence the decision was taken. §7 is what takes it.
 - Formalizes the control-plane resumption lifecycle for `REQUIRE_APPROVAL` responses emitted by the runtime security pipeline ([ADR-004](ADR-004-deterministic-security-pipeline.md), [ADR-019](ADR-019-behavioral-enforcement-engine.md), [ADR-023](ADR-023-execution-authorization-grants.md)).
@@ -326,7 +327,10 @@ expanded for completeness.
 - **The continuation lifetime's concrete duration** (§7.3).
 - **Audit representation** for continuation transitions (§6) — a separate taxonomy decision.
 - **The operator-facing API and UI.** The frontend's `PendingApproval` type exists and is
-  referenced by nothing; no approval endpoint exists in the management plane.
+  referenced by nothing; no approval endpoint exists in the management plane. Its vocabulary
+  divergence from the domain is recorded in §10.6 and belongs to this decision.
+- ~~Whether the continuation should be its own domain model~~ — **decided in §10**: it is the
+  existing persisted model, renamed.
 
 ---
 
@@ -515,6 +519,93 @@ called without its predicates cannot be called without them being enforced.
 Claiming consults no policy engine and performs no authorization evaluation. Every predicate above
 is a monotonic refusal condition under §7.5: each can deny, none can produce authority the
 operator did not review.
+
+---
+
+## 10. The continuation model and its name
+
+### 10.1 Decision
+
+> The D-G1 continuation **is** the existing persisted grant model, under the corrected name
+> **`ApprovalContinuation`**. No parallel continuation domain model will be introduced.
+> `RuntimeExecutionGrant` remains the **sole** executable authority type.
+
+### 10.2 Why the existing model rather than a new one
+
+The persisted model is already the continuation in everything but name:
+
+| | |
+|---|---|
+| Continuation fields required by §8.2 | 17 |
+| Already present on the model | **16** |
+| Absent | `resource` only |
+| Lifecycle | already `PENDING → APPROVED/REJECTED/EXPIRED`, `APPROVED → CONSUMED` — the continuation lifecycle |
+| Domain-model importers | 3 application files and 8 test files, **all of them the approval path** |
+| Full rename surface | 19 files, counting the ORM model, the `execution_grants` table name and the migrations that create it |
+| API exposure | none |
+
+A parallel model would duplicate the domain model, the ORM, the three-adapter repository, the
+state machine and the shared contract suite, in order to add one field and tighten two
+nullability constraints. It would also require a migration between two near-identical
+representations of one concept — the kind of second representation this platform has repeatedly
+decided against.
+
+### 10.3 Why the rename is not cosmetic
+
+The current naming is inverted. §7.1 locks that the persisted object is **not executable
+authority**, while the object that *is* carries the qualifier. The result is already visible in
+the codebase: four files describe `ExecutionGrant` as the thing that confers execution authority,
+when each means `RuntimeExecutionGrant`.
+
+- `tool_executor`: "executes only when an `ExecutionGrant` issued by its bound …"
+- `execution_binding`: "authority to execute a binding is conferred only by an `ExecutionGrant`"
+- `execution_receipt`: "derives identity … exclusively from the validated `ExecutionGrant`"
+- `capability_registry`: "`ExecutionGrant` carrying no capability fields is not executable"
+
+That is the misuse §7.1 exists to prevent, appearing in documentation before the capability is
+wired. A name that invites it is a defect in the contract's own terms.
+
+### 10.4 Terminology
+
+| Concept | Meaning |
+|---|---|
+| `ApprovalContinuation` | durable, persisted, human-approved authority that can be claimed once |
+| `RuntimeExecutionGrant` | ephemeral, signed, **executable** authority |
+| `ExecutionBinding` | canonical signed representation of the execution scope |
+| `ExecutionReceipt` | evidence of what crossed the trusted execution boundary |
+
+```text
+ApprovalContinuation ──atomic claim──▶ RuntimeExecutionGrant ──▶ Executor
+   durable, not authority                 ephemeral authority
+```
+
+### 10.5 Sequencing: terminology before behaviour
+
+The rename is **mechanical and must land separately** from the D-G1 implementation, so that each
+diff answers one question: *what is this object called?* and then *how does durable approval
+authority work?* For security-sensitive change, a 19-file mechanical rename interleaved with new
+claim semantics would obscure both.
+
+The surface is wider than the domain model alone: renaming the table reaches three migrations that
+create or recreate `execution_grants`, and two schema tests that assert on it. A table rename in an
+already-applied migration chain is itself a migration, not an edit to history.
+
+**Phase A — terminology only.** `ExecutionGrant` → `ApprovalContinuation`, with the repository and
+table following, and the four prose references corrected to name `RuntimeExecutionGrant` where
+that is what they mean. Phase A must change **no** lifecycle semantics, nullability, schema
+meaning, claim behaviour, execution behaviour or approval behaviour.
+
+**Phase B — D-G1 implementation.** Add `resource`; require the capability binding; implement
+continuation expiry; implement the epoch-aware atomic claim returning the frozen authority;
+consume before mint; connect the continuation to `RuntimeExecutionGrant`; preserve fail-closed
+behaviour throughout.
+
+### 10.6 Recorded, not decided
+
+The frontend's `PendingApproval` uses `status`, `resolved_by` and `resolved_at` where the domain
+uses `state`, `approved_by` and `consumed_at`. That divergence is **not** folded into the rename:
+those may be deliberate presentation terms rather than a domain leak, and whether the API exposes
+a normalized vocabulary or the client maps it belongs to the operator API and UI decision (§7.6).
 
 ---
 
