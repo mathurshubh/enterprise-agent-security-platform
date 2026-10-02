@@ -2,13 +2,13 @@
 
 **Status:** Accepted
 
-**Date:** 2026-09-24 (amended 2026-10-02)
+**Date:** 2026-09-24 (amended 2026-10-02: §7 continuation semantics, §8–§9 durability and claim)
 
 **Authors:**
 - Shubhankar Mathur
 
 **Implementation Status:**
-- **Adopted, not implemented.** The capability is now a decided platform capability rather than a proposal, subject to the amendment in §7.
+- **Adopted, not implemented.** The capability is now a decided platform capability rather than a proposal, subject to the amendments in §7 (semantics), §8 (durable authority) and §9 (atomic claim).
 - Nothing drives this lifecycle today. `ExecutionAuthority.issue()` returns `None` for any decision other than `ALLOW`, so `APPROVAL_REQUIRED` currently produces no grant at all; no service constructs an `ExecutionGrant`; and the `ApprovalGrantRepository` singleton is instantiated in the composition root without being injected anywhere. The domain model, both repository adapters, their shared contract tests and the frontend's `PendingApproval` type all exist unused.
 - Scaffolding existing at three layers is not evidence the decision was taken. §7 is what takes it.
 - Formalizes the control-plane resumption lifecycle for `REQUIRE_APPROVAL` responses emitted by the runtime security pipeline ([ADR-004](ADR-004-deterministic-security-pipeline.md), [ADR-019](ADR-019-behavioral-enforcement-engine.md), [ADR-023](ADR-023-execution-authorization-grants.md)).
@@ -321,12 +321,200 @@ expanded for completeness.
 
 ### 7.6 What this amendment does not decide
 
-- **Which portion of the continuation must be durable**, and the persistence and reconstruction
-  guarantees — the grant-durability decision, now well defined because the continuation is.
+- ~~Which portion of the continuation must be durable~~ — **decided in §8 (D-G1A)**, with the
+  claim protocol in §9 (D-G1B).
 - **The continuation lifetime's concrete duration** (§7.3).
 - **Audit representation** for continuation transitions (§6) — a separate taxonomy decision.
 - **The operator-facing API and UI.** The frontend's `PendingApproval` type exists and is
   referenced by nothing; no approval endpoint exists in the management plane.
+
+---
+
+## 8. D-G1A — Durable Approval Continuation Authority
+
+Added 2026-10-02. §7 settled what a continuation *is*; this settles what must be durable for
+one to survive a restart, and §9 settles how it is claimed.
+
+### 8.1 The reconstruction invariant
+
+> Continuation authority must be reconstructible **without consulting mutable control-plane
+> state** and **without deriving security-relevant fields from heuristics or parameter
+> conventions**.
+
+The second clause carries as much weight as the first. A field recovered by convention is a
+field whose authority depends on that convention continuing to hold.
+
+### 8.2 Authority contents
+
+| Group | Fields |
+|---|---|
+| **Binding** — reconstructs the signed canonical form | `tool_id`, `tool_version`, `resource`, `parameters` |
+| **Identity** | `agent_id`, `session_id` |
+| **Capability** | `capability_profile_id`, `capability_digest` — **required** |
+| **Authorization provenance** — recorded, never re-evaluated | `originating_audit_event_id`, `risk_score`, `required_response` |
+| **Invalidation** | `enforcement_epoch` |
+| **Lifecycle** | `state`, `created_at`, `expires_at`, `approved_by`, `consumed_at` |
+
+There is deliberately **no `decision` field**. `APPROVED` already encodes that an operator
+resolved this continuation to allow, and storing a decision beside a state that implies it would
+create two representations of one fact. `required_response` is retained as provenance of *why*
+approval was required, not as an authorization input.
+
+### 8.3 `resource` is authority state, never derived
+
+`resource` is an explicit required element of the frozen authority. It is authority state by two
+independent routes: it is an authorization input — `AuthorizationService` performs a
+`resource_check` and the policy engine reads it — and it is a key in
+`ExecutionBinding.canonical_json`, the deterministic serialisation **used when signing grants**.
+A continuation that loses it cannot reproduce the signed binding.
+
+Deriving it from `parameters["path"]` is **prohibited**. It would make a parameter name a hidden
+encoding of authority, and it is insufficient regardless: `RESOURCE_PARAMETER` ties the two only
+when that parameter is present, so an operation binding a resource without a `path` parameter has
+no recovery path. The existing validator — `resource` must equal the `path` parameter when
+present — remains a **consistency rule**, never the source.
+
+### 8.4 Capability identity must survive persistence
+
+`capability_profile_id` and `capability_digest` are required, not nullable. The digest resolves
+against the immutable, content-addressed definitions of
+[ADR-035](ADR-035-execution-evidence-and-capability-durability.md) D-C1, so the continuation
+references rather than copies the confinement (§7.2).
+
+### 8.5 `enforcement_epoch` names one specific quantity
+
+`enforcement_epoch` is the persisted `AgentEnforcementState.epoch`, incremented exactly once per
+enforcement transition. It is **not** the reinstatement count returned by `get_epoch()`.
+
+The two differ: for an agent suspended once and reinstated once, the state epoch reads 2 and the
+reinstatement count reads 1. Both are currently called "epoch" in the codebase, and a
+continuation that compared against the wrong one would invalidate on the wrong events.
+
+### 8.6 Restart semantics, and the gap this decision closes
+
+The current `ExecutionGrant` is **not a lossless serialization of the signed binding**. Measured
+against the persisted model, write path and reconstruction path:
+
+- 15 of 17 fields round-trip intact.
+- `capability_profile_id` and `capability_digest` have no column, are not written, and are not
+  read back. Because they are nullable, reconstruction yields a structurally valid grant with
+  `None` — indistinguishable from a continuation that never had a binding. Since capability
+  verification refuses a grant with no profile id, the practical effect is that **no continuation
+  could be claimed after a restart at all**: fail-closed, but a total functional block rather than
+  incomplete evidence.
+- `resource` is not a field on the model at all, so the signed binding cannot be reproduced for
+  any operation whose resource is not recoverable from a `path` parameter.
+
+### 8.7 Parameters — one open question, deliberately not closed here
+
+Executable parameters are constrained by `ExecutionBinding` to flat, name-sorted
+`(name, value)` string pairs, because `canonical_json` is the signing input and determinism over
+arbitrary nested data would require a canonicalization scheme inside the signing path. Non-flat
+operation parameters are **rejected before execution**: the executor rebuilds a binding from the
+caller's parameters, and `ExecutionBindingValidationError` becomes an `ExecutionBindingError`.
+
+`ExecutionGrant.execution_parameters` is `Mapping[str, Any]`, supported by deep-freeze,
+deep-unfreeze, a field serializer and a hand-written `__deepcopy__`.
+
+So the two representations differ, and a continuation must reconstruct the exact signed binding.
+**Whether they converge, and in which direction, is not decided here.** Outside the model itself
+the only consumer today is the SQL grant adapter, but the continuation path is entirely unwired,
+so an absent caller set is weak evidence of intent rather than permission to narrow the model.
+The implementation impact must be reviewed before that machinery is removed.
+
+## 9. D-G1B — Atomic Continuation Claim
+
+### 9.1 Claim preconditions, evaluated atomically
+
+```text
+state == APPROVED
+  AND enforcement_epoch == current agent epoch
+  AND now < expires_at
+        ↓  one concurrency-controlled operation
+     CONSUMED, returning the frozen authority
+```
+
+> **Claim Validity Invariant:** continuation validity is evaluated **at the point of atomic
+> consumption**, never at a preceding read.
+
+Checking and then transitioning separately permits a continuation that was already invalid when
+consumed:
+
+```text
+T1: check epoch        T2: suspend → epoch++        T1: transition to CONSUMED
+```
+
+Authority is therefore revalidated at the moment it crosses the next trust boundary, rather than
+trusted from an earlier observation.
+
+### 9.2 The claim returns the frozen authority
+
+A successful claim returns the authority it consumed. Re-reading it afterwards would reopen the
+window the atomicity exists to close.
+
+### 9.3 Consumption precedes minting
+
+> **Claim Ordering Invariant:** the continuation is irreversibly consumed **before** any
+> ephemeral execution authority is minted.
+
+Compare-and-set on the continuation is **not sufficient on its own**. With minting first:
+
+```text
+T1  validate → mint → consume (CAS succeeds)
+T2  validate → mint → consume (CAS fails)
+```
+
+T2's CAS fails, yet T2 **already holds a valid ephemeral grant**, which the authority will honour
+because it has no knowledge of the continuation. One approval would yield two executable
+authorities. With consumption first, only the CAS winner mints.
+
+### 9.4 Mint failure after consumption is intentionally fail-closed
+
+The ordering creates one deliberate failure mode: consumption succeeds, minting fails, and the
+continuation remains `CONSUMED` and unspent. That is accepted and must be recorded as an
+evidence-integrity signal. It is strictly preferable to the inverse, in which two valid
+authorities exist.
+
+This mirrors the Execution Boundary Invariant of §4 one layer earlier: `CONSUMED` means the
+single claim was authorized, not that execution occurred.
+
+### 9.5 Suspension and reinstatement
+
+Epoch equality covers both, with no separate revocation bookkeeping for the containment case:
+
+```text
+approved at epoch N → suspension → N+1 → mismatch → refuse
+                    → reinstatement → N+2 → still mismatch → still refuse
+```
+
+Reinstatement **advances** the epoch rather than restoring it, so §7.4's non-resurrection rule
+follows automatically from the predicate.
+
+One consequence is intentional and should not be mistaken for suspension-only invalidation:
+because every enforcement transition advances the epoch, **any** transition invalidates all
+outstanding continuations for that agent. That is stricter than containment, monotonic, and
+fail-safe — it can only refuse.
+
+### 9.6 Expiry
+
+Expiry participates in the claim predicate rather than being swept separately. `expires_at` is
+persisted and indexed today, but **nothing evaluates it**, and the existing transition checks only
+`from_state` — so an expired continuation would currently transition to `CONSUMED` successfully.
+
+### 9.7 A distinct operation, not optional predicates
+
+The claim is a separate repository operation whose predicates are **not optional**. Adding them to
+the general transition method would require defaulting them to unchecked, since that method also
+serves operator-driven approve and reject transitions where epoch and expiry do not apply. That
+is the shape F-02 corrected on capability digests, where comparing a digest *only when one was
+presented* admitted a profile-bound grant with its binding unverified. An operation that cannot be
+called without its predicates cannot be called without them being enforced.
+
+### 9.8 No re-authorization
+
+Claiming consults no policy engine and performs no authorization evaluation. Every predicate above
+is a monotonic refusal condition under §7.5: each can deny, none can produce authority the
+operator did not review.
 
 ---
 
@@ -378,3 +566,5 @@ expanded for completeness.
 - **No Durable Bearer Authority:** a persisted continuation is not executable authority (§7.1). Execution authority remains the process-local, short-lived ephemeral grant, so compromising the durable store does not yield a usable execution token.
 - **Containment Crosses the Restart Boundary:** agent suspension invalidates outstanding continuations, and reinstatement does not restore them (§7.4).
 - **No Authority Substitution:** continuation validation is monotonic (§7.5). An approved authority can be refused but never silently replaced by a newer tool version, a different capability profile, or a re-evaluated policy outcome.
+- **Single Claim Across Restart:** the continuation is irreversibly consumed before any ephemeral authority is minted (§9.3), so compare-and-set on the continuation cannot be defeated by two claimants both minting first. Validity is re-evaluated at the moment of consumption rather than trusted from an earlier read (§9.1).
+- **Lossless Authority Reconstruction:** a continuation reproduces the exact signed binding, including `resource`, without deriving any security-relevant field from a parameter convention (§8.1, §8.3).
