@@ -4,13 +4,15 @@ Two invariants, asymmetric because the domain is:
 
 1. A durable ``ApprovalContinuation`` cannot exist unless its ``(tool_id, tool_version)``
    identifies a registered ``Tool`` version.
-2. A durable ``SessionEvent`` may represent a family-level or refused interaction without a
-   concrete version, but its ``tool_id`` must still identify a registered ``ToolFamily``.
+2. A durable ``SessionEvent`` is evidence, not a registry reference (ADR-034 §7). It may
+   name a family or version that is not registered, and registry changes must neither block
+   nor be blocked by it.
 
-The second is why ``session_events`` keeps two references. A composite foreign key is
-MATCH SIMPLE: it is not checked at all when any referencing column is NULL. So on refused
-paths the composite constraint is vacuous and the family reference is the only thing left
-enforcing that the event names something registered.
+Migration 0004 originally held the second invariant the other way: an event's ``tool_id``
+had to identify a registered ``ToolFamily``. That premise was that a refused event always
+names a registered family. The runtime records the family a request named before and
+regardless of its existence, so the constraint made the denial of an unknown tool
+unrecordable. Migration 0007 removed both tool references from ``session_events``.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -144,18 +146,15 @@ def test_a_grant_naming_a_registered_version_is_accepted(seeded_factory) -> None
 
 
 @pytest.mark.security_invariant
-def test_invariant_a_refused_event_without_a_version_must_still_name_a_family(
-    seeded_factory,
-) -> None:
-    """The case the composite reference cannot catch.
+def test_invariant_an_event_naming_an_unregistered_family_is_recorded(seeded_factory) -> None:
+    """The denial of a request for a nonexistent tool is evidence and must be storable."""
+    with transactional_session(seeded_factory) as db:
+        db.add(_event(tool_id="never-registered", tool_version=None))
 
-    ``tool_version`` is NULL, so the composite constraint is not evaluated. Without the
-    retained family reference this insert would succeed and the event would name a tool
-    that was never registered.
-    """
-    with pytest.raises(IntegrityError):
-        with transactional_session(seeded_factory) as db:
-            db.add(_event(tool_id="never-registered", tool_version=None))
+    with transactional_session(seeded_factory) as db:
+        stored = db.get(SessionEventModel, "evt-1")
+        assert stored is not None
+        assert (stored.tool_id, stored.tool_version) == ("never-registered", None)
 
 
 @pytest.mark.security_regression
@@ -171,10 +170,29 @@ def test_a_refused_event_may_omit_the_version_entirely(seeded_factory) -> None:
 
 
 @pytest.mark.security_invariant
-def test_invariant_an_event_naming_a_version_must_name_a_registered_one(
-    seeded_factory,
-) -> None:
-    """When the version is present the composite reference does apply."""
-    with pytest.raises(IntegrityError):
-        with transactional_session(seeded_factory) as db:
-            db.add(_event(tool_version="2.0.0"))
+def test_invariant_an_event_naming_an_unregistered_version_is_recorded(seeded_factory) -> None:
+    """A version removed between resolution and the write must not make the event unstorable."""
+    with transactional_session(seeded_factory) as db:
+        db.add(_event(tool_version="2.0.0"))
+
+    with transactional_session(seeded_factory) as db:
+        stored = db.get(SessionEventModel, "evt-1")
+        assert stored is not None
+        assert (stored.tool_id, stored.tool_version) == ("file_read", "2.0.0")
+
+
+@pytest.mark.security_invariant
+def test_invariant_retained_events_do_not_block_registry_deletion(seeded_factory) -> None:
+    """Evidence must not pin registry state: the former ``ON DELETE RESTRICT`` inverted that."""
+    with transactional_session(seeded_factory) as db:
+        db.add(_event(tool_version="1.0.0"))
+
+    with transactional_session(seeded_factory) as db:
+        db.delete(db.get(ToolModel, ("file_read", "1.0.0")))
+        db.flush()
+        db.delete(db.get(ToolFamilyModel, "file_read"))
+
+    with transactional_session(seeded_factory) as db:
+        stored = db.get(SessionEventModel, "evt-1")
+        assert stored is not None
+        assert (stored.tool_id, stored.tool_version) == ("file_read", "1.0.0")

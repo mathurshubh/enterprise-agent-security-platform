@@ -85,6 +85,6 @@ def test_sqlite_schema_creation_and_constraints() -> None:
 
     session_event_fks = inspector.get_foreign_keys("session_events")
     ref_tables = {fk["referred_table"] for fk in session_event_fks}
-    # The family anchor, not ``tools``: ``tools`` is keyed ``(tool_id, version)``, so
-    # ``tools.tool_id`` is not a unique key and cannot be referenced on its own.
-    assert {"sessions", "agents", "tool_families"}.issubset(ref_tables)
+    # Ownership only. Tool identity on a session event is evidence, not a registry
+    # reference (ADR-034 §7), so neither tool table is referenced.
+    assert ref_tables == {"sessions", "agents"}
