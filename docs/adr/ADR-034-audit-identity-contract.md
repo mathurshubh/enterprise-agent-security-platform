@@ -151,3 +151,68 @@ Under the previous constraint, in SQL mode, the denial of a request for an unreg
 - A request for a nonexistent tool is denied and its event recorded on every repository adapter.
 - Referential correctness between session events and the registry is not guaranteed by the database. As with §2.5, detecting it is a reconciliation query, not a constraint.
 - A `security_invariant` test asserts both halves: no tool-registry reference, and the retained ownership and sequencing constraints.
+
+## 8. Amendment (Proposed, 2026-10-03) — Administrative audit identity (F-09)
+
+*Status of this amendment: Proposed. Scope: `AdministrativeAuditEvent`
+([ADR-028](ADR-028-audit-evidence-ownership-and-lifecycle.md) §6). §§2–7 and `audit_events` are
+unchanged. ADR-034 remains Accepted.*
+
+### 8.1 Same contract, separate record
+
+`AdministrativeAuditEvent` is audit evidence, not a referential-integrity participant (§2.1). It
+holds **no foreign key** to `agents`, administrative state, enforcement state, or any other
+control-plane table (§2.3). Its constraints express intra-record validity only (§2.4), and
+interpreting it requires no join (§2.7).
+
+It is a separate record rather than a widened `AuditEvent`. `AuditEvent` keeps its required
+`session_id` and `requested_tool_id`. Making them optional to accommodate administrative events
+would weaken the tool-request contract this ADR establishes, and a synthetic session or tool would
+assert facts that did not occur.
+
+Lifecycle ledgers ([ADR-024](ADR-024-agent-enforcement-state.md) amendment A.8) are authoritative
+audit evidence under ADR-028 §6 despite not being `AuditEvent` rows; "audit evidence" is not
+synonymous with the `audit_events` table, and lifecycle operations are never forced into the
+tool-request schema.
+
+### 8.2 Identity facts
+
+| Field | Nullability | Meaning |
+|---|---|---|
+| `requested_agent_id` | required | The agent the operation named, recorded as received and **never validated**. A refused operation naming a nonexistent agent is evidence and must be recordable. |
+| `attempted_action` | required | `REGISTER`, `ACTIVATE`, `DISABLE`, `SUSPEND` or `REINSTATE`. |
+| `plane` | required | `administrative` or `enforcement`: the plane the action belongs to. |
+| `observed_state` | nullable | The state of that plane at decision time, in that plane's vocabulary; NULL when the agent was not found. A recorded fact, not a reference. |
+| `expected_administrative_version` | nullable | The expected administrative lifecycle generation supplied by the operation, when applicable. NULL for enforcement-plane operations. |
+| `observed_administrative_version` | nullable | The observed administrative lifecycle generation at decision time, when applicable. NULL for enforcement-plane operations. |
+| `expected_enforcement_epoch` | nullable | The expected enforcement generation supplied by the operation, when applicable. NULL for administrative-plane operations. |
+| `observed_enforcement_epoch` | nullable | The observed enforcement generation at decision time, when applicable. NULL for administrative-plane operations. |
+| `refusal_code` | required | Stable, machine-readable reason, independent of message text: at minimum `UNAUTHORIZED`, `VERSION_CONFLICT`, `ILLEGAL_TRANSITION`, `AGENT_NOT_FOUND`. |
+
+The version fields are namespace-specific. For an `administrative` record, the
+`*_administrative_version` fields may be populated and the `*_enforcement_epoch` fields are NULL;
+for an `enforcement` record, the converse applies. An administrative audit record never compares,
+aliases, or substitutes one namespace for the other.
+
+### 8.3 Attribution (the contract decision §2.6 anticipated)
+
+§2.6 removed `principal` as schema residue and deferred operator attribution to "its own contract
+decision with defined provenance and semantics". For administrative evidence, that decision is:
+
+- **Structured actor** `{type, id}`, with `type` in `human`, `system`, `runtime`. Type and identity
+  are separate fields and never one overloaded string.
+- **Provenance.** A `human` actor's `id` is derived from the authenticated principal established by
+  the platform's trusted authentication boundary, never from a request body or caller-supplied
+  actor field. `system` and `runtime` identifiers are reserved, assigned only by platform code
+  paths (including bootstrap and scenario/runtime enforcement paths), and cannot be supplied by a
+  caller.
+- **Correlation.** `correlation_id` is required: the inbound request id where one exists, otherwise
+  generated per operation.
+
+This applies to administrative evidence only. It does not reintroduce `principal` on
+`AuditEvent`; attribution of tool requests remains outside this amendment.
+
+### 8.4 Detection, not enforcement
+
+As §2.5: a record naming an agent absent from the registry is reported by reconciliation, never
+refused, and reconciliation never blocks an administrative operation.
