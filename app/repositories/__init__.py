@@ -1,6 +1,10 @@
 """Durable repository interfaces and persistence abstractions (ADR-030)."""
 
-from app.repositories.factory import RepositoryContainer, create_repositories
+from app.repositories.factory import (
+    RepositoryCompositionError,
+    RepositoryContainer,
+    create_repositories,
+)
 from app.repositories.in_memory import (
     InMemoryAgentRepository,
     InMemoryApprovalContinuationRepository,
@@ -31,6 +35,7 @@ __all__ = [
     "InMemorySessionRepository",
     "InMemoryToolRepository",
     "InvalidContinuationTransitionError",
+    "RepositoryCompositionError",
     "RepositoryContainer",
     "SessionRepository",
     "ToolRepository",

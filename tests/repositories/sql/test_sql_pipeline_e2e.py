@@ -32,11 +32,11 @@ from app.models.tool_metadata import ToolMetadata
 from app.models.tool_operational import ToolOperational
 from app.models.tool_risk_level import ToolRiskLevel
 from app.policy.policy_engine import PolicyEngine
-from app.repositories import create_repositories
+from app.repositories import InMemoryAgentRepository, create_repositories
+from app.repositories.sql import SqlAuditEvidenceRepository, SqlToolRepository
 from app.repositories.sql.base import Base
 from app.repositories.sql.engine import create_sql_engine, dispose_sql_engine
 from app.repositories.sql.models.agent import AgentModel
-from app.repositories.sql.models.tool import ToolFamilyModel, ToolModel
 from app.runtime.capability_registry import InMemoryCapabilityProfileRegistry
 from app.runtime.execution_authority import (
     ExecutionAuthority,
@@ -82,9 +82,23 @@ def sql_pipeline_setup():
     engine = create_sql_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
 
-    container = create_repositories(backend="sql", engine=engine)
+    # Every repository is SQL-backed except the agent registry, which has no SQL adapter.
+    # The factory refuses to substitute one implicitly (ADR-030 §6), so this harness
+    # supplies an in-memory agent repository explicitly. That is a deliberate split for
+    # this test, not a durable topology: the agent therefore exists twice — in the
+    # explicit in-memory registry the services read, and as the SQL ``agents`` row the
+    # session, enforcement and continuation tables reference.
+    container = create_repositories(
+        backend="sql",
+        engine=engine,
+        agent_repository=InMemoryAgentRepository(),
+    )
+    assert isinstance(container.tool_repository, SqlToolRepository)
+    assert isinstance(container.audit_repository, SqlAuditEvidenceRepository)
 
-    # Seed SQL DB parent rows for referential integrity
+    # Seed the SQL agent row the SQL tables reference; no application path writes it.
+    # Tool rows are not seeded here: the tool is registered below through ToolService
+    # into the SQL tool repository, the same write path production would use.
     with OrmSession(engine) as session:
         session.add(
             AgentModel(
@@ -94,14 +108,6 @@ def sql_pipeline_setup():
                 risk_tier="LOW",
                 status="ACTIVE",
             )
-        )
-        session.add(
-            ToolFamilyModel(tool_id="file_read")
-        )
-        session.add(
-            ToolModel(tool_id="file_read", version="1.0.0",
-                      governance_enabled=True, risk_level="LOW",
-                      metadata_payload={})
         )
         session.commit()
 

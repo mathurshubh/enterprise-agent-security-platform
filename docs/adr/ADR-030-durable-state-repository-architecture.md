@@ -180,6 +180,19 @@ The contract suite validates:
 - Correct temporal query filtering and pruning of detection horizon events.
 - Deterministic recovery and state survival across repository re-instantiation (restart simulation).
 
+## 6. Composition Contract — No Silent Persistence Downgrade
+
+*Added 2026-10-03 (adversarial review Finding 3). This ADR remains Proposed.*
+
+Selecting a backend is a statement about durability, so the composition boundary must not quietly make it false. `create_repositories()` (`app/repositories/factory.py`) enforces:
+
+> With `backend="sql"`, no repository is implicitly replaced by an in-memory implementation. Existing SQL adapters are used by default; missing required adapters cause composition failure unless an adapter is explicitly supplied by the caller.
+
+- **SQL defaults:** session, enforcement, approval-continuation, tool and audit-evidence repositories default to their SQL adapters.
+- **Missing adapter:** there is no SQL `AgentRepository`. Under `backend="sql"`, `agent_repository` must be supplied, and its absence raises `RepositoryCompositionError` before any service is constructed. The factory previously substituted an in-memory agent registry; because the SQL session, enforcement and continuation tables reference `agents` and no application path writes that table, every session bind then failed on its foreign key at request time.
+- **Explicit injection:** an adapter supplied by the caller is used as given. That is a visible composition choice, not a fallback. An explicitly supplied in-memory adapter under `backend="sql"` is **not** a durable topology; production composition must enforce its own durability contract.
+- **Scope of the guarantee:** this governs the factory only. The application composition root (`app/api/dependencies.py`) constructs in-memory repositories directly and does not call the factory, so the running API is not SQL-backed. Production durable composition — backend configuration, startup lifecycle, a SQL `AgentRepository` — is separate, outstanding work.
+
 ---
 
 # Rationale
