@@ -19,15 +19,16 @@ authoritative allocator. A value may only be compared with, persisted as a water
 or used for idempotency or freshness **within the semantic namespace governed by that
 allocator**.
 
-The platform currently distinguishes five:
+The platform currently distinguishes six:
 
 | Namespace | Allocator | Meaning | Consumers |
 |---|---|---|---|
 | `SessionEvent.sequence_number` | session event repository | session-local event ordering | session queries, event finalization |
 | `SessionEvent.agent_sequence` | agent sequence counter | agent-wide event ordering | detection horizon, enforcement baseline |
 | `Finding.evidence_sequence` | `FindingsService` | finding ordering and projection cursor | risk aggregate, enforcement baseline |
-| `AgentEnforcementState.epoch` | enforcement state repository (CAS, +1 per committed transition) | enforcement generation and freshness | grant issuance, findings, enforcement ledger |
+| `AgentEnforcementState.epoch` | enforcement state repository (CAS, +1 per committed transition) | enforcement generation and freshness | grant issuance, enforcement ledger |
 | `administrative_version` | administrative state repository (CAS, +1 per committed administrative transition) | administrative lifecycle generation | administrative transitions, administrative ledger, administrative audit evidence |
+| `recovery_generation` | derived from the enforcement ledger (count of `REINSTATE` transitions at or before the evaluated event's timestamp) | recovery lifecycle of a detection crossing | finding identity |
 
 These are **not interchangeable merely because they are monotonically increasing
 integers**. Event ordering, finding ordering, and enforcement generation are different
@@ -39,7 +40,8 @@ generation is this* and does not order records; comparing it against a sequence,
 sequence against it, is a category error even though both are per-agent and both increase.
 `UNIQUE(agent_id, epoch)` is the persistence-level expression of the generation
 namespace's identity: no two committed enforcement generations for one agent may occupy
-the same epoch.
+the same epoch. The constraint is not yet present in the schema; it is added by the
+enforcement-ledger migration specified in ADR-030 amendment L.9.
 
 `administrative_version` and `epoch` are both per-agent generation counters and are still
 **different namespaces**: one answers *which administrative lifecycle generation is this*
@@ -52,9 +54,19 @@ compared with or substituted for the other (ADR-024 amendment A.2).
 `epoch`; loss of administrative execution authority is enforced by issuance closure and
 revocation, not by a version check (ADR-024 amendment A.7). Introducing an administrative
 freshness check later would be a new decision, not an implication of this namespace.
-`UNIQUE(agent_id, administrative_version)` in the administrative ledger is the
+`UNIQUE(agent_id, administrative_version_after)` in the administrative ledger is the
 persistence-level expression of this namespace's identity, as `UNIQUE(agent_id, epoch)` is
-for enforcement.
+for enforcement (ADR-030 amendment L.3).
+
+`recovery_generation` is a detection and evidence namespace, not a lifecycle plane and not
+a generation counter with its own allocator. It is derived from the enforcement ledger and
+answers *which recovery lifecycle does this detection crossing belong to*: reinstatement
+starts a new one, suspension does not. It is part of finding identity. It is currently
+exposed as `get_epoch(as_of=...)` and stored as `Finding.enforcement_epoch`; those
+identifiers are renamed to `get_recovery_generation(as_of=...)` and
+`Finding.recovery_generation` during the F-09 implementation, with values and semantics
+unchanged (ADR-030 amendment L.5). It is never compared with or substituted for `epoch`,
+although its current identifiers suggest otherwise.
 
 Name fields for the namespace they belong to. A generic name such as `baseline_sequence`
 makes two orderings look interchangeable and is how they come to be conflated.
