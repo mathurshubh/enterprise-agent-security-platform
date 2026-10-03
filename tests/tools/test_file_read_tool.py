@@ -40,7 +40,7 @@ def test_path_traversal_is_blocked(tmp_path):
 
     with pytest.raises(
         ValueError,
-        match="Access outside workspace",
+        match="escapes the workspace",
     ):
         tool.read("../../etc/passwd")
 

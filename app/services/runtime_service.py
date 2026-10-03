@@ -57,6 +57,10 @@ from app.runtime.contracts import (
     ExecutionEvidenceStoreProtocol,
 )
 from app.runtime.execution_authority import ExecutionAuthority
+from app.runtime.filesystem_resource_identity import (
+    FilesystemResourceIdentityError,
+    FilesystemResourceIdentityResolver,
+)
 from app.services.agent_lock_manager import AgentLockManager
 from app.services.agent_risk_aggregate import ProjectionInvariantError
 from app.services.agent_service import AgentNotFoundError, AgentService
@@ -807,6 +811,7 @@ class RuntimeService:
         # reached only on the executing path — a decision-only request would otherwise
         # obtain a grant for an implementation not permitted to run.
         tool_version: str | None = None
+        descriptor = None
         if self._tool_registry is not None:
             try:
                 descriptor = self._tool_registry.resolve(tool_id)
@@ -818,7 +823,73 @@ class RuntimeService:
             ):
                 tool_version = descriptor.version
 
-        if tool_version is None:
+        normalized_parameters = dict(parameters or {})
+        descriptor_is_filesystem = (
+            descriptor is not None
+            and descriptor.metadata.capability.category == "filesystem"
+        )
+        is_filesystem_tool = descriptor_is_filesystem or tool_id in {
+            "file_read",
+            "directory_list",
+        }
+        has_path_target = resource is not None or "path" in normalized_parameters
+        filesystem_profile_id = f"profile-{tool_id}"
+        filesystem_profile_available = (
+            self._capability_registry is not None
+            and self._capability_registry.exists(filesystem_profile_id)
+        )
+        if (
+            is_filesystem_tool
+            and has_path_target
+            and (tool_version is not None or filesystem_profile_available)
+        ):
+            try:
+                if not filesystem_profile_available:
+                    raise FilesystemResourceIdentityError(
+                        "filesystem capability profile is unavailable"
+                    )
+                assert self._capability_registry is not None
+                capabilities = self._capability_registry.resolve_profile(
+                    filesystem_profile_id
+                )
+                if capabilities.filesystem is None:
+                    raise FilesystemResourceIdentityError(
+                        "filesystem capability profile has no workspace boundary"
+                    )
+                resolver = FilesystemResourceIdentityResolver(
+                    capabilities.filesystem.workspace_root
+                )
+                declared_path = normalized_parameters.get("path")
+                canonical_parameter = (
+                    resolver.canonicalize(declared_path)
+                    if declared_path is not None
+                    else None
+                )
+                canonical_resource = (
+                    resolver.canonicalize(resource)
+                    if resource is not None
+                    else None
+                )
+                if (
+                    canonical_parameter is not None
+                    and canonical_resource is not None
+                    and canonical_parameter != canonical_resource
+                ):
+                    raise FilesystemResourceIdentityError(
+                        "resource and path parameter identify different targets"
+                    )
+                canonical_target = canonical_parameter or canonical_resource
+                if canonical_target is not None:
+                    resource = canonical_target
+                    if "path" in normalized_parameters:
+                        normalized_parameters["path"] = canonical_target
+            except FilesystemResourceIdentityError:
+                binding_error_code = "EXECUTION_BINDING_INVALID"
+                operation_is_malformed = True
+
+        if operation_is_malformed:
+            binding = None
+        elif tool_version is None:
             # Unresolved implementation: authorization still evaluates below.
             binding_error_code = "EXECUTION_BINDING_INVALID"
         else:
@@ -826,7 +897,7 @@ class RuntimeService:
                 binding = ExecutionBinding.from_operation(
                     tool_id=tool_id,
                     tool_version=tool_version,
-                    parameters=parameters,
+                    parameters=normalized_parameters,
                     resource=resource,
                 )
                 resource = binding.resource
