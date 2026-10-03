@@ -210,7 +210,7 @@ Neither is a mutator and both could rewrite recorded evidence, so the property h
 
 - **Audit growth is unmitigated.** Approximately 581 MB per million records, growing with request volume. This decision does not bound it; an implementation must.
 - **Attribution remains impossible** for any decision whose session events have been pruned. Records written before an implementation lands cannot be retroactively attributed — the context was never captured.
-- **Immutability is incidental.** Nothing prevents a future contributor from adding a mutator, and no test would object.
+- ~~**Immutability is incidental.** Nothing prevents a future contributor from adding a mutator, and no test would object.~~ *Superseded: `AuditEvent` is frozen and its immutability is asserted by corpus invariants; see* Correction: immutability was not "true by the absence of any mutator" *under §5.*
 - **Evidence integrity and tamper-evidence are known residual gaps.** This decision establishes lifecycle and attribution requirements; it does not establish an integrity mechanism. The appropriate ownership and implementation mechanism remain subject to a future security-evidence decision.
 
   ```text
@@ -229,7 +229,7 @@ Neither is a mutator and both could rewrite recorded evidence, so the property h
 This ADR does **not**:
 
 - change `AuditEvent`, `AuditService`, or any write path;
-- add `session_id` or any other field to the audit record;
+- ~~add `session_id` or any other field to the audit record;~~ *superseded for `session_id`: the first implementation slice added it as a required field (§5,* Attribution capture*); this decision adds no other field;*
 - introduce retention, archival or eviction for audit evidence;
 - select or adopt a persistence technology;
 - accept, revise or supersede ADR-016;
