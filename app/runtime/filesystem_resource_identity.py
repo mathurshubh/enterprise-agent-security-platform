@@ -161,7 +161,6 @@ class FilesystemResourceIdentityResolver:
         current = self.workspace_root
         for requested in reversed(ancestors):
             component = requested.name
-            candidate = current / component
             try:
                 with os.scandir(current) as entries:
                     entry_list = list(entries)
