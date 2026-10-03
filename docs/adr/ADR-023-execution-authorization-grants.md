@@ -75,6 +75,33 @@ An immutable, canonical description of one operation: `tool_id`, `tool_version`,
 
 Every field of the binding is security-relevant, so every field participates both in the signed canonical serialisation and in exact-match verification. Signing coverage and verification coverage are separate properties: a field present in the signature but absent from the match check would defeat a forged binding while still admitting a genuinely issued grant presented against a different operation. A version mismatch is refused as `TOOL_MISMATCH` — the requested tool identity differs from the authorized one.
 
+### Filesystem Resource Identity
+
+For filesystem tools, the resource identity resolver converts the requested path to one
+workspace-relative POSIX identity before policy evaluation and binding construction. Policy
+evaluates this identity; it does not interpret filesystem syntax. The same identity is
+stored in `ExecutionBinding.resource` and in the bound `path` parameter, and the executor
+passes those bound parameters to the tool.
+
+- Relative paths are interpreted beneath the configured workspace. `.` and repeated
+  separators normalize. Parent segments may normalize within the workspace; a path that
+  escapes the workspace is refused before policy evaluation.
+- Absolute paths are accepted only when their resolved target is unambiguously inside the
+  configured workspace, then converted to the same workspace-relative identity.
+- Existing targets resolve symlinks. A symlink is permitted only when its resolved target
+  remains inside the workspace. Nonexistent targets use a strictly resolved existing
+  ancestor plus a normalized missing suffix; the missing suffix is never the sole basis
+  for a containment decision.
+- Existing case aliases use the filesystem's actual entry spelling. Missing suffixes
+  preserve supplied case. No case folding is applied to distinct entries on a
+  case-sensitive filesystem.
+- The tool rechecks containment and canonical identity at execution. This narrows the
+  authorization/execution gap but does not eliminate filesystem mutation races after the
+  check; the sandbox independently enforces workspace containment.
+
+This contract strengthens resource identity for the existing resource policy. It does not
+change exact-resource policy into prefix-based or generalized filesystem policy.
+
 A binding carries no authority. Constructing one proves nothing.
 
 ### ExecutionGrant

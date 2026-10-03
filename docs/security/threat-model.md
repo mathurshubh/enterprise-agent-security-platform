@@ -204,6 +204,7 @@ A caller obtains an `ALLOW` decision for one operation and executes a different 
 
 #### Mitigations
 - **Canonical Execution Binding ([ADR-023](../adr/ADR-023-execution-authorization-grants.md)):** Every decision is bound to an immutable `ExecutionBinding` of tool, resource and canonically ordered parameters. A request whose explicit resource contradicts its `path` parameter is denied.
+- **Canonical Filesystem Resource Identity ([ADR-023](../adr/ADR-023-execution-authorization-grants.md)):** Filesystem paths are resolved against the configured workspace before policy evaluation. Existing symlinks must resolve inside the workspace; parent traversal that escapes and absolute targets outside it are refused. Policy, the signed binding and the path passed to the tool use the same workspace-relative POSIX identity. The tool and sandbox recheck containment at execution.
 - **Signed, Single-Use, Short-Lived Grants:** Only a final `ALLOW` produces an `ExecutionGrant`, signed with HMAC-SHA256 by a per-process `ExecutionAuthority`, valid for one use within a short time-to-live.
 - **Executor-Side Enforcement:** `DefaultToolExecutor` verifies authority, signature, expiry and single use, and requires an exact tool, resource and parameter match before instantiating or running the tool. Every failure raises `ExecutionBindingError` and executes nothing.
 - **Resource-Aware HTTP Requests (finding M-2):** `ExecuteRequest` carries `resource` and `parameters`, so resource-aware policy evaluates the operation actually requested. The endpoint remains decision-only.

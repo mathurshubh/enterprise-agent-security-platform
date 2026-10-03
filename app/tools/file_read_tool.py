@@ -7,12 +7,16 @@ from app.models.tool_identity import ToolIdentity
 from app.models.tool_metadata import ToolMetadata
 from app.models.tool_operational import ToolOperational
 from app.models.tool_risk_level import ToolRiskLevel
+from app.runtime.filesystem_resource_identity import (
+    FilesystemResourceIdentityResolver,
+)
 from app.tools.base_tool import BaseTool
 
 
 class FileReadTool(BaseTool):
     def __init__(self, workspace: str) -> None:
         self._workspace = Path(workspace).resolve()
+        self._resource_identity = FilesystemResourceIdentityResolver(self._workspace)
         self._metadata = ToolMetadata(
             identity=ToolIdentity(
                 tool_id="file_read",
@@ -45,16 +49,7 @@ class FileReadTool(BaseTool):
         return self.read(parameters["path"])
 
     def read(self, relative_path: str) -> str:
-        target_path = (
-            self._workspace / relative_path
-        ).resolve()
-
-        if not str(target_path).startswith(
-            str(self._workspace)
-        ):
-            raise ValueError(
-                "Access outside workspace is not allowed"
-            )
+        target_path = self._resource_identity.resolve_for_execution(relative_path)
 
         if not target_path.exists():
             raise FileNotFoundError(

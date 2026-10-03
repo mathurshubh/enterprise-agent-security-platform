@@ -146,6 +146,93 @@ def test_invariant_decision_carries_authorized_parameter_binding(
 
 
 @pytest.mark.security_invariant
+@pytest.mark.parametrize("alias", ["./secrets.txt", "nested/../secrets.txt"])
+def test_protected_resource_aliases_are_canonicalized_before_policy(
+    build_runtime, security_workspace: Path, alias: str
+) -> None:
+    env = build_runtime(workspace=security_workspace)
+
+    result = env.runtime.execute(
+        session_id=f"canonical-protected-{alias.replace('/', '-')}",
+        agent_id=env.agent_id,
+        tool_id="file_read",
+        resource=alias,
+        parameters={"path": alias},
+    )
+
+    assert result.event.decision == Decision.DENY
+    assert result.authorization is None
+    assert result.authorization_result is not None
+    assert result.authorization_result.resource == PROTECTED_FILE
+
+
+@pytest.mark.security_invariant
+def test_binding_and_execution_parameters_use_same_absolute_path_identity(
+    build_runtime, security_workspace: Path
+) -> None:
+    env = build_runtime(workspace=security_workspace)
+    target = security_workspace / BENIGN_FILE
+
+    result = env.runtime.execute(
+        session_id="canonical-absolute-path",
+        agent_id=env.agent_id,
+        tool_id="file_read",
+        resource=str(target),
+        parameters={"path": "./" + BENIGN_FILE},
+    )
+
+    assert result.event.decision == Decision.ALLOW
+    assert result.authorization is not None
+    assert result.authorization.binding.resource == BENIGN_FILE
+    assert result.authorization.binding.parameters_dict == {"path": BENIGN_FILE}
+    assert result.authorized_parameters == {"path": BENIGN_FILE}
+
+
+@pytest.mark.security_invariant
+def test_executor_receives_the_same_canonical_path_as_policy_and_binding(
+    build_runtime, security_workspace: Path
+) -> None:
+    env = build_runtime(workspace=security_workspace)
+    alias = "nested/../" + BENIGN_FILE
+    result = env.runtime.execute(
+        session_id="canonical-target-execution",
+        agent_id=env.agent_id,
+        tool_id="file_read",
+        resource=alias,
+        parameters={"path": alias},
+    )
+
+    assert result.event.decision == Decision.ALLOW
+    assert result.authorization is not None
+    assert result.authorized_parameters is not None
+    assert result.authorization.binding.resource == BENIGN_FILE
+    assert result.authorized_parameters == {"path": BENIGN_FILE}
+    assert _execute(env, result.authorization, result.authorized_parameters) == BENIGN_MARKER
+
+
+@pytest.mark.security_invariant
+def test_filesystem_symlink_outside_workspace_is_refused_before_policy(
+    build_runtime, security_workspace: Path, tmp_path: Path
+) -> None:
+    env = build_runtime(workspace=security_workspace)
+    outside = tmp_path / "outside-secret.txt"
+    outside.write_text("outside", encoding="utf-8")
+    (security_workspace / "outside-link.txt").symlink_to(outside)
+
+    result = env.runtime.execute(
+        session_id="canonical-external-symlink",
+        agent_id=env.agent_id,
+        tool_id="file_read",
+        resource="outside-link.txt",
+        parameters={"path": "outside-link.txt"},
+    )
+
+    assert result.event.decision == Decision.DENY
+    assert result.authorization is None
+    assert result.authorization_result is None
+
+
+@pytest.mark.security_invariant
 def test_invariant_executor_refuses_parameters_that_were_not_authorized(
     build_runtime, security_workspace: Path
 ) -> None:

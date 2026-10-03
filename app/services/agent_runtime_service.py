@@ -175,7 +175,7 @@ class AgentRuntimeService:
         # could not be executed at all despite the grant naming exactly which one.
         output = self._executor.execute(
             runtime_result.authorization,
-            parameters,
+            runtime_result.authorized_parameters or {},
         )
 
         return AgentRuntimeResult(
