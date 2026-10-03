@@ -156,6 +156,8 @@ Unconsumed grants are pruned when they expire.
 
 Revocation is asymmetric, and the asymmetry is the decision:
 
+> **Amended (RC.2).** Agent disablement is added; see RC.2 for the amended table. This table is retained as the original decision record.
+
 | Change after issuance | Effect on outstanding grants |
 |---|---|
 | Agent suspended | **revoked immediately** — `suspend_issuance` closes the gate and revokes in one lock hold |
@@ -169,7 +171,7 @@ Suspension is the containment action the detection pipeline produces, so a delay
 
 ### The TTL is the compensating control
 
-`MAX_GRANT_TTL_SECONDS = 30.0` therefore bounds how long a governance change other than agent suspension can remain ineffective. It is a security policy parameter, not an implementation default, and `ExecutionAuthority` refuses a longer TTL rather than clamping it — a caller asking for a wider window has a different security model in mind, and silently narrowing it would hide the disagreement.
+`MAX_GRANT_TTL_SECONDS = 30.0` therefore bounds how long a governance change other than agent suspension can remain ineffective. It is a security policy parameter, not an implementation default, and `ExecutionAuthority` refuses a longer TTL rather than clamping it — a caller asking for a wider window has a different security model in mind, and silently narrowing it would hide the disagreement. *Amended (RC.5): the TTL remains the bound for governance changes that do not remove execution authority; it is not the revocation bound for authority removal.*
 
 ### Accepted residual risk
 
@@ -177,7 +179,7 @@ Stale non-containment governance authority may be exercised until an outstanding
 
 ### Why not re-check at claim time
 
-Re-validating the governance plane when a grant is claimed would make claiming a second authorization, with the tool and capability services in its dependency path, and would turn their availability into execution availability. It would also require defining why `ALLOW` at issuance and `DENY` at claim is expected rather than anomalous. That is a separate capability — continuous revocation — warranted only if a requirement for sub-second administrative revocation is established. It is not an extension of this decision.
+Re-validating the governance plane when a grant is claimed would make claiming a second authorization, with the tool and capability services in its dependency path, and would turn their availability into execution availability. It would also require defining why `ALLOW` at issuance and `DENY` at claim is expected rather than anomalous. That is a separate capability — continuous revocation — warranted only if a requirement for sub-second administrative revocation is established. It is not an extension of this decision. *Amended (RC.3): checking the grant's bound execution-authority generation at claim is revocation enforcement, not governance re-validation, and is not the continuous revocation rejected here.*
 
 ---
 
@@ -398,6 +400,81 @@ STARTED evidence is recorded before the sandbox is invoked, so a failure to reco
 ## Status of this amendment
 
 `Proposed`, deliberately. It establishes the architectural direction; it does not approve or scope a v0.17.2 implementation. The execution API contract and the evidence wiring are reviewed separately, and this amendment moves to `Accepted` at that point.
+
+---
+
+# Amendment: Execution-Authority Revocation Contract (DR-5)
+
+*Status of this amendment: Proposed. Dated 2026-10-03. ADR-023 remains Accepted. Origin: Gate 3
+DR-5 of the ADR-030 design review. Satisfies [ADR-024](ADR-024-agent-enforcement-state.md)
+amendment A.7 and A.9 without changing them.*
+
+## RC.1 Context
+
+ADR-024 A.7 requires every transition that removes execution authority — leaving `ACTIVE`, or
+entering `SUSPENDED` — to revoke the agent's outstanding unconsumed grants. This ADR revoked on
+suspension only. ADR-024 A.9 further requires closure and revocation to be durable or shared before
+a multi-instance composition is supported. Grants remain process-local: a per-process key, never
+sent over HTTP, a TTL of at most 30 seconds. The problem is therefore not invalidating a grant
+everywhere; it is ensuring that a transition committed through any replica stops grants held by
+every other replica from being claimed.
+
+## RC.2 Revocation semantics (amends the table)
+
+| Change after issuance | Effect on outstanding grants |
+|---|---|
+| Agent suspended | revoked |
+| **Agent disabled (leaves `ACTIVE`)** | **revoked** |
+| Agent reinstated | revoked grants stay revoked; nothing is restored |
+| Agent activated | none; activation grants no outstanding authority |
+| Tool governance-disabled, version unregistered, or capability profile altered | none; effective for grants issued afterwards (unchanged) |
+| Enforcement epoch advanced | gates issuance; the epoch itself does not revoke (RC.3) |
+
+## RC.3 The revocation contract
+
+- Each grant binds, and its signature covers, the agent's **execution-authority generation**
+  (`authority_generation`) as read at issuance. This is an execution-authority invalidation
+  namespace: neither a lifecycle plane nor an authorization source
+  ([ADR-030](ADR-030-durable-state-repository-architecture.md) amendment AG.1).
+- Every transition that removes execution authority advances the generation (ADR-030 AG.2).
+  Reinstatement and activation do not.
+- At claim, the grant's bound generation is compared for **equality** with the authoritative
+  value. A mismatch refuses the claim with the established refusal reason `REVOKED`
+  (`ExecutionRefusalReason.REVOKED`), and the grant is not consumed.
+
+This is **revocation enforcement, not re-authorization.** The check establishes only whether
+authority already issued has since been invalidated. It does not re-evaluate administrative or
+enforcement state, policy, RBAC, resource authorization, capability, or provenance. The executor
+still does not re-authorize lifecycle state (ADR-024 A.7), and the re-validation rejected in *Why
+not re-check at claim time* remains rejected.
+
+## RC.4 Fail-closed claim
+
+If the authoritative generation cannot be established, the claim is refused with
+`REVOCATION_STATE_UNAVAILABLE` and the grant is not consumed. Revocation-state availability is
+therefore part of execution availability. That is deliberate: authority that cannot be shown to
+remain valid does not execute.
+
+## RC.5 The TTL
+
+`MAX_GRANT_TTL_SECONDS` remains the compensating bound for governance changes that do not remove
+execution authority, as recorded in RC.2. It is not the revocation mechanism for authority removal.
+TTL-bounded revocation of authority removal remains rejected: it conflicts with ADR-024 A.9.2.
+
+## RC.6 Mechanism per composition
+
+The durable mechanism is specified in ADR-030 amendment AG. In the current single-process,
+in-memory composition, closure and revocation remain process-local: per-plane issuance gates under
+the authority's lock, and revocation of outstanding grants on every authority-removing transition
+(ADR-024 A.7, A.10). The durable mechanism is a precondition for multi-instance composition; this
+amendment does not claim it exists in the current deployment.
+
+## RC.7 Failure behaviour (amends the table)
+
+| Reason | Condition | Grant consumed |
+|---|---|---|
+| `REVOKED` | Grant withdrawn before use: by agent containment (existing behaviour, previously not listed in this table) or by a generation mismatch at claim (RC.3) | No |
+| `REVOCATION_STATE_UNAVAILABLE` | The authoritative execution-authority generation cannot be established at claim (RC.4) | No |
 
 ---
 
