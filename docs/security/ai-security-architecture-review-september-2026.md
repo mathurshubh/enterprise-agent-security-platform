@@ -1508,6 +1508,8 @@ Add or strengthen:
 
 # 41. What Should Enter the Backlog?
 
+<!-- markdownlint-disable MD029 -->
+
 ### High Priority
 
 1. Version-scoped tool identity
@@ -1531,6 +1533,8 @@ Add or strengthen:
 13. Runtime attestation
 14. AI supply-chain attestation
 15. Advanced agent incident response
+
+<!-- markdownlint-enable MD029 -->
 
 ---
 
