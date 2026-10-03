@@ -179,16 +179,21 @@ def test_create_repositories_sql_uses_explicitly_supplied_adapters_as_given() ->
 def test_sql_audit_evidence_survives_a_new_container_on_the_same_database(tmp_path) -> None:
     """Restart-style durability: audit written through one container is read by the next.
 
-    Under the previous in-memory audit default this evidence vanished with the container.
+    The two containers share nothing in-process — separate engines, connection pools,
+    session factories and repositories — and the first engine is disposed before the second
+    exists, so the evidence can only come from the database file. Under the previous
+    in-memory audit default it vanished with the container.
     """
     from app.models.audit_event import AuditEvent, Decision
 
-    engine = create_sql_engine(f"sqlite:///{tmp_path / 'audit.db'}")
-    Base.metadata.create_all(engine)
+    db_url = f"sqlite:///{tmp_path / 'audit.db'}"
 
+    engine_a = create_sql_engine(db_url)
+    Base.metadata.create_all(engine_a)
     first = create_repositories(
-        backend="sql", engine=engine, agent_repository=InMemoryAgentRepository()
+        backend="sql", engine=engine_a, agent_repository=InMemoryAgentRepository()
     )
+    assert isinstance(first.audit_repository, SqlAuditEvidenceRepository)
     first.audit_repository.append(
         AuditEvent(
             event_id="evt-durable",
@@ -198,14 +203,20 @@ def test_sql_audit_evidence_survives_a_new_container_on_the_same_database(tmp_pa
             decision=Decision.DENY,
         )
     )
+    engine_a.dispose()
+    del first
 
-    second = create_repositories(
-        backend="sql", engine=engine, agent_repository=InMemoryAgentRepository()
-    )
-    stored = second.audit_repository.get("evt-durable")
-    assert stored is not None
-    assert stored.decision == Decision.DENY
-    engine.dispose()
+    engine_b = create_sql_engine(db_url)
+    try:
+        second = create_repositories(
+            backend="sql", engine=engine_b, agent_repository=InMemoryAgentRepository()
+        )
+        assert isinstance(second.audit_repository, SqlAuditEvidenceRepository)
+        stored = second.audit_repository.get("evt-durable")
+        assert stored is not None
+        assert stored.decision == Decision.DENY
+    finally:
+        engine_b.dispose()
 
 
 def test_create_repositories_rejects_unknown_backend() -> None:
