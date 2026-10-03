@@ -184,8 +184,9 @@ Refactor `create_repositories` in `app/repositories/factory.py` to fail fast: wi
 **Implementation Note**
 Repository investigation refined the finding in two ways. First, the factory's mixed container
 was not a working split topology: the SQL session, enforcement and continuation tables reference
-`agents`, and no application path writes that table, so with the in-memory agent default every
-session bind failed on its foreign key at request time, while audit evidence and the agent and
+`agents`, and no application path writes that table, so with the in-memory agent default
+session binding for an agent absent from the SQL `agents` table failed on its foreign key at
+request time, while audit evidence and the agent and
 tool registries were silently volatile. Second, the factory and the production composition root
 are separate: `app/api/dependencies.py` constructs in-memory repositories directly and never calls
 the factory, and there is no backend configuration, so fixing the factory does not make the
@@ -196,7 +197,8 @@ composition failure rather than a missing method. Explicitly supplied adapters r
 
 **Implementation Status — CLOSED (implementation validated; PR review and merge remain the final integration gate)**
 Under `backend="sql"`, `create_repositories` now defaults the tool and audit repositories to
-`SqlToolRepository` and `SqlAuditEvidenceRepository`, never substitutes an in-memory repository,
+`SqlToolRepository` and `SqlAuditEvidenceRepository`, never implicitly substitutes an in-memory
+repository,
 and raises `RepositoryCompositionError` at composition time when no `agent_repository` is
 supplied, since there is no SQL `AgentRepository`. `ADR-030` §6 records the composition contract
 (the ADR remains Proposed); the threat model's persistence and containment-durability statements
@@ -319,7 +321,7 @@ As an immediate defense-in-depth measure, add an audit hook in `runner.py` inter
 ## Closed Before D-G1
 1. **Resource / Path Canonicalization (Finding 1):** CLOSED. The canonical resource identity contract is implemented across authorization, signed binding, and tool execution, with execution-time containment rechecks. The repository-wide test-environment issue is tracked separately above.
 2. **SessionEvent SQL Foreign Key Constraint (Finding 2):** CLOSED — implementation validated; PR review and merge remain the final integration gate. `session_events` no longer references the tool registry (migration `0007`, `ADR-034` §7); denials for unknown tools are recorded in SQL mode, and session/agent ownership and sequence integrity are retained.
-3. **Repository Factory Fail-Fast (Finding 3):** CLOSED — implementation validated; PR review and merge remain the final integration gate. `create_repositories(backend="sql")` uses the existing SQL adapters, never substitutes an in-memory repository, and raises `RepositoryCompositionError` at composition time when no agent repository is supplied (`ADR-030` §6). Production durable composition (`app/api/dependencies.py` is in-memory) remains separate work.
+3. **Repository Factory Fail-Fast (Finding 3):** CLOSED — implementation validated; PR review and merge remain the final integration gate. `create_repositories(backend="sql")` uses the existing SQL adapters, never implicitly substitutes an in-memory repository, and raises `RepositoryCompositionError` at composition time when no agent repository is supplied (`ADR-030` §6). Production durable composition (`app/api/dependencies.py` is in-memory) remains separate work.
 
 ## Must Fix Before D-G1
 None remaining.

@@ -82,12 +82,17 @@ def sql_pipeline_setup():
     engine = create_sql_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
 
-    # Every repository is SQL-backed except the agent registry, which has no SQL adapter.
-    # The factory refuses to substitute one implicitly (ADR-030 §6), so this harness
-    # supplies an in-memory agent repository explicitly. That is a deliberate split for
-    # this test, not a durable topology: the agent therefore exists twice — in the
-    # explicit in-memory registry the services read, and as the SQL ``agents`` row the
-    # session, enforcement and continuation tables reference.
+    # Every repository is SQL-backed except the agent registry: ``SqlAgentRepository`` does
+    # not exist. The factory never substitutes an in-memory repository implicitly
+    # (ADR-030 §6), so this harness deliberately injects ``InMemoryAgentRepository``.
+    #
+    # Do not remove the explicit ``agent_repository``: without it, ``create_repositories``
+    # raises ``RepositoryCompositionError`` by design, and restoring a silent default would
+    # reintroduce adversarial review Finding 3.
+    #
+    # This is test composition, not a supported durable production topology. The agent
+    # therefore exists twice — in the explicit in-memory registry the services read, and as
+    # the SQL ``agents`` row the session, enforcement and continuation tables reference.
     container = create_repositories(
         backend="sql",
         engine=engine,
