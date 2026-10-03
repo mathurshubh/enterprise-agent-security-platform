@@ -49,6 +49,10 @@ class SessionEvent(BaseModel):
     Tool identity is recorded at the granularity resolution reached: ``tool_id`` is the
     family the request named, and ``tool_version`` is the implementation it resolved to,
     which is absent on every path where no implementation was established.
+    ``tool_id`` is recorded literally and is not guaranteed to name a registered family:
+    a request for a nonexistent tool is still recorded, because its denial is evidence
+    (ADR-034 §7). Whether to record the requested and resolved family separately is a
+    deferred decision, not implied by this field.
 
     - ``sequence_number``: Monotonic 1-based position within the session (session-scoped ordering).
     - ``agent_sequence``: Monotonic position within the agent across sessions (agent-scoped ordering and watermark).

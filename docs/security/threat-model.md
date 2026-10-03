@@ -236,6 +236,7 @@ An agent evades or subverts containment in several ways: rotating `session_id` s
 - **Durable Authorization / Enforcement Interlock:** Grant issuance verifies `expected_epoch` under `agent_enforcement_state` row lock (`FOR UPDATE`), ensuring that containment transitions atomically serialize against issuance and preventing stale authorization context from obtaining an execution grant.
 - **Exactly-Once Resumption Claims:** Resumption grants in `ApprovalGrantRepository` are claimed via atomic CAS from `APPROVED` to `CONSUMED` under row lock (`FOR UPDATE`), preventing concurrent duplicate tool execution across horizontal workers.
 - **PostgreSQL Multi-Worker Concurrency Authority:** Production multi-worker MVCC semantics and race-condition resistance are verified against live PostgreSQL 16 across 7 explicit race tests.
+- **Registry-Independent Denial Evidence (adversarial review Finding 2, [ADR-034](../adr/ADR-034-audit-identity-contract.md) §7):** A session event records the tool family the request named, and recording it does not depend on tool-registry membership: `session_events` holds no foreign key to `tool_families` or `tools` (migration `0007`). Previously, in SQL mode, a request for an unregistered tool was denied and then failed to record, so repeated probing for nonexistent tools produced no evidence for excessive-denial detection. This does not permit execution of the unauthorized tool: authorization denies it either way. Session and agent ownership and sequence integrity remain database-enforced.
 
 #### Residual Risk
 

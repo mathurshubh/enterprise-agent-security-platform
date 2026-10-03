@@ -108,6 +108,35 @@ ACCEPT
 **Required Action**
 Remove the relational foreign key constraint `ForeignKey("tool_families.tool_id")` from `SessionEventModel` (or decouple requested tool identifier from resolved tool entity), ensuring behavioral denials for unknown tools are durably persistable in SQL.
 
+**Implementation Note**
+Repository investigation established that the family foreign key was a recorded decision, not
+an oversight: migration `0004` and a `security_invariant` test required every session event to
+name a registered family, on the premise that a refused event always does. The runtime records
+the family the request named, before and regardless of its existence, so that premise is false.
+The remediation therefore reverses a recorded decision and is documented as an amendment to
+`ADR-034` (§7) rather than as schema cleanup. Both tool-registry references were removed, not
+only the family one: the composite `(tool_id, tool_version)` reference carried the same denial
+path for a version removed between resolution and the write, and the same inverted `ON DELETE
+RESTRICT` dependency. The requested-versus-resolved identity split was deliberately left out of
+scope and remains separately tracked.
+
+**Implementation Status — CLOSED (implementation validated; PR review and merge remain the final integration gate)**
+Migration `0007` removes the `session_events` references to `tool_families` and `tools`, copying
+every row unchanged; session and agent ownership, sequence uniqueness, positive-sequence checks
+and indexes are retained. Its downgrade refuses, before any schema change, if a stored event
+names an unregistered family or version, and never deletes evidence. A SQL-mode runtime
+regression shows a request for an unregistered tool is denied cleanly and its event recorded
+(the same test fails with `IntegrityError` against the previous schema), and three such denials
+produce an excessive-denial finding. `ADR-034` §7 and Threat 10 document the contract; the
+change grants no execution authority. Validated with Ruff, `git diff --check`, the full suite
+(the single failure, `test_process_group_cleanup_invariant_kills_child_and_grandchild`, also
+fails on `main`), and migration upgrade and downgrade on populated SQLite. The full PostgreSQL
+migration chain cannot currently reach `0007` because migration `0002` fails on PostgreSQL on
+`main`; `0007` was therefore validated on PostgreSQL 16 against `session_events` built by
+`0004`'s own DDL, whose foreign keys carry PostgreSQL-generated names that `0007` drops by
+reflection. That `0002` failure, and a separately failing PostgreSQL continuation test, are
+pre-existing and are not modified by this change.
+
 ---
 
 ### Finding 3 — SQL Factory Silent Fallback
@@ -264,10 +293,10 @@ As an immediate defense-in-depth measure, add an audit hook in `runner.py` inter
 
 ## Closed Before D-G1
 1. **Resource / Path Canonicalization (Finding 1):** CLOSED. The canonical resource identity contract is implemented across authorization, signed binding, and tool execution, with execution-time containment rechecks. The repository-wide test-environment issue is tracked separately above.
+2. **SessionEvent SQL Foreign Key Constraint (Finding 2):** CLOSED — implementation validated; PR review and merge remain the final integration gate. `session_events` no longer references the tool registry (migration `0007`, `ADR-034` §7); denials for unknown tools are recorded in SQL mode, and session/agent ownership and sequence integrity are retained.
 
 ## Must Fix Before D-G1
-1. **SessionEvent SQL Foreign Key Constraint (Finding 2):** Remove `ForeignKey("tool_families.tool_id")` from `SessionEventModel` to prevent service crashes when recording denials for unknown tools.
-2. **Repository Factory Fail-Fast (Finding 3):** Remove silent in-memory fallback in `create_repositories(backend="sql")`, wire existing SQL repositories, and raise `NotImplementedError` if SQL adapters are missing.
+1. **Repository Factory Fail-Fast (Finding 3):** Remove silent in-memory fallback in `create_repositories(backend="sql")`, wire existing SQL repositories, and raise `NotImplementedError` if SQL adapters are missing.
 
 ## Must Fix During D-G1
 1. **Atomic Continuation Claim (Finding 5):** Implement `ApprovalContinuationRepository.claim_continuation` validating `state == APPROVED`, `enforcement_epoch == current_epoch`, and `now < expires_at` in a single concurrency-controlled transaction returning the frozen authority domain model (ADR-031 Phase B).
@@ -284,7 +313,7 @@ As an immediate defense-in-depth measure, add an audit hook in `runner.py` inter
 
 ## Recommended Engineering Order
 1. **Finding 1:** Closed as documented above.
-2. **SessionEvent Schema Adjustment (Finding 2):** Drop restrictive SQL foreign keys on `SessionEventModel.tool_id` and `(tool_id, tool_version)` while preserving existing evidence and ownership constraints.
+2. **Finding 2:** Closed as documented above.
 3. **Factory Hardening (Finding 3):** Eliminate silent in-memory fallbacks in SQL composition and fail startup when required durable adapters are unavailable.
 4. **D-G1 Atomic Claim Implementation:** Deliver ADR-031 Phase B continuation claim contract.
 5. **Runner Audit Hook Hardening:** Add subprocess interception hook to sandbox child runner.

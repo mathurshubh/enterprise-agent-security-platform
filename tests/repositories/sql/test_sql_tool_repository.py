@@ -1,8 +1,6 @@
 """Verification and contract tests for SqlToolRepository (Plane 3, ADR-030)."""
 
-import pytest
 from sqlalchemy import inspect, select
-from sqlalchemy.exc import IntegrityError
 
 from app.models.tool_risk_level import ToolRiskLevel
 from app.repositories.interfaces.tool_repository import ToolRepository
@@ -124,13 +122,13 @@ class TestSqlToolRepositoryPersistenceShape:
 class TestDurableFamilyReferentialIntegrity:
     """``tool_id`` must identify a registered family, enforced by the database."""
 
-    def test_a_session_event_cannot_name_an_unregistered_family(self) -> None:
-        """The family FK, which PR B's composite FK cannot replace.
+    def test_a_session_event_may_name_an_unregistered_family(self) -> None:
+        """Session events are outside this guarantee (ADR-034 §7).
 
-        ``SessionEvent.tool_version`` is nullable by design, and a composite
-        ``(tool_id, tool_version)`` reference is MATCH SIMPLE: it is not checked at all when
-        any referencing column is NULL. So on exactly the refused paths the composite
-        constraint is vacuous, and this family-level reference is what still holds.
+        This test once asserted the opposite, through a family foreign key on
+        ``session_events``. A session event records the family a request named, and the
+        denial of a request for a nonexistent tool is evidence, so migration 0007 removed
+        that reference. Registered-family integrity still holds for ``tools``.
         """
         factory = _factory()
         from datetime import datetime, timezone
@@ -162,22 +160,26 @@ class TestDurableFamilyReferentialIntegrity:
                 )
             )
 
-        with pytest.raises(IntegrityError):
-            with transactional_session(factory) as db:
-                db.add(
-                    SessionEventModel(
-                        event_id="evt-1",
-                        session_id="sess-1",
-                        agent_id="agent-1",
-                        tool_id="never-registered",
-                        sequence_number=1,
-                        agent_sequence=1,
-                        decision="ALLOW",
-                        final_decision=None,
-                        timestamp=now,
-                        created_at=now,
-                    )
+        with transactional_session(factory) as db:
+            db.add(
+                SessionEventModel(
+                    event_id="evt-1",
+                    session_id="sess-1",
+                    agent_id="agent-1",
+                    tool_id="never-registered",
+                    sequence_number=1,
+                    agent_sequence=1,
+                    decision="DENY",
+                    final_decision=None,
+                    timestamp=now,
+                    created_at=now,
                 )
+            )
+
+        with transactional_session(factory) as db:
+            stored = db.get(SessionEventModel, "evt-1")
+            assert stored is not None
+            assert stored.tool_id == "never-registered"
 
     def test_tools_is_keyed_by_family_and_version(self) -> None:
         engine = create_sql_engine("sqlite:///:memory:")

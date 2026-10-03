@@ -117,3 +117,37 @@ Rejected. They are different facts. Copying one into the other would assert that
 - Audit remains an evidence surface and is never an authorization input.
 - Append-only semantics and immutability are unchanged ([ADR-028](ADR-028-audit-evidence-ownership-and-lifecycle.md)); this ADR changes only what identity a record asserts.
 - Whether a record must also capture **governance state at decision time** — risk level, enablement, capability profile — so that historical interpretation does not depend on current governance either, is a broader evidence-design question and is explicitly **not decided here**. Identity integrity does not require it.
+
+## 7. Amendment (2026-10-03) — Session events are evidence too
+
+**Scope:** `session_events` only, and only its references to the tool registry. Prompted by adversarial review Finding 2 ([adjudication](../security/reviews/2026-10-03-adversarial-review-adjudication.md)). Implemented by migration `0007`.
+
+### 7.1 The decision this amends
+
+Sections 1 and 4.1 describe the runtime tables as carrying composite references to `tools`, and this ADR deliberately left `session_events` with them. Migration `0004` gave `session_events` two references, `tool_id` → `tool_families` and `(tool_id, tool_version)` → `tools`, and kept the family one for a sound reason: the composite reference is `MATCH SIMPLE` and vacuous whenever `tool_version` is NULL, so the family reference was the only thing enforcing that a refused event names a registered family. That decision and its rationale stand as the record of what was decided; `0004` is not rewritten.
+
+### 7.2 Why it is reversed
+
+| | |
+|---|---|
+| **Previous assumption** | A refused event names a registered family. |
+| **Actual runtime semantics** | `RuntimeService` records `SessionEvent.tool_id` as the family the request *named*, before and regardless of whether it exists. A request for an unregistered tool is denied by authorization and then recorded with that name. |
+| **Required evidence semantics** | Refusal evidence must be recordable regardless of registry membership. |
+
+Under the previous constraint, in SQL mode, the denial of a request for an unregistered tool failed to record with `IntegrityError`. The request still failed closed — nothing executed — but the denial was lost, and denials are what excessive-denial detection counts. Probing for tools that do not exist therefore produced no detection evidence. The constraint protected no consumer: no reader of `SessionEvent` treats `tool_id` as a registry reference.
+
+### 7.3 Decision
+
+`session_events` are evidence records and must remain recordable independently of current tool-registry membership. Tool-registry referential integrity is not a prerequisite for recording a session event, and retained events must not block registry deletion.
+
+- `session_events` holds **no** foreign key to `tool_families` or `tools`.
+- The integrity of the event stream itself is unchanged and still enforced by the database: the `sessions` and `agents` ownership references, per-session and per-agent sequence uniqueness, and positive-sequence checks.
+- `tool_id` remains the literal family the request named and `tool_version` the resolved, governance-enabled version or NULL. Values are not canonicalized or re-resolved.
+- Whether to record the requested and resolved family separately, as `audit_events` does (§2.2), is **not decided here** and remains a separately tracked item.
+- The `0007` downgrade refuses, before changing the schema, if any stored event names an unregistered family or version. Evidence is never deleted or rewritten to satisfy a restored constraint.
+
+### 7.4 Consequences
+
+- A request for a nonexistent tool is denied and its event recorded on every repository adapter.
+- Referential correctness between session events and the registry is not guaranteed by the database. As with §2.5, detecting it is a reconciliation query, not a constraint.
+- A `security_invariant` test asserts both halves: no tool-registry reference, and the retained ownership and sequencing constraints.

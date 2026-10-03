@@ -186,17 +186,34 @@ def test_atomic_rollback_on_failed_event_record(sql_repo_setup) -> None:
     assert recorded1.sequence_number == 1
     assert recorded1.agent_sequence == 1
 
-    # 3. Attempt to record an event referencing an unregistered tool (fails FK constraint)
-    invalid_event = SessionEvent(
+    # 3. Occupy the session position the repository will allocate next, so the insert
+    #    fails on the retained session-sequence uniqueness constraint *after* the session
+    #    sequence, agent counter and last_activity_at have been mutated in the transaction.
+    #    (This once relied on the tool-family foreign key, removed by migration 0007.)
+    with transactional_session(session_factory) as db:
+        db.add(
+            SessionEventModel(
+                event_id="evt-planted",
+                session_id="sess-atomic",
+                agent_id="agent-1",
+                tool_id="file_read",
+                sequence_number=2,
+                agent_sequence=99,
+                decision="ALLOW",
+                timestamp=now,
+            )
+        )
+
+    colliding_event = SessionEvent(
         session_id="sess-atomic",
         agent_id="agent-1",
-        tool_id="unregistered-foreign-tool",
+        tool_id="file_read",
         decision=Decision.ALLOW,
         timestamp=later,
     )
 
     with pytest.raises(IntegrityError):
-        repo.record_event(invalid_event)
+        repo.record_event(colliding_event)
 
     # 4. Verify invariants in storage:
     with transactional_session(session_factory) as db:
@@ -213,12 +230,42 @@ def test_atomic_rollback_on_failed_event_record(sql_repo_setup) -> None:
         ).scalar_one()
         assert c_row.current_sequence == 1  # Still 1, did not advance to 2
 
-        # Session events must only contain 1 event
+        # The failed event must not have been inserted: only the recorded and planted rows
         events = db.execute(
-            select(SessionEventModel).where(SessionEventModel.session_id == "sess-atomic")
+            select(SessionEventModel)
+            .where(SessionEventModel.session_id == "sess-atomic")
+            .order_by(SessionEventModel.sequence_number)
         ).scalars().all()
-        assert len(events) == 1
-        assert events[0].sequence_number == 1
+        assert [(e.sequence_number, e.agent_sequence) for e in events] == [(1, 1), (2, 99)]
+        assert events[1].event_id == "evt-planted"
+
+
+@pytest.mark.parametrize("decision", [Decision.DENY, Decision.ALLOW])
+def test_record_event_for_an_unregistered_tool_family_is_persisted(
+    sql_repo_setup, decision
+) -> None:
+    """Recording does not depend on tool-registry membership (ADR-034 §7, migration 0007).
+
+    The family is recorded literally, the version stays NULL, and both sequence positions
+    are allocated exactly as for any other event.
+    """
+    repo, session_factory = sql_repo_setup
+    now = datetime(2026, 10, 3, 12, 0, 0, tzinfo=timezone.utc)
+    repo.bind_or_create_session("sess-unregistered", "agent-1", now=now)
+
+    recorded = repo.record_event(
+        SessionEvent(
+            session_id="sess-unregistered",
+            agent_id="agent-1",
+            tool_id="never-registered",
+            decision=decision,
+            timestamp=now,
+        )
+    )
+
+    assert (recorded.sequence_number, recorded.agent_sequence) == (1, 1)
+    assert (recorded.tool_id, recorded.tool_version) == ("never-registered", None)
+    assert [e.tool_id for e in repo.list_events("sess-unregistered")] == ["never-registered"]
 
 
 def test_strict_foreign_key_enforcement_unknown_agent(sql_repo_setup) -> None:

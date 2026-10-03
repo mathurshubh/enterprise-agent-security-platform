@@ -548,3 +548,194 @@ def test_0006_preserves_rows_through_a_true_rename(
 
     finally:
         engine.dispose()
+
+
+_EVENT_COLUMNS = (
+    "event_id, session_id, agent_id, tool_id, tool_version, sequence_number,"
+    " agent_sequence, decision, final_decision, timestamp, created_at"
+)
+
+
+def _seed_registered_tool(engine) -> None:
+    with engine.begin() as conn:
+        conn.execute(
+            text("INSERT INTO tool_families (tool_id, created_at) VALUES ('file_read', :now)"),
+            {"now": NOW},
+        )
+        conn.execute(
+            text(
+                "INSERT INTO tools (tool_id, version, governance_enabled, risk_level,"
+                " metadata_payload, created_at) VALUES ('file_read', '1.0.0', 1, 'LOW',"
+                " '{}', :now)"
+            ),
+            {"now": NOW},
+        )
+
+
+def _insert_event(engine, event_id: str, seq: int, tool_id: str, tool_version) -> None:
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                f"INSERT INTO session_events ({_EVENT_COLUMNS}) VALUES (:event_id, 'sess-mig',"
+                " 'agent-mig', :tool_id, :tool_version, :seq, :seq, 'DENY', NULL, :now, :now)"
+            ),
+            {
+                "event_id": event_id,
+                "tool_id": tool_id,
+                "tool_version": tool_version,
+                "seq": seq,
+                "now": NOW,
+            },
+        )
+
+
+def _event_rows(engine) -> list[tuple]:
+    with engine.connect() as conn:
+        return [
+            tuple(row)
+            for row in conn.execute(
+                text(f"SELECT {_EVENT_COLUMNS} FROM session_events ORDER BY event_id")
+            )
+        ]
+
+
+def _event_refs(engine) -> set[tuple[str, tuple[str, ...]]]:
+    return {
+        (fk["referred_table"], tuple(fk["constrained_columns"]))
+        for fk in inspect(engine).get_foreign_keys("session_events")
+    }
+
+
+def test_0007_removes_only_the_tool_registry_references(
+    alembic_config: tuple[Config, str],
+) -> None:
+    """Session events are evidence (ADR-034 §7); the event stream's own integrity stays."""
+    config, db_url = alembic_config
+    engine = create_engine(db_url)
+
+    try:
+        command.upgrade(config, "0007")
+        inspector = inspect(engine)
+
+        assert _event_refs(engine) == {
+            ("sessions", ("session_id",)),
+            ("agents", ("agent_id",)),
+        }
+        uniques = {u["name"] for u in inspector.get_unique_constraints("session_events")}
+        assert {"uq_session_events_session_sequence", "uq_session_events_agent_sequence"} <= uniques
+        checks = {c["name"] for c in inspector.get_check_constraints("session_events")}
+        assert {"chk_session_events_seq_positive", "chk_session_events_agent_seq_positive"} <= checks
+        indexes = {i["name"] for i in inspector.get_indexes("session_events")}
+        assert {
+            "idx_session_events_agent_horizon",
+            "idx_session_events_session_horizon",
+            "idx_session_events_timestamp_prune",
+        } <= indexes
+        for fk in inspector.get_foreign_keys("session_events"):
+            assert (fk.get("options") or {}).get("ondelete") in (None, "RESTRICT"), (
+                "no cascade may be introduced"
+            )
+
+    finally:
+        engine.dispose()
+
+
+def test_0007_preserves_existing_rows_exactly(alembic_config: tuple[Config, str]) -> None:
+    """Removing a constraint fabricates nothing, so every row survives unchanged.
+
+    A NULL ``tool_version`` is a recorded fact and must stay NULL.
+    """
+    config, db_url = alembic_config
+    engine = create_engine(db_url)
+
+    try:
+        command.upgrade(config, "0006")
+        _seed_0002_prerequisites(engine, NOW)
+        _seed_registered_tool(engine)
+        _insert_event(engine, "evt-a", 1, "file_read", "1.0.0")
+        _insert_event(engine, "evt-b", 2, "file_read", None)
+        before = _event_rows(engine)
+
+        command.upgrade(config, "0007")
+
+        assert _event_rows(engine) == before
+        assert [row[4] for row in before] == ["1.0.0", None]
+
+    finally:
+        engine.dispose()
+
+
+def test_0007_downgrade_refuses_before_touching_the_schema_when_evidence_is_unregistered(
+    alembic_config: tuple[Config, str],
+) -> None:
+    """Restoring the references would require deleting evidence, so the downgrade refuses."""
+    config, db_url = alembic_config
+    engine = create_engine(db_url)
+
+    try:
+        command.upgrade(config, "0007")
+        _seed_0002_prerequisites(engine, NOW)
+        _seed_registered_tool(engine)
+        _insert_event(engine, "evt-registered", 1, "file_read", "1.0.0")
+        _insert_event(engine, "evt-unknown-family", 2, "never-registered", None)
+        _insert_event(engine, "evt-unknown-version", 3, "file_read", "9.9.9")
+        before = _event_rows(engine)
+
+        with pytest.raises(RuntimeError, match="0007 \\(downgrade\\) refuses"):
+            command.downgrade(config, "0006")
+
+        assert _event_rows(engine) == before, "no evidence may be deleted or rewritten"
+        assert ("tool_families", ("tool_id",)) not in _event_refs(engine)
+        with engine.connect() as conn:
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0007"
+
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize(
+    "event_id, tool_id, tool_version",
+    [("evt-unknown-family", "never-registered", None), ("evt-unknown-version", "file_read", "9.9.9")],
+)
+def test_0007_downgrade_refuses_each_kind_of_unregistered_identity(
+    alembic_config: tuple[Config, str], event_id: str, tool_id: str, tool_version
+) -> None:
+    config, db_url = alembic_config
+    engine = create_engine(db_url)
+
+    try:
+        command.upgrade(config, "0007")
+        _seed_0002_prerequisites(engine, NOW)
+        _seed_registered_tool(engine)
+        _insert_event(engine, event_id, 1, tool_id, tool_version)
+
+        with pytest.raises(RuntimeError, match="0007 \\(downgrade\\) refuses"):
+            command.downgrade(config, "0006")
+
+    finally:
+        engine.dispose()
+
+
+def test_0007_downgrade_restores_the_references_and_keeps_rows_when_all_are_registered(
+    alembic_config: tuple[Config, str],
+) -> None:
+    config, db_url = alembic_config
+    engine = create_engine(db_url)
+
+    try:
+        command.upgrade(config, "0007")
+        _seed_0002_prerequisites(engine, NOW)
+        _seed_registered_tool(engine)
+        _insert_event(engine, "evt-a", 1, "file_read", "1.0.0")
+        _insert_event(engine, "evt-b", 2, "file_read", None)
+        before = _event_rows(engine)
+
+        command.downgrade(config, "0006")
+
+        assert _event_rows(engine) == before
+        refs = _event_refs(engine)
+        assert ("tool_families", ("tool_id",)) in refs
+        assert ("tools", ("tool_id", "tool_version")) in refs
+
+    finally:
+        engine.dispose()

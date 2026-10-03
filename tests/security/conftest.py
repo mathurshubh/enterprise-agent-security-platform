@@ -74,6 +74,7 @@ def build_runtime():
         execution_authority: ExecutionAuthority | None = None,
         risk_aggregator: RiskAggregator | None = None,
         evidence_store=None,
+        session_repository=None,
     ) -> SimpleNamespace:
         agent_service = create_test_agent_service()
         agent_service.register_agent(
@@ -113,9 +114,10 @@ def build_runtime():
         # production contract.
         detection_service = DetectionService()
         session_service = create_test_session_service(
+            session_repository=session_repository,
             retention_policy=DetectionRetentionPolicy.from_detection_service(
                 detection_service
-            )
+            ),
         )
         findings_service = FindingsService()
         risk_service = RiskService()
