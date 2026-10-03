@@ -178,6 +178,190 @@ This decision does not introduce management-plane authorization. Reinstatement i
 
 ---
 
+# Amendment — Agent Lifecycle Formalization (F-09)
+
+*Status of this amendment: Proposed. Dated 2026-10-03. Origin: F-09 (Adversarial Review
+Adjudication, Follow-up Backlog), following the adjudication of Finding 4. ADR-024 remains
+Accepted.*
+
+## A.1 Context
+
+`AgentStatus` defines `REGISTERED`, `ACTIVE`, `SUSPENDED` and `DISABLED`, but this ADR described
+the administrative lifecycle as `ACTIVE` / `DISABLED` and did not define `REGISTERED`. The policy
+denied only `SUSPENDED` and `DISABLED`, so `REGISTERED` — the model default — was executable by
+omission, and any state added later would have been executable by default. Invariants 3 and 7
+were also in tension: invariant 7 assigns dynamic posture to `AgentEnforcementState`, while
+invariant 3 has containment write `AgentStatus.SUSPENDED`.
+
+No production activation bypass existed when this was decided: every application-level agent was
+created `ACTIVE` and no registration endpoint existed (Finding 4 adjudication). This amendment
+defines the lifecycle contract before agents become externally provisionable and before durable
+agent persistence is implemented ([ADR-030](ADR-030-durable-state-repository-architecture.md)).
+
+## A.2 Two independently authoritative planes
+
+| Plane | States | Authority | Version (namespace) | History |
+|---|---|---|---|---|
+| Administrative | `REGISTERED`, `ACTIVE`, `DISABLED` | Administrative-state record | `administrative_version` | Administrative ledger |
+| Enforcement | `NOT_SUSPENDED`, `SUSPENDED` | `AgentEnforcementState` | `AgentEnforcementState.epoch` | Enforcement ledger |
+
+Neither plane may reuse the other's version. `administrative_version` is a new monotonic
+namespace with its own allocator (see *Monotonic Security-State Namespace Integrity* in
+[docs/ai/ARCHITECTURE_PRINCIPLES.md](../ai/ARCHITECTURE_PRINCIPLES.md)). No transaction spans both
+planes; safety does not require one (A.4).
+
+`Agent.status` is a materialized projection of the effective lifecycle state derived from the two
+authoritative planes: `REGISTERED`, `ACTIVE` and `DISABLED` originate in the administrative plane,
+`SUSPENDED` in the enforcement plane. It is never authoritative for either plane. Inability to
+establish the authoritative state of either plane fails closed.
+
+## A.3 Administrative lifecycle
+
+- `REGISTERED` — the agent is known to the platform and **not** in service. Non-executable.
+- `ACTIVE` — the agent is in service. The only executable administrative state.
+- `DISABLED` — terminal administrative state. Non-executable.
+
+Transitions:
+
+| Transition | Meaning | Authorization |
+|---|---|---|
+| create → `REGISTERED` | Registration: the agent becomes known. Grants no authority. | `ADMIN` ([ADR-025](ADR-025-management-plane-authorization.md) amendment), attributed |
+| `REGISTERED` → `ACTIVE` | Activation: the agent enters service. | `ADMIN` (ADR-025 amendment), attributed |
+| `REGISTERED`/`ACTIVE` → `DISABLED` | Disablement. | `ADMIN` (ADR-025 amendment), attributed |
+
+There is no transition out of `DISABLED`. A future re-enable would be a separately defined,
+separately authorized transition; reinstatement is never that transition.
+
+Every agent, including the platform's default agent and agents created by the scenario runtime,
+enters service through registration followed by an explicit, system-authorized activation. The two
+are distinct lifecycle events even when performed consecutively. Direct construction of an
+`ACTIVE` agent is permitted only as test setup.
+
+## A.4 Execution invariant (supersedes the status deny-list)
+
+> An agent may obtain execution authority only when its authoritative administrative state is
+> `ACTIVE` **and** its authoritative enforcement state is `NOT_SUSPENDED`. Each condition is
+> evaluated independently against its authoritative source and fails closed if it cannot be
+> established. Any unknown, unsupported or unclassified lifecycle state is non-executable.
+
+Execution is granted by the presence of both conditions, never inferred from the absence of a
+deny condition. Because each condition fails closed independently, administrative and enforcement
+transitions may commit in either order without creating an executable window.
+
+Lifecycle-caused denials carry stable, machine-readable reason codes, independent of message text:
+
+| Condition | Code |
+|---|---|
+| Administrative state `REGISTERED` | `AGENT_NOT_ACTIVE` |
+| Administrative state `DISABLED` | `AGENT_DISABLED` |
+| Enforcement state `SUSPENDED` | `AGENT_SUSPENDED` |
+
+## A.5 Enforcement plane, restated
+
+Invariant 3 is restated: containment is a state transition in the enforcement plane. It does not
+mutate administrative lifecycle state. A final `SUSPEND_AGENT` sets the enforcement state to
+`SUSPENDED` and withdraws execution authority; the effective result is reflected in the
+`Agent.status` projection.
+
+Invariant 7 is amended to read, for the relationship between the planes:
+
+- Dynamic enforcement posture is maintained independently of administrative lifecycle.
+  Dynamic enforcement may create a new containment state for an agent that is not `DISABLED`.
+  A `DISABLED` agent cannot acquire execution authority through any enforcement transition.
+  Clearing an existing suspension through reinstatement remains permitted for a `DISABLED`
+  agent; reinstatement changes enforcement posture only and does not alter administrative
+  lifecycle state.
+
+Suspension remains a runtime enforcement action generated from security evidence; there is no
+administrative suspend operation (ADR-025 amendment A.3).
+
+Reinstatement is an enforcement-plane transition only. It clears the current suspension, advances
+the enforcement epoch by exactly +1, establishes a new enforcement baseline, and **leaves the
+current administrative state unchanged**. It never performs activation, and activation never
+performs reinstatement. A reinstated `REGISTERED` agent remains `REGISTERED`; an agent disabled
+while suspended remains `DISABLED` after reinstatement. Reinstating a `DISABLED` agent is
+permitted and clears the suspension only; the agent remains non-executable.
+
+## A.6 Concurrency
+
+Each plane's transitions are serialized by a durable compare-and-set on that plane's version: a
+stale expected version rejects the transition and commits neither state nor ledger entry.
+Process-local locks may reduce contention but are never the correctness mechanism.
+
+## A.7 Execution authority
+
+Execution issuance is open only when both planes permit execution (A.4). Issuance state is derived
+from, or tracked per, plane; no single-plane operation — including reinstatement — may reopen
+issuance while the other plane forbids execution.
+
+A transition that removes execution authority (leaving `ACTIVE`, or entering `SUSPENDED`) closes
+issuance and revokes the agent's outstanding unconsumed grants, as suspension already does.
+Activation and edits to descriptive agent configuration are not grant-freshness events. A grant
+already being executed cannot be retroactively stopped by a lifecycle change (existing residual
+risk).
+
+The executor does not independently re-authorize lifecycle state; lifecycle authorization occurs
+at decision and authority issuance, with post-issuance invalidation governed by the
+execution-authority revocation contract (rejected Option C stands).
+
+## A.8 Evidence
+
+- **Successful transitions** are authoritative only in their plane's append-only ledger, committed
+  atomically with the state change under the version compare-and-set. They are not duplicated into
+  `AuditEvent`.
+- **Ledger entries** record: entry id, agent id, action, structured actor, reason, previous and new
+  state in that plane's vocabulary, version before and after in that plane's namespace
+  (`administrative_version_before` / `_after`, or `enforcement_epoch_before` / `_after`),
+  timestamp, and a mandatory correlation id. Enforcement entries also record the trigger.
+- **Refused lifecycle attempts** are recorded in a dedicated, append-only administrative audit
+  record in the evidence plane
+  ([ADR-028](ADR-028-audit-evidence-ownership-and-lifecycle.md) §6,
+  [ADR-034](ADR-034-audit-identity-contract.md) §8). They never enter a ledger. `AuditEvent`
+  remains tool-request evidence and is unchanged.
+- **Actors** are structured `{type, id}` with controlled types (`human`, `system`, `runtime`) and
+  reserved system identifiers (bootstrap; scenario runtime). Actor type and identity are never a
+  single overloaded string.
+- **Correlation:** every transition and refused attempt carries a correlation id; system-initiated
+  operations generate one per transition.
+- Lifecycle evidence is not `SessionEvent` evidence. Ledgers are immutable after commit and follow
+  the audit-evidence retention and governance controls (ADR-028) and least-privilege repository
+  access (ADR-030). Telemetry lifecycle events remain non-authoritative.
+
+## A.9 Deployment preconditions (ADR-030)
+
+Before a multi-instance production composition is supported:
+
+1. Execution-grant issuance validates the authoritative enforcement epoch against durable
+   enforcement state.
+2. Issuance closure and revocation of outstanding unconsumed grants are durable or shared across
+   the deployment; process-local revocation is not the sole correctness mechanism.
+
+These are preconditions, not defects of the current single-process composition.
+
+## A.10 Dependencies and consequences
+
+- **ADR-030:** a SQL administrative-state store and ledger meeting A.6 and A.8 (version CAS, atomic
+  append, `CHECK` constraint on administrative values); an `AgentRepository` whose create path
+  yields `REGISTERED`; production composition per A.9.
+- **ADR-025:** management-plane authorization for registration, activation and disablement.
+- **ADR-028 / ADR-034:** define the administrative audit record.
+- **Architecture principles:** add `administrative_version` to the namespace table.
+- **Amends in this ADR:**
+  - Invariant 3: containment no longer writes administrative state (A.5).
+  - Invariant 7 retains its purpose, separating administrative lifecycle from dynamic posture, with
+    corrected vocabularies: administrative `REGISTERED`, `ACTIVE`, `DISABLED`; enforcement-only
+    `NOT_SUSPENDED`, `SUSPENDED`. `ACTIVE` is exclusively an administrative-plane state.
+    `DISABLED` remains administratively terminal and non-executable; enforcement may clear an
+    existing suspension for a `DISABLED` agent, but no enforcement transition may make it
+    executable.
+- **Implementation consequences (not part of this amendment):** the status deny-list in
+  `PolicyEngine`; `reinstate_agent` precondition and target state; `EnforcementCoordinator`
+  reinstatement/repair success conditions; bootstrap and scenario agent creation; the
+  `ExecutionAuthority` single-flag issuance gate; the `EnforcementTransition` vocabulary and missing
+  epoch fields.
+
+---
+
 # Related Documents
 
 - [ADR-013: ScenarioRunner Service Boundaries](ADR-013-scenario-runner-service-boundaries.md) — scenario isolation amendment

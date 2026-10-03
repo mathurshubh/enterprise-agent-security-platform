@@ -158,6 +158,71 @@ Neither is a mutator and both could rewrite recorded evidence, so the property h
 
 ---
 
+## 6. Amendment (Proposed, 2026-10-03) — Administrative lifecycle evidence (F-09)
+
+*Status of this amendment: Proposed. Depends on the
+[ADR-024](ADR-024-agent-enforcement-state.md) F-09 amendment. ADR-028 remains Accepted.*
+
+### 6.1 Administrative decisions are security decisions
+
+Lifecycle operations on an agent — registration, activation, disablement, suspension and
+reinstatement — are security decisions within §1: each grants, removes, or contains the ability to
+execute. Their evidence is audit evidence and is owned by this ADR.
+
+Two record types carry it, by outcome:
+
+| Outcome | Record | Defined in |
+|---|---|---|
+| Transition committed | Entry in the administrative or enforcement **lifecycle ledger** | ADR-024 amendment A.8 |
+| Transition refused | **`AdministrativeAuditEvent`** | This section; identity in [ADR-034](ADR-034-audit-identity-contract.md) §8 |
+
+A committed transition is never also recorded as an `AdministrativeAuditEvent`, and a refused
+transition never enters a ledger: one fact, one record. `AuditEvent` remains the record of runtime
+tool-request decisions and is unchanged. Neither administrative record is a `SessionEvent`, and
+neither is telemetry; telemetry lifecycle events remain non-authoritative (§1).
+
+### 6.2 Required properties (§3, applied)
+
+1. **Complete coverage.** Every administrative operation that reaches an authorization or
+   lifecycle decision produces exactly one record: a ledger entry if committed, an
+   `AdministrativeAuditEvent` if refused. This includes refusals at the API authorization boundary
+   and refusals within the administrative service, including lack of authorization, a stale
+   expected version, an illegal transition, and an unknown target agent. The record is internal
+   evidence: recording it never causes the API to reveal whether an agent exists.
+2. **Attribution.** Stated semantically, as in §3.2: the record must attribute the decision to its
+   originating administrative request and the actor who made it. For administrative evidence this
+   is the mandatory correlation id and the structured actor. There is no session, and its absence
+   is not an attribution gap.
+3. **Immutability.** Records are immutable after they are written, enforced by construction
+   (frozen domain models), as for `AuditEvent`.
+4. **Independence from evictable state.** A record's meaning never depends on the current agent
+   registry, current lifecycle state, or any session state. Observed state is recorded literally
+   at decision time.
+5. **Bounded operational memory without destroying the record.** As §3.5: growth is bounded by
+   moving evidence out of operational memory, never by deletion. Retention is governed by the
+   evidence-retention framework, not by lifecycle semantics.
+
+### 6.3 Failure semantics
+
+A ledger entry commits atomically with its transition (ADR-024 amendment A.8), so a committed
+transition cannot lack evidence. For a refused attempt, the operation is already refused; if its
+`AdministrativeAuditEvent` cannot be written, the refusal stands, and the failure is surfaced to
+the caller and to operations as an evidence-recording failure. It is never reported as success,
+never silently dropped, and never retried into a different outcome.
+
+### 6.4 Access
+
+Writers hold append (`INSERT`) only and readers `SELECT` only. No application path updates or
+deletes administrative evidence ([ADR-030](ADR-030-durable-state-repository-architecture.md),
+*Least Privilege Database Accounts*).
+
+### 6.5 Non-decisions
+
+This amendment does not select a persistence technology, define a retention period, establish
+tamper-evidence, or change `AuditEvent`, `AuditService`, or any existing write path.
+
+---
+
 # Alternatives Considered
 
 ## Option A: Advance ADR-016 to Accepted with audit in scope
