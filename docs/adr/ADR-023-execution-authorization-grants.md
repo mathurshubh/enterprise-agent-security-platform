@@ -88,8 +88,9 @@ passes those bound parameters to the tool.
   escapes the workspace is refused before policy evaluation.
 - Absolute paths are accepted only when their resolved target is unambiguously inside the
   configured workspace, then converted to the same workspace-relative identity.
-- Existing targets resolve symlinks. A symlink is permitted only when its resolved target
-  remains inside the workspace. Nonexistent targets use a strictly resolved existing
+- Existing targets resolve symlinks. The final canonical target must remain within the
+  configured workspace. Symlink traversal is permitted only when the resulting canonical
+  target satisfies that workspace-containment requirement. Nonexistent targets use a strictly resolved existing
   ancestor plus a normalized missing suffix; the missing suffix is never the sole basis
   for a containment decision.
 - Existing case aliases use the filesystem's actual entry spelling. Missing suffixes
