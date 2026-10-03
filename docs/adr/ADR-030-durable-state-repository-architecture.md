@@ -457,7 +457,7 @@ follows this precedence:
   inserts an `ApprovalContinuation` row. It does not exercise `ExecutionAuthority`.
 - Durable validation of the enforcement epoch at issuance, and durable or shared issuance closure
   and revocation, are ADR-024 A.9 preconditions for multi-instance composition. This amendment does
-  not decide their mechanism (L.12).
+  not decide their mechanism (L.12). *Mechanism recommended in amendment AG (Proposed).*
 
 ## L.12 Deferred to Gate 3 (not decided)
 
@@ -470,10 +470,154 @@ follows this precedence:
     namespace;
   - (c) time-to-live as the revocation bound — **flagged: conflicts with ADR-024 A.9.2; not
     selectable without F-09 adjudication.**
-- The issuance interlock mechanism satisfying ADR-024 A.9.1 (L.11).
+
+  *Addressed by amendment AG (Proposed). DR-5(c) remains rejected.*
+- The issuance interlock mechanism satisfying ADR-024 A.9.1 (L.11). *Addressed by amendment AG
+  (Proposed).*
 - Explicit allocation of `recovery_generation` in place of timestamp-based derivation.
 - Durable repositories for findings and execution evidence, required by L.6 before durable
   enforcement composition.
+
+---
+
+# Amendment — Execution-Authority Revocation (DR-5)
+
+*Status of this amendment: Proposed. Dated 2026-10-03. This ADR remains Proposed. Origin: Gate 3
+DR-5 design review and lock validation. Mechanism for the
+[ADR-023](ADR-023-execution-authorization-grants.md) revocation contract (RC.1–RC.7). It does not
+close Gate 3 (AG.8).*
+
+## AG.1 `authority_generation`
+
+`authority_generation` is execution-authority invalidation state, derived from transitions that
+remove execution authority. It is not a lifecycle plane, not a third lifecycle state, and not an
+authorization source. It is never compared with or substituted for `administrative_version`,
+`AgentEnforcementState.epoch`, or `recovery_generation`.
+
+```text
+Administrative plane ─┐
+                      ├─ authority removal ─▶ authority_generation ─▶ grant invalidation
+Enforcement plane ────┘
+```
+
+**Persistence:** one record per agent in `agent_authority_generation` — `agent_id` (primary key,
+foreign key to `agents`) and `authority_generation`. The record is created at 0 in the same
+transaction as registration. A missing record means no generation can be established: it fails
+closed at issuance and at claim, and is never defaulted.
+
+## AG.2 Advancing the generation
+
+The generation is advanced by +1 **inside the plane's own transition transaction**, after `agents`
+is locked, so that it commits atomically with the state change and its ledger entry:
+
+- `ACTIVE → DISABLED` (administrative transaction);
+- entering `SUSPENDED` (enforcement transaction).
+
+No transaction writes both lifecycle planes (ADR-024 A.2): each plane's transaction writes its own
+state and this invalidation record. Reinstatement, activation, `REGISTERED → DISABLED`, and other
+transitions that remove no execution authority do not advance it.
+
+## AG.3 S-IV: serialized issuance
+
+Grant issuance — direct (`ALLOW → issue()`) and minting after a D-G1 continuation claim — runs as
+one transaction:
+
+1. **Lock:** `agents` `FOR SHARE`. Every lifecycle transition takes `agents FOR UPDATE` first, so
+   issuance and authority-removing transitions are serialized on the same row.
+2. **Read:** administrative state, enforcement state and its epoch, and `authority_generation`.
+3. **Check:** `ACTIVE ∧ NOT_SUSPENDED ∧ epoch == expected_epoch`. The epoch check satisfies
+   ADR-024 A.9.1.
+4. **Mint:** the grant, bound to the generation read.
+5. **Commit.**
+
+The **issuance linearization point** is the acquisition of the shared `agents` row lock together
+with the reads made under it. Because every lifecycle transition holds `agents FOR UPDATE` until it
+commits, an issuance's linearization point falls either entirely before such a transition takes its
+lock or entirely after it commits.
+
+Guarantee: **once an authority-removing transition commits, no issuance whose linearization point
+falls after that commit may successfully mint an execution grant for that agent.** This is
+issuance linearization, not an additional authorization check. Grants whose issuance linearized
+before the commit are handled by AG.4.
+
+Constraints from the lock validation:
+
+- **Process-wide lock:** the authority's process-wide lock must not be held while waiting for the
+  `agents` row lock. Otherwise per-agent database contention becomes process-wide contention for
+  issuance, claims, suspension, and reinstatement.
+- **Minting and commit:** minting and registering the grant are inside the issuance transaction's
+  correctness boundary. If the transaction does not commit after the grant is created, the grant is
+  invalidated or withdrawn before issuance reports failure, and is never returned as executable
+  authority. The mechanism for clearing in-process state is an implementation concern; this
+  amendment does not assume that grant creation can roll itself back.
+- **Lock scope:** issuance locks only `agents`. An issuance transaction that also locked a session
+  row would have to follow the session-row-then-`agents` order used by event recording.
+
+**Throughput:** every request's event recording takes `agents FOR UPDATE`
+(`SqlSessionRepository.record_event`). In a durable composition, issuance therefore contends per
+agent with event recording on every replica. This is a throughput consideration, not a correctness
+one.
+
+## AG.4 R-b: claim-time check
+
+Claim-time generation validation is a revocation check, not lifecycle re-authorization (ADR-023
+RC.3).
+
+- **Linearization point:** the authoritative generation read is the claim's revocation-validation
+  linearization point.
+- **Final validation:** the authoritative generation equality check must be the final revocation
+  validation performed before the grant is consumed. No operation that can materially delay
+  consumption or introduce another revocation-validation window may occur between generation
+  validation and consumption.
+- **Already in flight:** a claim that has established a matching generation before an
+  authority-removing transition commits is treated as already in flight and is not retroactively
+  invalidated. This is the residual risk ADR-023 already accepts: revocation cannot stop execution
+  already under way.
+- **After the commit:** a claim whose generation validation occurs after the transition commits
+  must observe the new generation and refuse the stale grant (`REVOKED`).
+- **Authoritative read:** the read must observe the authoritative store's committed state — no
+  cache (L.7), and no lagging read replica or other source that could return a value from before
+  the commit.
+- **Unavailable:** if the value cannot be established, the claim fails closed
+  (`REVOCATION_STATE_UNAVAILABLE`).
+- **No row lock:** the claim takes no row lock; it is linearized by its read.
+- **Process-wide lock:** the authority's process-wide lock must not be held while waiting for the
+  read (the same rule as AG.3).
+
+## AG.5 Mechanism per composition
+
+| Composition | Issuance closure | Revocation after issuance |
+|---|---|---|
+| In-memory, single-process (current production; L.8) | Per-plane gates under the authority's lock | Process-local revocation on every authority-removing transition |
+| Durable, multi-instance (not yet supported) | AG.3 (S-IV) | AG.4 (R-b) |
+
+The in-process fast path remains in the durable composition. It is never the sole correctness
+mechanism (ADR-024 A.6, A.9).
+
+## AG.6 Restart and restore
+
+- **Restart:** grants never survive a restart, because the signing key is per-process.
+  `authority_generation` is not referenced by any durable watermark, so the L.6 startup check does
+  not apply to it.
+- **Restore:** restoring the database requires **every replica to restart before execution
+  resumes**. An online restore could move the generation backwards and make old grants claimable
+  again. This extends the coordinated-restoration requirement of L.6.
+
+## AG.7 Resumption path
+
+The D-G1 continuation claim ([ADR-031](ADR-031-execution-grant-approval-control-plane.md) §9) is
+unchanged. Minting after a claim goes through AG.3. A claimed continuation of an agent that has
+since been disabled is refused at minting and remains consumed and unspent (ADR-031 §9.4). This is
+documented behaviour, not a new decision.
+
+## AG.8 Gate 3 items still open (not decided here)
+
+- **DR-4 — deployment boundary:** which composition is supported until the AG.3 and AG.4
+  preconditions are implemented.
+- **DR-8(c) — `recovery_generation` allocation:** the allocation mechanism remains undecided,
+  including the concern about clocks on different replicas.
+- **Durable evidence boundary:** which namespaces must be durable before a durable composition
+  satisfies L.6.
 
 ---
 

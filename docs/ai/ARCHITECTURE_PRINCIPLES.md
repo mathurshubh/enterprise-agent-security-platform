@@ -19,7 +19,7 @@ authoritative allocator. A value may only be compared with, persisted as a water
 or used for idempotency or freshness **within the semantic namespace governed by that
 allocator**.
 
-The platform currently distinguishes six:
+The platform currently distinguishes seven:
 
 | Namespace | Allocator | Meaning | Consumers |
 |---|---|---|---|
@@ -29,6 +29,7 @@ The platform currently distinguishes six:
 | `AgentEnforcementState.epoch` | enforcement state repository (CAS, +1 per committed transition) | enforcement generation and freshness | grant issuance, enforcement ledger |
 | `administrative_version` | administrative state repository (CAS, +1 per committed administrative transition) | administrative lifecycle generation | administrative transitions, administrative ledger, administrative audit evidence |
 | `recovery_generation` | derived from the enforcement ledger (count of `REINSTATE` transitions at or before the evaluated event's timestamp) | recovery lifecycle of a detection crossing | finding identity |
+| `authority_generation` | execution-authority state (+1 per transition that removes execution authority, inside that plane's transaction) | execution-authority invalidation generation | grant issuance (binding), grant claim (revocation check) |
 
 These are **not interchangeable merely because they are monotonically increasing
 integers**. Event ordering, finding ordering, and enforcement generation are different
@@ -67,6 +68,13 @@ identifiers are renamed to `get_recovery_generation(as_of=...)` and
 `Finding.recovery_generation` during the F-09 implementation, with values and semantics
 unchanged (ADR-030 amendment L.5). It is never compared with or substituted for `epoch`,
 although its current identifiers suggest otherwise.
+
+`authority_generation` is an execution-authority invalidation namespace, not a lifecycle
+plane, not lifecycle state, and not an authorization source. Both lifecycle planes advance
+it when they remove execution authority, each inside its own transaction; neither plane's
+state is written by the other. It is never compared with or substituted for
+`administrative_version`, `epoch`, or `recovery_generation`, and is not a grant-freshness
+input in place of `epoch` at issuance (ADR-030 amendment AG.1; ADR-023 amendment RC.3).
 
 Name fields for the namespace they belong to. A generic name such as `baseline_sequence`
 makes two orderings look interchangeable and is how they come to be conflated.
