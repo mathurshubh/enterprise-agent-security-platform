@@ -244,6 +244,25 @@ DEFER
 **Required Action**
 Document that `REGISTERED` is an executable initial state in the administrative lifecycle, or introduce an explicit administrative activation lifecycle step (`activate_agent`) if enterprise onboarding requires staged pre-activation provisioning.
 
+**Adjudication Note — Deferred to F-09 (not a current security defect)**
+A read-only investigation of the current implementation established:
+
+- `REGISTERED` is the `Agent` model default, but its lifecycle semantics are not defined: ADR-024
+  describes the administrative lifecycle as `ACTIVE` / `DISABLED` and does not mention
+  `REGISTERED`. The current policy treats it as executable, because `PolicyEngine` denies only
+  `SUSPENDED` and `DISABLED`; through the full runtime pipeline a `REGISTERED` agent receives
+  `ALLOW` and a `RuntimeExecutionGrant` exactly as an `ACTIVE` agent does.
+- No production activation bypass was established. There is no `REGISTERED` → `ACTIVE` activation
+  workflow to bypass, the management API exposes no agent-registration endpoint, and every
+  application-level registration creates its agent explicitly as `ACTIVE`. A `REGISTERED` agent
+  arises only from code that constructs an `Agent` without a status.
+
+Finding 4 is therefore deferred lifecycle architecture work, not a current security defect.
+`REGISTERED` is an insufficiently defined state that the current policy happens to treat as
+executable. No activation gate and no policy change — including converting the status check to an
+explicit allow-list of executable states — is to be implemented before the lifecycle decision is
+made under F-09 (Follow-up Backlog).
+
 ---
 
 ### Finding 5 — ApprovalContinuation Claim: Epoch + Expiration
@@ -331,7 +350,13 @@ None remaining.
 
 ## Follow-up Backlog
 1. **Subprocess Audit Hook (Finding 6):** Register a CPython audit hook inside `runner.py` to block unauthorized subprocess spawning.
-2. **Agent Lifecycle Formalization (Finding 4):** Standardize the semantic distinction between `REGISTERED` and `ACTIVE` across management plane endpoints and documentation.
+2. **F-09 — Agent Lifecycle Formalization (from Finding 4):** Architecture-first work item, not yet opened. Establish the authoritative lifecycle of an enterprise agent before any lifecycle enforcement change:
+   - lifecycle states and legal transitions, including what `REGISTERED` means;
+   - the executable-state invariant: which lifecycle states may authorize tool execution, with unknown or undefined states failing closed;
+   - registration and activation semantics, and whether activation is a separate administrative action;
+   - the authoritative source of lifecycle state and its relationship to `AgentEnforcementState` (ADR-024);
+   - durable persistence of agent lifecycle state, which depends on the outstanding ADR-030 work (a SQL `AgentRepository` and production composition);
+   - interaction with runtime authorization, and the audit/evidence each lifecycle transition must produce.
 3. **Raw-Path Authorization Record Without Filesystem Profile (Finding 1 post-merge review):** Filesystem canonicalization in `RuntimeService` runs only when the tool version resolves or a filesystem capability profile exists. For an unresolved filesystem tool with no profile, policy evaluates the raw path, so the recorded authorization decision and telemetry can show `ALLOW` for a non-canonical alias. No execution occurs (no version, no profile, no grant). Evidence-quality concern, not an authorization bypass. Finding 1 remains CLOSED.
 4. **Parameter Hash Computed From Raw Parameters (Finding 1 post-merge review):** `RuntimeService` computes telemetry `parameter_hash` from the caller-supplied parameters rather than the canonical bound parameters, weakening correlation between telemetry and the `ExecutionBinding`. Evidence-quality concern, not an authorization bypass. Finding 1 remains CLOSED.
 
