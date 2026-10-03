@@ -211,6 +211,7 @@ A caller obtains an `ALLOW` decision for one operation and executes a different 
 
 #### Residual Risk
 - Code already executing inside the platform process can obtain a `BaseTool` from `ToolRegistry.get()` and call `execute()` directly. ADR-023 closes the confused-deputy path between components; it is not a defence against malicious in-process code.
+- **Filesystem time-of-check/time-of-use ([ADR-023](../adr/ADR-023-execution-authorization-grants.md)):** Canonicalization and execution-time containment checks reduce path identity and traversal ambiguity but do not eliminate time-of-check/time-of-use races between validation and the subsequent filesystem operation. Stronger isolation is required if hostile concurrent filesystem mutation must be treated as an in-scope threat.
 
 ### Threat 10: Enforcement Evasion, Concurrency, and Availability [Elevation of Privilege / Tampering / Denial of Service]
 

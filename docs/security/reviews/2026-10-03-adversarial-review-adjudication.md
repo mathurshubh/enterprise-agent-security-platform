@@ -47,6 +47,13 @@ ACCEPT
 **Required Action**
 Define a strict semantic canonicalization rule for filesystem resources in `ExecutionBinding.from_operation` (e.g., resolving pure relative POSIX paths against a normalized root, stripping leading `./` and redundant separators, and rejecting parent-directory escapes before policy evaluation).
 
+**Implementation Note**
+The accepted design canonicalizes filesystem resource identity in `RuntimeService` (via
+`FilesystemResourceIdentityResolver`) before authorization and binding, rather than inside
+`ExecutionBinding.from_operation`. This preserves `ExecutionBinding` as a generic
+authorization-binding structure while ensuring the canonical resource is the value supplied
+to both policy evaluation and binding.
+
 **Implementation Status — CLOSED**
 The Finding 1 remediation is implemented and security-reviewed. `RuntimeService` resolves
 filesystem requests against the configured workspace before authorization, and the same
@@ -268,6 +275,8 @@ As an immediate defense-in-depth measure, add an audit hook in `runner.py` inter
 ## Follow-up Backlog
 1. **Subprocess Audit Hook (Finding 6):** Register a CPython audit hook inside `runner.py` to block unauthorized subprocess spawning.
 2. **Agent Lifecycle Formalization (Finding 4):** Standardize the semantic distinction between `REGISTERED` and `ACTIVE` across management plane endpoints and documentation.
+3. **Raw-Path Authorization Record Without Filesystem Profile (Finding 1 post-merge review):** Filesystem canonicalization in `RuntimeService` runs only when the tool version resolves or a filesystem capability profile exists. For an unresolved filesystem tool with no profile, policy evaluates the raw path, so the recorded authorization decision and telemetry can show `ALLOW` for a non-canonical alias. No execution occurs (no version, no profile, no grant). Evidence-quality concern, not an authorization bypass. Finding 1 remains CLOSED.
+4. **Parameter Hash Computed From Raw Parameters (Finding 1 post-merge review):** `RuntimeService` computes telemetry `parameter_hash` from the caller-supplied parameters rather than the canonical bound parameters, weakening correlation between telemetry and the `ExecutionBinding`. Evidence-quality concern, not an authorization bypass. Finding 1 remains CLOSED.
 
 ## Rejected / False Positives
 - **Assertion that `_refuse_session_binding` fails on SQL foreign keys:** Rejected. Code inspection confirms `_refuse_session_binding` persists only an `AuditEvent` (which has no foreign keys) and does not persist a `SessionEvent`.
