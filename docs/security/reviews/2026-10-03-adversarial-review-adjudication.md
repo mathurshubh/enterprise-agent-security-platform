@@ -181,6 +181,31 @@ ACCEPT
 **Required Action**
 Refactor `create_repositories` in `app/repositories/factory.py` to fail fast: wire `SqlToolRepository` and `SqlAuditEvidenceRepository` when `session_factory` is provided, and raise `NotImplementedError` if `agent_repository` is omitted under `backend="sql"`, preventing silent fallbacks to volatile memory.
 
+**Implementation Note**
+Repository investigation refined the finding in two ways. First, the factory's mixed container
+was not a working split topology: the SQL session, enforcement and continuation tables reference
+`agents`, and no application path writes that table, so with the in-memory agent default every
+session bind failed on its foreign key at request time, while audit evidence and the agent and
+tool registries were silently volatile. Second, the factory and the production composition root
+are separate: `app/api/dependencies.py` constructs in-memory repositories directly and never calls
+the factory, and there is no backend configuration, so fixing the factory does not make the
+running API SQL-backed. Finding 3 is scoped to the factory contract; production durable
+composition is separate, outstanding ADR-030 work. The missing-adapter case raises a dedicated
+`RepositoryCompositionError` (a `ValueError`) rather than `NotImplementedError`, because it is a
+composition failure rather than a missing method. Explicitly supplied adapters remain permitted.
+
+**Implementation Status — CLOSED (implementation validated; PR review and merge remain the final integration gate)**
+Under `backend="sql"`, `create_repositories` now defaults the tool and audit repositories to
+`SqlToolRepository` and `SqlAuditEvidenceRepository`, never substitutes an in-memory repository,
+and raises `RepositoryCompositionError` at composition time when no `agent_repository` is
+supplied, since there is no SQL `AgentRepository`. `ADR-030` §6 records the composition contract
+(the ADR remains Proposed); the threat model's persistence and containment-durability statements
+now say the running API is in-memory. No schema or migration change. The SQL end-to-end test now
+supplies its agent repository explicitly and registers its tool through the SQL tool repository.
+Validated with Ruff, markdownlint, `git diff --check` and the full suite (the single failure,
+`test_process_group_cleanup_invariant_kills_child_and_grandchild`, also fails on `main`); the new
+factory contract tests fail against the previous factory.
+
 ---
 
 ### Finding 4 — Agent REGISTERED Lifecycle Semantics
@@ -294,9 +319,10 @@ As an immediate defense-in-depth measure, add an audit hook in `runner.py` inter
 ## Closed Before D-G1
 1. **Resource / Path Canonicalization (Finding 1):** CLOSED. The canonical resource identity contract is implemented across authorization, signed binding, and tool execution, with execution-time containment rechecks. The repository-wide test-environment issue is tracked separately above.
 2. **SessionEvent SQL Foreign Key Constraint (Finding 2):** CLOSED — implementation validated; PR review and merge remain the final integration gate. `session_events` no longer references the tool registry (migration `0007`, `ADR-034` §7); denials for unknown tools are recorded in SQL mode, and session/agent ownership and sequence integrity are retained.
+3. **Repository Factory Fail-Fast (Finding 3):** CLOSED — implementation validated; PR review and merge remain the final integration gate. `create_repositories(backend="sql")` uses the existing SQL adapters, never substitutes an in-memory repository, and raises `RepositoryCompositionError` at composition time when no agent repository is supplied (`ADR-030` §6). Production durable composition (`app/api/dependencies.py` is in-memory) remains separate work.
 
 ## Must Fix Before D-G1
-1. **Repository Factory Fail-Fast (Finding 3):** Remove silent in-memory fallback in `create_repositories(backend="sql")`, wire existing SQL repositories, and raise `NotImplementedError` if SQL adapters are missing.
+None remaining.
 
 ## Must Fix During D-G1
 1. **Atomic Continuation Claim (Finding 5):** Implement `ApprovalContinuationRepository.claim_continuation` validating `state == APPROVED`, `enforcement_epoch == current_epoch`, and `now < expires_at` in a single concurrency-controlled transaction returning the frozen authority domain model (ADR-031 Phase B).
@@ -314,6 +340,6 @@ As an immediate defense-in-depth measure, add an audit hook in `runner.py` inter
 ## Recommended Engineering Order
 1. **Finding 1:** Closed as documented above.
 2. **Finding 2:** Closed as documented above.
-3. **Factory Hardening (Finding 3):** Eliminate silent in-memory fallbacks in SQL composition and fail startup when required durable adapters are unavailable.
+3. **Finding 3:** Closed as documented above (factory contract only; production durable composition remains separate work).
 4. **D-G1 Atomic Claim Implementation:** Deliver ADR-031 Phase B continuation claim contract.
 5. **Runner Audit Hook Hardening:** Add subprocess interception hook to sandbox child runner.
