@@ -589,10 +589,17 @@ RC.3).
 | Composition | Issuance closure | Revocation after issuance |
 |---|---|---|
 | In-memory, single-process (current production; L.8) | Per-plane gates under the authority's lock | Process-local revocation on every authority-removing transition |
+| Durable, single active instance (not yet supported) | Per-plane gates under the authority's lock | Process-local revocation on every authority-removing transition |
 | Durable, multi-instance (not yet supported) | AG.3 (S-IV) | AG.4 (R-b) |
 
-The in-process fast path remains in the durable composition. It is never the sole correctness
-mechanism (ADR-024 A.6, A.9).
+In the in-memory and the durable single-active-instance compositions, process-local issuance
+closure and revocation are sufficient, because exactly one active process issues and claims
+grants; that single-active-process condition is a deployment-boundary requirement. Lifecycle
+transitions remain serialized by durable compare-and-set in every durable composition (ADR-024
+A.6).
+
+AG.3 and AG.4 apply to the multi-instance durable composition. There, the in-process fast path
+remains but is never the sole correctness mechanism (ADR-024 A.9).
 
 ## AG.6 Restart and restore
 
