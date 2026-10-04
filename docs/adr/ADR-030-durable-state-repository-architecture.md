@@ -658,7 +658,7 @@ not the failure.
 | Stage | Topology | Issuance and revocation | Supported when |
 |---|---|---|---|
 | **A** (current) | Exactly one application process; in-memory state | Process-local (AG.5) | Now |
-| **B** | Exactly one active process; durable state | Process-local (AG.5) | F-09 implemented; production durable composition; durable evidence boundary decided and implemented (L.6); DB.5 and DB.6 implemented |
+| **B** | Exactly one active process; durable state | Process-local (AG.5) | F-09 implemented; production durable composition; durable evidence boundary decided and implemented (L.6); DR-8(c) decided and implemented where required by the durable evidence boundary; DB.5 and DB.6 implemented |
 | **B2** | One active process and non-serving standbys; durable state | Process-local (AG.5) | As B |
 | **C** | Multiple active processes; shared durable state | AG.3 (S-IV) and AG.4 (R-b) | All of B, plus DB.7 |
 | **D** | Stateless API workers in front of one authority process | — | **Not recommended**: it adds a worker-to-authority trust boundary with no current requirement for it |
