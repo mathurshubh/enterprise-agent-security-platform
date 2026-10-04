@@ -462,7 +462,8 @@ follows this precedence:
 ## L.12 Deferred to Gate 3 (not decided)
 
 - **DR-4 — deployment boundary:** whether durable single-instance deployment precedes multi-instance
-  support, and how single-instance operation would be enforced.
+  support, and how single-instance operation would be enforced. *Addressed by amendment DB
+  (Proposed).*
 - **DR-5 — multi-instance revocation.** Candidates:
   - (a) durable epoch check at claim time — does not cover disablement; requires an ADR-023
     amendment;
@@ -620,11 +621,124 @@ documented behaviour, not a new decision.
 ## AG.8 Gate 3 items still open (not decided here)
 
 - **DR-4 — deployment boundary:** which composition is supported until the AG.3 and AG.4
-  preconditions are implemented.
+  preconditions are implemented. *Addressed by amendment DB (Proposed).*
 - **DR-8(c) — `recovery_generation` allocation:** the allocation mechanism remains undecided,
   including the concern about clocks on different replicas.
 - **Durable evidence boundary:** which namespaces must be durable before a durable composition
   satisfies L.6.
+
+---
+
+# Amendment — Deployment Boundary (DR-4)
+
+*Status of this amendment: Proposed. Dated 2026-10-04. This ADR remains Proposed. Origin: Gate 3
+DR-4 review and wording stress-test. It establishes the supported deployment topologies and their
+staging. It authorizes no implementation of stage B, B2, or C. It changes no text in ADR-024,
+ADR-026, or ADR-032; DB.4 records an interpretation of their wording.*
+
+## DB.1 Context
+
+The single-process boundary assumed by ADR-024 A.9, L.8, and AG.5 existed only in documentation
+([Code]):
+
+- No deployment artifact exists. The only runner (`scripts/dev-start.sh`) starts one `uvicorn`
+  process.
+- The composition root (`app/api/dependencies.py`) builds every repository and `ExecutionAuthority`
+  in memory, at import time, in each process.
+- Nothing detects or refuses a second worker or instance.
+
+Because `JWT_SECRET_KEY` is shared configuration, every process accepts the same tokens. Several
+workers or instances would therefore form independent security authorities: containment recorded
+in one is invisible to another, detection horizons and finding sequences fragment (ADR-026), session
+ownership is enforced per process, and audit evidence is split. Grants stay process-local and are
+not the failure.
+
+## DB.2 Staged deployment boundary
+
+| Stage | Topology | Issuance and revocation | Supported when |
+|---|---|---|---|
+| **A** (current) | Exactly one application process; in-memory state | Process-local (AG.5) | Now |
+| **B** | Exactly one active process; durable state | Process-local (AG.5) | F-09 implemented; production durable composition; durable evidence boundary decided and implemented (L.6); DB.5 and DB.6 implemented |
+| **B2** | One active process and non-serving standbys; durable state | Process-local (AG.5) | As B |
+| **C** | Multiple active processes; shared durable state | AG.3 (S-IV) and AG.4 (R-b) | All of B, plus DB.7 |
+| **D** | Stateless API workers in front of one authority process | — | **Not recommended**: it adds a worker-to-authority trust boundary with no current requirement for it |
+
+Each stage is supported only when its preconditions exist. AG.3, AG.4, a distributed sequence
+authority, and execution-receipt ownership are stage-C preconditions only; stages B and B2 need a
+durable sequence allocator (L.6), not a distributed one.
+
+## DB.3 Stage A deployment invariant
+
+Stage A is a **deployment invariant**, not a recommended topology: exactly one application process
+per deployment.
+
+- **Local guard:** the application refuses to start an additional process on the same host. This
+  is fail-closed startup enforcement, not a distributed security control. Under a multi-worker
+  launcher, the additional workers fail startup and may be restarted repeatedly by their
+  supervisor. The guard is not implemented today.
+- **Across hosts:** the operator or orchestrator ensures that only one application instance
+  exists. The local guard cannot detect instances on other hosts.
+- **Unsupported:** multiple active execution-serving instances.
+
+## DB.4 Active instances (interpretation of ADR-024 A.9 and ADR-026)
+
+For the ADR-024 A.9 multi-instance execution precondition, the relevant topology is concurrently
+active execution-serving instances. For the ADR-026 sequence-authority residual, it is concurrently
+active sequence-allocating processes. A standby process that holds no active-instance authority,
+serves no security-relevant requests and allocates no sequences is neither.
+
+The unsafe condition is therefore concurrency in the security-relevant role, not process count.
+
+## DB.5 Startup ordering (stages B and B2)
+
+```text
+acquire active-instance authority → L.6 integrity check → evidence reconciliation → ready
+```
+
+- Reconciliation mutates evidence, so the L.6 integrity check precedes it.
+- A process that cannot acquire active-instance authority does not run the integrity check against
+  shared state, does not reconcile, and serves nothing; otherwise a standby could mutate evidence
+  belonging to the active instance.
+- Failure at any step prevents serving.
+- This refines the startup recovery boundary of
+  [ADR-032](ADR-032-runtime-tool-execution-isolation.md) §12.6 for stages B and B2. The
+  corresponding ADR-032 amendment is recorded when stage B2 is designed; it is not written here.
+
+## DB.6 Active-authority fencing (stages B and B2)
+
+- A process may serve security-relevant requests only while it can establish possession of
+  active-instance authority within a bounded verification interval. Failure to establish it causes
+  the process to stop serving (fail closed).
+- A process taking over must not become active until the previous holder is known to be unable to
+  continue serving, or equivalent fencing has been established.
+- A process that has stopped serving resumes only through the full DB.5 ordering.
+
+A database session lock alone is insufficient: it is released when its connection drops, while the
+process that held it may still be running and serving from in-memory state. The mechanism — for
+example a lease with bounded renewal, a fencing token, per-request verification, or process
+termination on lost connection — is a stage-B design decision.
+
+Fencing never replaces the restart of every process required on restore (AG.6).
+
+## DB.7 Stage C preconditions
+
+- AG.3 (S-IV) and AG.4 (R-b) implemented.
+- A distributed sequence authority (ADR-026).
+- **Execution-receipt ownership:** receipts must identify their owning execution authority or
+  instance sufficiently for startup reconciliation to distinguish orphaned executions from
+  executions still owned by another live instance. Today `reconcile_on_startup` resolves every open
+  receipt and receipts carry no owner ([Code] `app/services/execution_reconciler.py`). The
+  mechanism belongs to the durable evidence boundary and ADR-032.
+- DR-8(c) decided.
+
+## DB.8 Not decided here
+
+- The stage-B active-instance mechanism, its verification bound, and takeover timing (DB.6).
+- The ADR-032 §12.6 amendment text (DB.5).
+- **Durable evidence boundary** (Gate 3, open): which namespaces must be durable before a durable
+  composition satisfies L.6. It spans this ADR (findings and watermarks) and ADR-032 (execution
+  receipts; ADR-032 §12.10).
+- **DR-8(c)** (Gate 3, open): `recovery_generation` allocation.
 
 ---
 
