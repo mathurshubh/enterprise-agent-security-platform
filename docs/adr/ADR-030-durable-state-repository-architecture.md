@@ -329,37 +329,61 @@ Explicit allocation in place of derivation is deferred (L.12).
 `AgentEnforcementState.epoch` ([Code] `app/services/runtime_service.py`,
 `app/services/detection_service.py`).
 
-## L.6 Durable Watermark Integrity
+## L.6 Monotonic Durable Namespace Integrity
 
-> **Durable Watermark Integrity:** A durable watermark may reference only a namespace whose
-> allocator is durable, whose position is never reset or rewound below any watermark that
-> references it, and whose state is restored together with the watermark.
+*Generalized 2026-10-05. The previous framing, Durable Watermark Integrity, stated the invariant
+only for watermarks referencing allocators. A second reference class exists, so the restoration
+rule is stated once and the watermark-specific property is kept where it belongs.*
+
+> **Monotonic Durable Namespace Integrity:** A durable namespace must not be restored below any
+> durable record that references it. Equality with the highest referencing value is not required.
+
+Two reference classes exist, and they differ in consumer behaviour rather than in restoration
+correctness:
+
+- A **watermark reference** additionally carries **cursor semantics**: consumers ignore records at
+  or below the watermark.
+- A **state-stamp reference** carries **no cursor semantics**. The referencing record holds an
+  immutable historical copy of the referenced value, and nothing is skipped on it.
 
 Current references [Code]:
 
-| Durable value | References | Allocator today |
-| :--- | :--- | :--- |
-| `agent_enforcement_state.baseline_evidence_sequence` | `Finding.evidence_sequence` | `FindingsService`, in process memory; no repository |
-| `agent_enforcement_state.baseline_agent_sequence` | `SessionEvent.agent_sequence` | `agent_sequence_counters` |
-| `approval_continuations.enforcement_epoch` | `AgentEnforcementState.epoch` | Enforcement state repository |
+| Referencing record | Referenced namespace | Class | Allocator today |
+| :--- | :--- | :--- | :--- |
+| `agent_enforcement_state.baseline_evidence_sequence` | `Finding.evidence_sequence` | watermark | `FindingsService`, in process memory; no repository |
+| `agent_enforcement_state.baseline_agent_sequence` | `SessionEvent.agent_sequence` | watermark | `agent_sequence_counters` |
+| `approval_continuations.enforcement_epoch` | `AgentEnforcementState.epoch` | watermark | Enforcement state repository |
+| `Finding.recovery_generation` | `AgentEnforcementState.recovery_generation` | **state stamp** | Enforcement state repository (DR-8(c)) |
 
-Consumers ignore records at or below these watermarks ([Code]
-`app/services/agent_risk_aggregate.py`; §2.D *Watermark Isolation*). A volatile or rewound allocator
-would cause new records to be treated as already covered, suppressing detection [Analysis].
+In every row the **referenced namespace** must not be restored below the **referencing record**.
+For the three watermark rows, consumers additionally ignore records at or below the watermark
+([Code] `app/services/agent_risk_aggregate.py`; §2.D *Watermark Isolation*), and a volatile or
+rewound allocator would cause new records to be treated as already covered, suppressing detection
+[Analysis]. The state-stamp row has no such consumer behaviour: nothing skips findings by recovery
+generation, so its integrity requirement is restoration non-regression alone.
+
+Non-equality is legitimate in both classes. An allocator sits above a watermark in ordinary
+operation, and an enforcement state may sit above the highest stamp that references it — two
+reinstatements can occur without producing findings:
+
+```text
+AgentEnforcementState.recovery_generation = 7
+highest durable Finding.recovery_generation = 5        valid
+```
 
 Required:
 
 1. **Composition validation.** A composition must not make a store durable while it holds a
-   watermark into a volatile namespace. Durable enforcement with in-memory findings is not a valid
+   reference into a volatile namespace. Durable enforcement with in-memory findings is not a valid
    durable-security topology.
-2. **No rewind.** An allocator position below a watermark that references it is an integrity
-   violation.
+2. **No regression.** A referenced namespace position below a durable record that references it is
+   an integrity violation.
 3. **Coordinated restoration.** Referencing and referenced namespaces are restored together.
    Whole-database point-in-time restoration is acceptable. Restoring related stores to different
    points is unsupported, and partial restoration must not silently resume service.
-4. **Startup.** If any allocator position is below a watermark that references it, the service
-   refuses to become operational. This is a persistence-integrity condition, not an agent-specific
-   posture.
+4. **Startup.** If any referenced namespace position is below a durable record that references it,
+   the service refuses to become operational. This is a persistence-integrity condition, not an
+   agent-specific posture.
 
 ## L.7 Lifecycle caching (supersedes the caching mitigation in *Risks & Mitigations*)
 
@@ -599,6 +623,12 @@ grants; that single-active-process condition is a deployment-boundary requiremen
 transitions remain serialized by durable compare-and-set in every durable composition (ADR-024
 A.6).
 
+**Dependency on DB.6.** This sufficiency is conditional, not a property of the composition on its
+own. Process-local issuance closure and revocation are sufficient only while exactly one process
+can exercise active authority, and DB.6 is the mechanism that enforces that condition. Until DB.6
+is implemented, AG.5 cannot be treated as sufficient for a durable composition. This states an
+existing dependency; it changes no AG.5 decision.
+
 AG.3 and AG.4 apply to the multi-instance durable composition. There, the in-process fast path
 remains but is never the sole correctness mechanism (ADR-024 A.9).
 
@@ -622,10 +652,15 @@ documented behaviour, not a new decision.
 
 - **DR-4 — deployment boundary:** which composition is supported until the AG.3 and AG.4
   preconditions are implemented. *Addressed by amendment DB (Proposed).*
-- **DR-8(c) — `recovery_generation` allocation:** the allocation mechanism remains undecided,
-  including the concern about clocks on different replicas.
-- **Durable evidence boundary:** which namespaces must be durable before a durable composition
-  satisfies L.6.
+- **DR-8(c) — `recovery_generation` allocation:** **resolved.** `AgentEnforcementState.recovery_generation`
+  is the authoritative durable allocation namespace; the design is recorded in the DR-8(c)
+  amendment below. The clock concern raised here no longer applies to allocation, which derives no
+  value from wall-clock time. It survives in deployment takeover, where lease expiry may be
+  clock-dependent; see the B/B2 mechanism amendment.
+- **Durable evidence boundary:** **resolved** by L.6 and the namespace relationships recorded in
+  this ADR. The boundary includes the
+  `Finding.recovery_generation` → `AgentEnforcementState.recovery_generation` state-stamp
+  relationship.
 
 ---
 
@@ -659,7 +694,7 @@ not the failure.
 |---|---|---|---|
 | **A** (current) | Exactly one application process; in-memory state | Process-local (AG.5) | Now |
 | **B** | Exactly one active process; durable state | Process-local (AG.5) | F-09 implemented; production durable composition; durable evidence boundary decided and implemented (L.6); DR-8(c) decided and implemented where required by the durable evidence boundary; DB.5 and DB.6 implemented |
-| **B2** | One active process and non-serving standbys; durable state | Process-local (AG.5) | As B |
+| **B2** | One active process and non-serving standbys; durable state | Process-local (AG.5) | All of B, **plus** takeover-specific fencing: a standby can become active, so the B/B2 mechanism amendment's fencing contract applies |
 | **C** | Multiple active processes; shared durable state | AG.3 (S-IV) and AG.4 (R-b) | All of B, plus DB.7 |
 | **D** | Stateless API workers in front of one authority process | — | **Not recommended**: it adds a worker-to-authority trust boundary with no current requirement for it |
 
@@ -714,9 +749,13 @@ acquire active-instance authority → L.6 integrity check → evidence reconcili
 - A process that has stopped serving resumes only through the full DB.5 ordering.
 
 A database session lock alone is insufficient: it is released when its connection drops, while the
-process that held it may still be running and serving from in-memory state. The mechanism — for
-example a lease with bounded renewal, a fencing token, per-request verification, or process
-termination on lost connection — is a stage-B design decision.
+process that held it may still be running and serving from in-memory state.
+
+**Mechanism (decided).** Authority acquisition MUST be established by a durable compare-and-set
+transition. Lease expiry MAY determine eligibility for takeover, but takeover MUST NOT rely on
+clock comparison alone to prevent stale writes; the fencing generation provides the authoritative
+stale-writer barrier. The mechanism, its fenced-mutation surface and its Stage-C compatibility
+constraint are recorded in the B/B2 mechanism amendment below.
 
 Fencing never replaces the restart of every process required on restore (AG.6).
 
@@ -729,6 +768,11 @@ Fencing never replaces the restart of every process required on restore (AG.6).
   executions still owned by another live instance. Today `reconcile_on_startup` resolves every open
   receipt and receipts carry no owner ([Code] `app/services/execution_reconciler.py`). The
   mechanism belongs to the durable evidence boundary and ADR-032.
+
+  This remains a **stage-C precondition**. For B2 it is **defence in depth, not a requirement**: a
+  fenced predecessor cannot record terminal evidence, so its open receipts genuinely are unknown
+  and reconciling them is correct. Ownership would convert a correctness dependency on fencing into
+  a verifiable check.
 - DR-8(c) decided.
 
 ## DB.8 Not decided here
@@ -793,3 +837,177 @@ Fencing never replaces the restart of every process required on restore (AG.6).
 - **Fail-Closed on Persistence Errors:** If the repository cannot persist an audit event or verify an enforcement epoch due to database unavailability, the runtime pipeline must fail closed (halt tool execution and deny the request).
 - **Least Privilege Database Accounts:** Production PostgreSQL roles for the runtime service must be granted `INSERT` and `SELECT` only on the audit evidence table, with `UPDATE` and `DELETE` privileges explicitly revoked. *Amended (L.3): this also applies to the administrative and enforcement ledgers and to `administrative_audit_events` (ADR-024 A.8).*
 - **Independent Verifiability:** Storage-level append-only guarantees must be augmented with independent verification mechanisms so that unauthorized modifications by privileged database users remain detectable.
+
+---
+
+# Amendment — Recovery-Generation Allocation (DR-8(c))
+
+*Status of this amendment: Proposed. Dated 2026-10-05. This ADR remains Proposed. Origin: Gate 3
+DR-8(c) review. It records the allocation design that AG.8 points to. It authorizes no
+implementation.*
+
+## RG.1 Context
+
+AG.8 recorded the allocation mechanism as undecided, including a concern about clocks on different
+replicas. That concern was well founded, and it describes the **current** implementation rather
+than a hypothetical one.
+
+Today the detection path reads two values that must be coherent from two different sources at two
+different times [Code]:
+
+```text
+get_enforcement_state(agent_id)            → baseline_agent_sequence     (snapshot)
+enforcement_epoch(agent_id, as_of=event.timestamp)  → recovery generation (separate, clock-parameterised)
+                                           → stamped onto Finding.enforcement_epoch
+```
+
+So the recovery generation is derived from a timestamp-parameterised count of `REINSTATE` ledger
+entries, while the sequence watermark it must be coherent with comes from an earlier snapshot. This
+amendment replaces that derivation with an allocated namespace; the same-snapshot requirement in
+RG.2 is therefore a **replacement correctness contract for an existing split read**, not a future
+optimization.
+
+## RG.2 Allocation design
+
+1. `AgentEnforcementState.recovery_generation` is the **authoritative durable allocation namespace**
+   for recovery generation.
+2. New agents initialize `recovery_generation` to `0`.
+3. Existing durable agents are initialized to the number of recorded `REINSTATE` entries applicable
+   to that agent, subject to a migration integrity check. This value represents the number of
+   recorded historical reinstatements; it does not fabricate unrecorded historical events.
+4. `REINSTATE` is the **sole** operation that changes `recovery_generation` after initialization,
+   and increments it by **exactly one**, in the same enforcement-state compare-and-set transaction
+   that records the reinstatement.
+5. `recovery_generation` is monotonically non-decreasing per agent and MUST NOT be restored below a
+   durable value that references it (L.6).
+6. The live detection path MUST NOT derive `recovery_generation` from wall-clock time.
+7. Detection MUST read `baseline_agent_sequence` and `recovery_generation` from the **same**
+   authoritative enforcement-state snapshot.
+8. `Finding.recovery_generation` is an **immutable historical state stamp**. It allocates no
+   recovery generations and provides no cursor semantics (L.6).
+9. Enforcement-ledger generation values are **audit evidence**, not the authoritative allocator.
+10. The first durable representation of `Finding.recovery_generation` MUST use this allocated
+    namespace.
+
+The allocation mechanism **supersedes** the previously contemplated timestamp-derived
+`get_recovery_generation(as_of=...)` approach. No wall-clock-derived recovery-generation calculation
+remains on the live detection path.
+
+## RG.3 Ordering relative to durable findings
+
+> **O3 MUST be implemented before, or atomically with, the introduction of durable `Finding`
+> records.** Durable findings MUST NOT be introduced while the recovery generation remains derived
+> from enforcement-ledger timestamps. No dual regime of timestamp-derived and allocated
+> recovery-generation values is permitted for durable findings.
+
+This invariant is currently self-enforcing only because findings are not durable: `Finding` carries
+the derived value in process memory, so no durable representation exists to migrate. The forbidden
+sequence is therefore:
+
+```text
+durable findings first  →  derived values become durable  →  O3 introduced
+                        →  two generations of historical semantics
+```
+
+Note that the Stage-B precondition list in DB.2 names the durable findings repository first. That is
+a precondition for the *deployment stage*, not an implementation order: O3 is a prerequisite for
+implementing the durable findings boundary, not the reverse.
+
+## RG.4 Not decided here
+
+- The identifier alignment of `Finding.enforcement_epoch` to `Finding.recovery_generation`. The
+  field currently holds a recovery generation under an `epoch` name, which the architecture
+  principles already concede is misleading. The rename was anticipated by F-09; because this
+  amendment changes the value's semantics, whether it remains part of F-09 is a separate decision.
+- The durable findings repository and its `evidence_sequence` allocator.
+
+---
+
+# Amendment — Stage-B/B2 Deployment Mechanisms
+
+*Status of this amendment: Proposed. Dated 2026-10-05. This ADR remains Proposed. Origin: the
+stage-B mechanism review following DB.6. It records the active-authority mechanism and the
+composition contract. It authorizes no implementation of stage B, B2 or C.*
+
+## SB.1 Composition-root durability and authority contract
+
+Durable repositories alone do not make a composition stage-B-safe. The repository factory
+constructs a requested topology and fails closed on a missing required implementation; it does not,
+and should not, own deployment-stage semantics.
+
+> **Deployment-stage composition invariant:** the composition root MUST establish the durability
+> **and active-authority** contract appropriate to the selected deployment stage before any
+> security-serving service is constructed.
+
+For stages B and B2 that contract requires all of: durable repositories for every namespace
+participating in durable security state; the active-instance authority mechanism of SB.2; and the
+DB.5 startup ordering with verification before serving.
+
+Repository factory behaviour MUST NOT be interpreted as establishing the deployment contract by
+substitution. The previously identified silent SQL-to-in-memory repository fallback was resolved
+before this amendment; the residual addressed here is **ownership of the deployment-stage
+assertion**, which is a different concern.
+
+## SB.2 Active-instance authority
+
+- Authority is held as **durable state**, acquired by compare-and-set. A database session or
+  advisory lock alone is insufficient (DB.6).
+- The authority record carries a **fencing generation** advanced by **exactly one** per successful
+  acquisition — the same monotonic compare-and-set idiom as `AgentEnforcementState.epoch` and
+  `recovery_generation`. Allocation derives no value from wall-clock time.
+- A **serving gate** at the request boundary verifies possession within a bounded staleness
+  interval, before any resource lookup. Loss of verifiable possession stops serving (fail closed).
+- Read paths require no separate fencing: a process that may not serve makes no security decisions,
+  and reads that inform a fenced mutation are covered by SB.3.
+
+## SB.3 Fenced durable mutations (stage B2)
+
+> **Stale-writer barrier:** once a successor has acquired a higher fencing generation, the
+> predecessor cannot perform a fenced durable mutation, **even if the predecessor has not yet
+> observed loss of its lease.**
+
+This is the property a lease cannot provide, and it is what distinguishes B2 from B.
+
+The fenced surface is defined **by effect, not by operation name**: every security-relevant durable
+mutation — create, update, transition, allocate, **delete or prune** — MUST carry the current
+fencing generation as a condition of the transaction in which it occurs, sourced from the
+authoritative active-instance record. The condition is evaluated **within** that transaction, never
+at a preceding read.
+
+Defining the surface by effect is deliberate. Evidence pruning is destructive and allocates
+nothing, so a rule phrased around allocation would exclude it; and a future destructive repository
+method would otherwise bypass the contract silently.
+
+## SB.4 Takeover and reconciliation
+
+Reconciliation, not issuance, is what makes takeover dangerous. Startup reconciliation resolves
+every open execution receipt and receipts carry no owner ([Code]
+`app/services/execution_reconciler.py`), so a successor reconciles the predecessor's in-flight
+executions. That is correct only if the predecessor genuinely cannot continue — which is why DB.5
+orders authority acquisition before the integrity check and reconciliation, and why B2 requires
+SB.3.
+
+Stage B has no takeover and therefore no stale-writer race; its requirement is that loss of
+verifiable authority stops serving.
+
+## SB.5 Stage-C compatibility
+
+The authority record and fencing generation are **deployment-boundary machinery, not part of the
+domain security model**. Stage C replaces them with AG.3 (S-IV) and AG.4 (R-b).
+
+> The fencing generation MUST NOT be persisted onto domain records.
+
+It belongs in the write *condition*, not in the written row. Stamping it onto session events,
+findings or receipts would create a durable artifact Stage C cannot remove, and a column whose
+meaning evaporates with the mechanism.
+
+## SB.6 Residual risks
+
+- **Stale-holder durable mutation after takeover** — the B2-specific threat, addressed by SB.3.
+- **Bounded takeover outage** equal to lease expiry plus skew margin. This is where the clock
+  concern relocated from AG.8 survives; it is irreducible with leases and is a **residual
+  availability risk, not an authorization bypass**.
+- **Database partition becomes a serving outage.** Consistent with the existing fail-closed
+  requirement for audit persistence, but at stage B the effect is total rather than path-specific.
+- **Reconciliation remains unconditional.** Fencing makes it safe; receipt ownership (DB.7) would
+  make it verifiable.
