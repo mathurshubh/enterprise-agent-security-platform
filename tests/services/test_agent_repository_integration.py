@@ -25,6 +25,7 @@ from app.models.agent_enforcement import (
     EnforcementTransition,
 )
 from app.models.audit_event import Decision
+from app.models.authorization_result import LifecycleRefusalCode
 from app.models.tool import Tool
 from app.models.tool_capability import ToolCapability
 from app.models.tool_governance import ToolGovernance
@@ -310,7 +311,9 @@ class TestPostCASFailureAndFailClosedProjection:
         tool = make_test_tool("file_read")
         eval_result = policy_engine.evaluate_policy(projected, tool)
         assert eval_result.decision == Decision.DENY
-        assert "inactive status: suspended" in eval_result.reason.lower()
+        # Asserted on the stable code, not the message text: ADR-024 A.4 makes the code
+        # the contract and the prose explicitly not one.
+        assert eval_result.status_check.code == LifecycleRefusalCode.AGENT_SUSPENDED.value
 
     def test_disabled_agent_status_takes_priority_over_dynamic_posture(self) -> None:
         agent_repo = InMemoryAgentRepository()
@@ -350,7 +353,7 @@ class TestPostCASFailureAndFailClosedProjection:
         tool = make_test_tool("file_read")
         eval_result = policy_engine.evaluate_policy(result, tool)
         assert eval_result.decision == Decision.DENY
-        assert "inactive status: disabled" in eval_result.reason.lower()
+        assert eval_result.status_check.code == LifecycleRefusalCode.AGENT_DISABLED.value
 
 
 class TestObjectIsolationAndDefensiveCopies:

@@ -20,6 +20,27 @@ class AuthorizationCheckStatus(str, Enum):
     NOT_EVALUATED = "not_evaluated"
 
 
+class LifecycleRefusalCode(str, Enum):
+    """Stable codes for lifecycle-caused denials (ADR-024 amendment A.4).
+
+    Machine-readable and independent of message text, so a caller can distinguish *why*
+    an agent may not execute without parsing a human-readable reason.
+
+    Only the codes for **known** lifecycle states are defined here, because only these are
+    reachable today. ADR-030 L.10 additionally specifies
+    ``ADMINISTRATIVE_STATE_UNAVAILABLE`` and ``ENFORCEMENT_STATE_UNAVAILABLE`` for the case
+    where a plane's authoritative state cannot be established, together with a precedence
+    ordering among all five. Neither is reachable while execution is gated on a single
+    projected status: one value cannot fail two ways at once, so no precedence is
+    observable and nothing could test it. Both arrive with the administrative plane, which
+    is what makes two authorities — and therefore simultaneous failures — possible.
+    """
+
+    AGENT_NOT_ACTIVE = "AGENT_NOT_ACTIVE"
+    AGENT_DISABLED = "AGENT_DISABLED"
+    AGENT_SUSPENDED = "AGENT_SUSPENDED"
+
+
 class AuthorizationCheck(BaseModel):
     """The immutable outcome of a single deterministic authorization check.
 
@@ -31,6 +52,13 @@ class AuthorizationCheck(BaseModel):
 
     status: AuthorizationCheckStatus
     reason: str
+    code: str | None = Field(
+        default=None,
+        description=(
+            "Stable machine-readable refusal code, independent of ``reason`` text. "
+            "Set for lifecycle-caused denials (ADR-024 A.4); None where no code applies."
+        ),
+    )
     details: Mapping[str, str] = Field(default_factory=dict)
 
     @field_validator("details", mode="after")
