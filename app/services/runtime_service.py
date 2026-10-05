@@ -80,6 +80,12 @@ SESSION_BINDING_INVALID = "SESSION_BINDING_INVALID"
 POSTURE_RECONCILIATION_FAILED = "POSTURE_RECONCILIATION_FAILED"
 # Error code for a request refused because the detection horizon was unavailable.
 HORIZON_UNAVAILABLE = "HORIZON_UNAVAILABLE"
+# Deliberately distinct from ``ReconciliationReason.EVIDENCE_UNAVAILABLE``, which answers a
+# different question: that one is a post-hoc statement that an execution's outcome cannot be
+# determined from the evidence that survived. This one says detection evidence could not be
+# recorded at all, before any authority was issued. Reusing the other name would put two
+# meanings behind one string, which is worse than two strings for one meaning.
+EVIDENCE_RECORDING_FAILED = "EVIDENCE_RECORDING_FAILED"
 
 
 class IncompleteRuntimeConfigurationError(Exception):
@@ -624,6 +630,85 @@ class RuntimeService:
         self._last_result = result
         return result
 
+    def _refuse_evidence_recording(
+        self,
+        recorded_event: SessionEvent,
+        resolved_tool_id: str | None,
+        resource: str | None,
+        param_hash: str,
+        trace_id: str | None,
+        principal: str | None,
+        tenant_id: str | None,
+        started_at: float,
+        error: Exception,
+    ) -> RuntimeResult:
+        """Fail closed when detection evidence cannot be recorded.
+
+        Mandatory security evidence must be durable before authority is issued. If the
+        evidence store refuses the write, detection effectively did not happen for this
+        request, so the request is denied and no grant is minted.
+
+        An unhandled exception already prevented issuance, because it unwound ``execute``
+        before the grant was minted. That was not sufficient: it also skipped the final
+        decision on the persisted event, the audit record and the telemetry, so the refusal
+        itself left no evidence. Authorization safety and evidence integrity are separate
+        guarantees, and only the first survived.
+
+        ``findings`` is empty here rather than carrying what detection computed. The write
+        failed, so no evidence was accepted; reporting findings would assert evidence the
+        store does not hold.
+
+        Distinct from a projection failure. If the risk projection cannot ingest a finding
+        that **was** recorded, the evidence exists and the posture degrades to ``STALE``
+        without refusing the request. Conflating the two would either discard good evidence
+        or let unrecorded evidence through.
+        """
+        session_id = recorded_event.session_id
+        agent_id = recorded_event.agent_id
+        tool_id = recorded_event.tool_id
+        event = self._finalize_refused_event(recorded_event)
+
+        audit_event = AuditEvent(
+            event_id=f"evt-{uuid.uuid4()}",
+            session_id=session_id,
+            agent_id=agent_id,
+            requested_tool_id=tool_id,
+            tool_id=resolved_tool_id,
+            tool_version=recorded_event.tool_version,
+            decision=Decision.DENY,
+        )
+        self._audit_service.record_event(audit_event)
+
+        elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+        self._safe_emit(
+            BehavioralEvent(
+                event_type=TelemetryEventType.GOVERNANCE_DECISION_FINALIZED,
+                session_id=session_id,
+                agent_id=agent_id,
+                trace_id=trace_id,
+                principal=principal,
+                tenant_id=tenant_id,
+                tool_id=tool_id,
+                resource_target=resource,
+                parameter_hash=param_hash,
+                decision=Decision.DENY,
+                execution_time_ms=elapsed_ms,
+                error_code=EVIDENCE_RECORDING_FAILED,
+            )
+        )
+
+        result = RuntimeResult(
+            event=event,
+            findings=[],
+            risk_assessment=None,
+            enforcement_posture=None,
+            response_action=None,
+            refusal_reason=EVIDENCE_RECORDING_FAILED,
+            authorization=None,
+            audit_event_id=audit_event.event_id,
+        )
+        self._last_result = result
+        return result
 
     def _suspend_agent(
         self,
@@ -1109,16 +1194,40 @@ class RuntimeService:
         # reports only newly recorded evidence, so a crossed threshold cannot raise
         # cumulative risk again on later requests.
         findings: list[Finding] = []
+        # Recording evidence and projecting it are separate failures with opposite correct
+        # answers. A failed *write* means detection did not happen for this request, so it is
+        # refused below. A failed *projection* is of evidence that was accepted, so it degrades
+        # the posture and the evidence stands.
+        evidence_error: Exception | None = None
         with self._posture_lock(agent_id):
-            findings = self._findings_service.record_new_findings(
-                content_findings + session_findings
+            try:
+                findings = self._findings_service.record_new_findings(
+                    content_findings + session_findings
+                )
+            except Exception as exc:
+                evidence_error = exc
+            else:
+                for f in findings:
+                    try:
+                        self._risk_aggregator.ingest_finding(f)
+                    except Exception:
+                        self._risk_aggregator.mark_stale(agent_id)
+                        # Projection failed closed to STALE; do not roll back authoritative evidence
+
+        # Refused outside the posture lock: the refusal writes audit evidence and emits
+        # telemetry, neither of which needs the lock, and neither should be delayed by it.
+        if evidence_error is not None:
+            return self._refuse_evidence_recording(
+                recorded_event=recorded_event,
+                resolved_tool_id=resolved_tool_id,
+                resource=resource,
+                param_hash=param_hash,
+                trace_id=trace_id,
+                principal=principal,
+                tenant_id=tenant_id,
+                started_at=start_time,
+                error=evidence_error,
             )
-            for f in findings:
-                try:
-                    self._risk_aggregator.ingest_finding(f)
-                except Exception:
-                    self._risk_aggregator.mark_stale(agent_id)
-                    # Projection failed closed to STALE; do not roll back authoritative evidence
 
         # Retrieve accumulated historical findings for session + agent scope to calculate cumulative risk posture
         accumulated_findings = self._findings_service.list_findings(
