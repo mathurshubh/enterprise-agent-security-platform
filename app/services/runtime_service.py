@@ -1022,15 +1022,19 @@ class RuntimeService:
             else None
         )
 
-        # Read at the moment of the triggering event, never as the agent's current
-        # epoch. An event from before an enforcement-recovery boundary must derive
-        # the same epoch whenever it is evaluated, or the same behaviour would
-        # produce one identity live and another on replay. This is a read: the
-        # runtime may escalate enforcement and can never relax it.
         # Read from the enforcement snapshot captured above, not from a second
         # timestamp-parameterised call. DR-8(c): baseline_agent_sequence and
-        # recovery_generation must come from the same authoritative snapshot, and no
-        # recovery generation is derived from wall-clock time on the live detection path.
+        # recovery_generation must come from the same authoritative snapshot, so the
+        # watermark and the generation cannot disagree about which recovery lifecycle
+        # is in force, and no recovery generation is derived from wall-clock time.
+        #
+        # This supersedes an earlier read taken at the triggering event's timestamp.
+        # That read existed to keep a past event's identity stable under replay, but it
+        # derived the value from a clock-parameterised ledger count, so it could be
+        # taken at the wrong moment. Replay stability now comes from the value being
+        # allocated and then stamped immutably onto the finding: it is recorded once,
+        # not recomputed. This remains a read -- the runtime may escalate enforcement
+        # and can never relax it.
         recovery_generation = (
             enforcement_state.recovery_generation
             if enforcement_state is not None
