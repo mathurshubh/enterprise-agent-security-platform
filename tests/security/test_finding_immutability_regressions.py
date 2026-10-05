@@ -70,7 +70,7 @@ class TestRecordedEvidenceCannotBeRewritten:
             finding(
                 rule_name="EXCESSIVE_DENIALS",
                 evidence_event_sequences=(1, 2, 3),
-                enforcement_epoch=0,
+                recovery_generation=0,
             )
         )
         stored = store.list_findings()[0]
@@ -78,10 +78,10 @@ class TestRecordedEvidenceCannotBeRewritten:
         with pytest.raises(ValidationError):
             stored.evidence_event_sequences = (7, 8, 9)
         with pytest.raises(ValidationError):
-            stored.enforcement_epoch = 5
+            stored.recovery_generation = 5
 
         assert store.list_findings()[0].evidence_event_sequences == (1, 2, 3)
-        assert store.list_findings()[0].enforcement_epoch == 0
+        assert store.list_findings()[0].recovery_generation == 0
 
     @pytest.mark.security_invariant
     def test_invariant_no_field_of_a_recorded_finding_is_writable(self) -> None:

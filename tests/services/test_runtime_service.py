@@ -571,7 +571,7 @@ def test_horizon_unavailable_fails_closed_without_grant():
     )
 
 
-def test_stale_enforcement_epoch_rejects_grant_issuance():
+def test_stale_recovery_generation_rejects_grant_issuance():
     """Verify that concurrent epoch advancement fails closed at the ExecutionAuthority boundary."""
     from datetime import datetime, timezone
     from uuid import uuid4

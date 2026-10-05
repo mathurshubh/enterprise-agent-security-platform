@@ -67,7 +67,7 @@ def test_detect_excessive_denials():
         "agent-1",
         EXCESSIVE_DENIAL_THRESHOLD,
         findings[0].evidence_event_sequences,
-        findings[0].enforcement_epoch,
+        findings[0].recovery_generation,
     )
 
 
