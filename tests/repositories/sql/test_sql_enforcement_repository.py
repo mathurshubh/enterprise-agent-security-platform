@@ -37,6 +37,8 @@ KNOWN_ENFORCEMENT_AGENTS = [
     "agent-cas-1",
     "agent-cas-2",
     "agent-cas-atomicity",
+    "agent-generation-monotonic",
+    "agent-generation-vs-epoch",
     "agent-iso-enf",
     "agent-monotonic-epoch",
     "agent-namespaces",

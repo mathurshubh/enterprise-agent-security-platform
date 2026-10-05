@@ -331,6 +331,84 @@ class TestEnforcementPlaneInvariants:
         assert state4.baseline_evidence_sequence == 25
         assert state4.baseline_agent_sequence == 90
 
+    def test_recovery_generation_advances_only_on_reinstatement(self) -> None:
+        """DR-8(c): the allocator counts recoveries, and ``epoch`` counts transitions.
+
+        Walked over the same suspend/reinstate sequence as the epoch test above, because
+        that sequence is what discriminates the two quantities: they are both called some
+        form of "epoch" in the codebase and they diverge immediately. ``epoch`` runs
+        0-1-2-3-4 over these four transitions; the recovery generation runs 0-0-1-1-2.
+
+        A test that exercised only one suspend+reinstate could not tell a +1-per-REINSTATE
+        allocator from a +1-per-transition counter read one step late, so the second cycle
+        is load-bearing rather than repetition.
+        """
+        service = registered_service()
+        agent_id = "soc-agent"
+        watermark = BaselineWatermark(
+            agent_id=agent_id,
+            baseline_evidence_sequence=10,
+            baseline_agent_sequence=40,
+        )
+
+        # 0. A new agent starts at the base of the namespace.
+        assert service.get_enforcement_state(agent_id).recovery_generation == 0
+
+        # 1. Containment is not a recovery: the generation must not move.
+        service.suspend_agent(agent_id, reason="suspension 1")
+        state1 = service.get_enforcement_state(agent_id)
+        assert state1.epoch == 1
+        assert state1.recovery_generation == 0
+
+        # 2. The first recovery allocates generation 1.
+        service.reinstate_agent(
+            agent_id, actor="admin-1", reason="clearance 1", watermark=watermark
+        )
+        state2 = service.get_enforcement_state(agent_id)
+        assert state2.epoch == 2
+        assert state2.recovery_generation == 1
+
+        # 3. Containment again, and again the generation holds.
+        service.suspend_agent(agent_id, reason="suspension 2")
+        state3 = service.get_enforcement_state(agent_id)
+        assert state3.epoch == 3
+        assert state3.recovery_generation == 1
+
+        # 4. The second recovery allocates exactly one more -- not two, and not the epoch.
+        service.reinstate_agent(
+            agent_id, actor="admin-2", reason="clearance 2", watermark=watermark
+        )
+        state4 = service.get_enforcement_state(agent_id)
+        assert state4.epoch == 4
+        assert state4.recovery_generation == 2
+
+    def test_recovery_generation_is_not_the_epoch(self) -> None:
+        """The two must not be interchangeable after any non-trivial history.
+
+        Stated separately from the walk above because this is the property the naming
+        hazard actually threatens: a future reader reaching for ``epoch`` where the
+        recovery generation is meant. After one suspend+reinstate they read 2 and 1.
+        """
+        service = registered_service()
+        agent_id = "soc-agent"
+
+        service.suspend_agent(agent_id, reason="contained")
+        service.reinstate_agent(
+            agent_id,
+            actor="admin",
+            reason="cleared",
+            watermark=BaselineWatermark(
+                agent_id=agent_id,
+                baseline_evidence_sequence=1,
+                baseline_agent_sequence=2,
+            ),
+        )
+
+        state = service.get_enforcement_state(agent_id)
+        assert state.epoch == 2
+        assert state.recovery_generation == 1
+        assert state.recovery_generation != state.epoch
+
     def test_enforcement_state_unavailable_error_propagates_fail_closed(self) -> None:
         from unittest.mock import MagicMock
 

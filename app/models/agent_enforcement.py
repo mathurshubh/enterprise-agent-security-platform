@@ -76,6 +76,12 @@ class AgentEnforcementState(BaseModel):
       ``baseline_evidence_sequence`` belongs to ``Finding.evidence_sequence`` and
       ``baseline_agent_sequence`` to ``SessionEvent.agent_sequence``. They have separate
       allocators, advance at different rates, and are never compared against each other.
+    - Authoritative Recovery Generation: ``recovery_generation`` is the authoritative
+      durable allocation namespace for recovery generation (ADR-030 amendment DR-8(c)).
+      It is **not** ``epoch``: ``epoch`` advances on every transition, while
+      ``recovery_generation`` advances only on a committed ``REINSTATE``, by exactly +1.
+      It is never derived from wall-clock time, and ``Finding.recovery_generation``
+      stamps it as immutable historical evidence.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -93,4 +99,12 @@ class AgentEnforcementState(BaseModel):
     enforcement_baseline_at: datetime | None = None
     baseline_evidence_sequence: int = Field(default=0, ge=0)
     baseline_agent_sequence: int = Field(default=0, ge=0)
+    recovery_generation: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Authoritative recovery generation. Advanced by exactly +1 on a committed "
+            "REINSTATE and by nothing else; never derived from wall-clock time."
+        ),
+    )
     last_transition_at: datetime | None = None

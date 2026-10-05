@@ -72,11 +72,13 @@ immutable historical **state stamp** of the allocated value, carrying no cursor 
 (ADR-030 amendment L.6).
 
 The allocated design supersedes a previously contemplated timestamp-derived
-`get_recovery_generation(as_of=...)`. The value is still exposed as `get_epoch(as_of=...)`
-and stored as `Finding.enforcement_epoch` in the current implementation; those identifiers
-remain misleading until aligned, and that alignment is a separate decision because
-DR-8(c) changes the value's semantics rather than only its name. It is never compared with
-or substituted for `epoch`, although its current identifiers suggest otherwise.
+`get_recovery_generation(as_of=...)`. The durable stamp is now named for the namespace it
+holds, `Finding.recovery_generation`. One misleading identifier remains: the superseded
+derivation is still exposed as `get_epoch(as_of=...)`, which returns a count of `REINSTATE`
+entries and so is not `epoch` at all. It is off the live detection path and documented as
+serving historical baseline audit; its disposition is open (ADR-030 RG.4). It is never
+compared with or substituted for `epoch`, which advances on **every** transition — for one
+suspend-and-reinstate the two read 2 and 1.
 
 `authority_generation` is an execution-authority invalidation namespace, not a lifecycle
 plane, not lifecycle state, and not an authorization source. Both lifecycle planes advance

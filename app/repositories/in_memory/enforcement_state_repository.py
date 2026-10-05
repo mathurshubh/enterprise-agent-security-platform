@@ -10,6 +10,7 @@ from app.models.agent_enforcement import (
 )
 from app.repositories.interfaces.enforcement_state_repository import (
     EnforcementStateRepository,
+    EnforcementStateUnavailableError,
 )
 
 
@@ -23,6 +24,8 @@ class InMemoryEnforcementStateRepository(EnforcementStateRepository):
       On mismatch, commits no changes and returns False.
     - Deterministic Ordering: list_transitions sorts by (occurred_at, transition_id).
     - Epoch Derivation: get_epoch derives count of REINSTATE transitions up to as_of.
+    - Recovery-Generation Integrity: record_transition refuses a recovery_generation that is
+      neither the stored value nor its immediate successor (DR-8(c)).
     - Thread-Safe: Synchronized via threading.RLock.
     """
 
@@ -59,6 +62,23 @@ class InMemoryEnforcementStateRepository(EnforcementStateRepository):
             # 2. new_state.epoch must advance by exactly +1
             if current_epoch != expected_epoch or new_state.epoch != expected_epoch + 1:
                 return False
+
+            # Recovery-generation integrity (DR-8(c)), kept identical to the SQL adapter so
+            # the shared contract suite can assert it once. Raised, not returned as a CAS
+            # miss: a retry cannot repair a generation that moved backwards or skipped.
+            current_generation = (
+                persisted_state.recovery_generation if persisted_state is not None else 0
+            )
+            if new_state.recovery_generation not in (
+                current_generation,
+                current_generation + 1,
+            ):
+                raise EnforcementStateUnavailableError(
+                    f"Refusing to persist a non-monotonic recovery generation for agent "
+                    f"'{agent_id}': stored {current_generation}, offered "
+                    f"{new_state.recovery_generation}. The generation may only hold or "
+                    f"advance by exactly one."
+                )
 
             self._states[agent_id] = new_state.model_copy(deep=True)
             self._transitions.append(transition.model_copy(deep=True))

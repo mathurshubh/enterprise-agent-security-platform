@@ -1027,11 +1027,13 @@ class RuntimeService:
         # the same epoch whenever it is evaluated, or the same behaviour would
         # produce one identity live and another on replay. This is a read: the
         # runtime may escalate enforcement and can never relax it.
+        # Read from the enforcement snapshot captured above, not from a second
+        # timestamp-parameterised call. DR-8(c): baseline_agent_sequence and
+        # recovery_generation must come from the same authoritative snapshot, and no
+        # recovery generation is derived from wall-clock time on the live detection path.
         recovery_generation = (
-            self._agent_service.enforcement_epoch(
-                agent_id, as_of=recorded_event.timestamp
-            )
-            if self._agent_service is not None
+            enforcement_state.recovery_generation
+            if enforcement_state is not None
             else 0
         )
 
