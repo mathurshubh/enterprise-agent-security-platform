@@ -1027,7 +1027,7 @@ class RuntimeService:
         # the same epoch whenever it is evaluated, or the same behaviour would
         # produce one identity live and another on replay. This is a read: the
         # runtime may escalate enforcement and can never relax it.
-        enforcement_epoch = (
+        recovery_generation = (
             self._agent_service.enforcement_epoch(
                 agent_id, as_of=recorded_event.timestamp
             )
@@ -1095,7 +1095,7 @@ class RuntimeService:
             prior_findings=self._findings_service.list_findings(
                 session_id=session_id, agent_id=agent_id
             ),
-            enforcement_epoch=enforcement_epoch,
+            recovery_generation=recovery_generation,
         )
 
         # A threshold detection is evidence of one crossing, not of every request

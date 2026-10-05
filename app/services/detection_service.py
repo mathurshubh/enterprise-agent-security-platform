@@ -25,7 +25,7 @@ def session_finding_id(
     agent_id: str,
     threshold: int,
     evidence_sequences: tuple[int, ...] = (),
-    enforcement_epoch: int = 0,
+    recovery_generation: int = 0,
 ) -> str:
     """Return the identifier for one threshold crossing.
 
@@ -42,7 +42,7 @@ def session_finding_id(
         when it was first reported. Recomputing them from the current window instead
         would slide continuously under sustained denials and manufacture a new
         identity on every request.
-    ``enforcement_epoch``
+    ``recovery_generation``
         which enforcement lifecycle the crossing belongs to. A reinstatement ends the
         previous one: without this, a crossing re-established after reinstatement
         would reuse the superseded identity and produce no new evidence, leaving the
@@ -52,7 +52,7 @@ def session_finding_id(
         uuid5(
             SESSION_FINDING_NAMESPACE,
             f"{rule_name}|{session_id}|{agent_id}|{threshold}"
-            f"|{','.join(str(s) for s in evidence_sequences)}|{enforcement_epoch}",
+            f"|{','.join(str(s) for s in evidence_sequences)}|{recovery_generation}",
         )
     )
 
@@ -92,7 +92,7 @@ class DetectionService:
         *,
         evaluation_time: datetime,
         prior_findings: Sequence[Finding] = (),
-        enforcement_epoch: int = 0,
+        recovery_generation: int = 0,
     ) -> list[Finding]:
         """Report agents whose cumulative denial count within the evaluation window reaches the threshold.
 
@@ -128,7 +128,7 @@ class DetectionService:
                 prior_findings=prior_findings,
                 session_id=latest_session_id,
                 agent_id=agent_id,
-                enforcement_epoch=enforcement_epoch,
+                recovery_generation=recovery_generation,
             )
 
             all_same_session = all(
@@ -148,7 +148,7 @@ class DetectionService:
                         agent_id,
                         EXCESSIVE_DENIAL_THRESHOLD,
                         evidence,
-                        enforcement_epoch,
+                        recovery_generation,
                     ),
                     session_id=latest_session_id,
                     agent_id=agent_id,
@@ -156,7 +156,7 @@ class DetectionService:
                     severity=Severity.MEDIUM,
                     description=description,
                     evidence_event_sequences=evidence,
-                    enforcement_epoch=enforcement_epoch,
+                    recovery_generation=recovery_generation,
                 )
             )
 
@@ -169,7 +169,7 @@ class DetectionService:
         prior_findings: Sequence[Finding],
         session_id: str,
         agent_id: str,
-        enforcement_epoch: int,
+        recovery_generation: int,
     ) -> tuple[int, ...]:
         """Return the evidence identifying this crossing."""
         use_agent_seq = any(e.agent_sequence > 0 for e in agent_denials)
@@ -184,7 +184,7 @@ class DetectionService:
             if (
                 prior.rule_name != EXCESSIVE_DENIALS_RULE_NAME
                 or prior.agent_id != agent_id
-                or prior.enforcement_epoch != enforcement_epoch
+                or prior.recovery_generation != recovery_generation
                 or not prior.evidence_event_sequences
             ):
                 continue

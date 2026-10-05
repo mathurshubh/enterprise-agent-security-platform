@@ -152,11 +152,11 @@ class TestAccumulationOccurrenceIdentity:
     @pytest.mark.security_invariant
     def test_invariant_a_crossing_in_a_new_epoch_is_a_new_occurrence(self) -> None:
         """I5 — a recovery ends the previous occurrence."""
-        first = crossing(enforcement_epoch=0)
-        after = crossing(prior_findings=first, enforcement_epoch=1)
+        first = crossing(recovery_generation=0)
+        after = crossing(prior_findings=first, recovery_generation=1)
 
         assert after[0].finding_id != first[0].finding_id
-        assert after[0].enforcement_epoch == 1
+        assert after[0].recovery_generation == 1
 
     @pytest.mark.security_invariant
     def test_invariant_a_crossing_re_arms_once_its_evidence_ages_out(self) -> None:
@@ -286,7 +286,7 @@ def test_invariant_the_runtime_reads_the_epoch_at_the_triggering_event() -> None
     from app.services.runtime_service import RuntimeService
 
     source = inspect.getsource(RuntimeService.execute)
-    call_start = source.index("enforcement_epoch = ")
+    call_start = source.index("recovery_generation = ")
     call = source[call_start : source.index(")", call_start)]
 
     assert "as_of=recorded_event.timestamp" in call
@@ -323,7 +323,7 @@ def test_invariant_a_recorded_occurrence_artifact_is_not_rewritten() -> None:
             category=FindingCategory.UNKNOWN,
             description="x",
             evidence_event_sequences=evidence,
-            enforcement_epoch=epoch,
+            recovery_generation=epoch,
         )
 
     store = FindingsService()
@@ -333,4 +333,4 @@ def test_invariant_a_recorded_occurrence_artifact_is_not_rewritten() -> None:
 
     stored = store.get_finding("occurrence-1")
     assert stored.evidence_event_sequences == (1, 2, 3)
-    assert stored.enforcement_epoch == 0
+    assert stored.recovery_generation == 0

@@ -73,7 +73,7 @@ class Finding(BaseModel):
     # than recomputing it, because the set of in-window events slides continuously
     # while the underlying crossing does not.
     evidence_event_sequences: tuple[int, ...] = ()
-    enforcement_epoch: int = Field(default=0, ge=0)
+    recovery_generation: int = Field(default=0, ge=0)
     evidence_sequence: int = Field(
         default=UNASSIGNED_SEQUENCE,
         ge=0,
