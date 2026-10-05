@@ -739,3 +739,166 @@ def test_0007_downgrade_restores_the_references_and_keeps_rows_when_all_are_regi
 
     finally:
         engine.dispose()
+
+
+def _seed_agent_at_0007(conn, agent_id: str, *, epoch: int, now: str) -> None:
+    """Insert an agent and its enforcement state as they exist at revision 0007."""
+    conn.execute(
+        text(
+            "INSERT INTO agents (agent_id, name, owner, risk_tier, status,"
+            " approved_tools, created_at, updated_at) VALUES"
+            " (:aid, :aid, 'secops', 'LOW', 'ACTIVE', '[]', :now, :now)"
+        ),
+        {"aid": agent_id, "now": now},
+    )
+    conn.execute(
+        text(
+            "INSERT INTO agent_enforcement_state (agent_id, epoch, current_status,"
+            " enforcement_baseline_at, baseline_evidence_sequence,"
+            " baseline_agent_sequence, updated_at)"
+            " VALUES (:aid, :epoch, 'ACTIVE', :now, 0, 0, :now)"
+        ),
+        {"aid": agent_id, "epoch": epoch, "now": now},
+    )
+
+
+def _seed_transition(conn, agent_id: str, *, tid: str, action: str, epoch: int, now: str) -> None:
+    conn.execute(
+        text(
+            "INSERT INTO agent_enforcement_transitions (transition_id, agent_id, epoch,"
+            " action, actor, reason, previous_status, new_status, occurred_at) VALUES"
+            " (:tid, :aid, :epoch, :action, 'sec-ops', 'test', 'ACTIVE', 'ACTIVE', :now)"
+        ),
+        {"tid": tid, "aid": agent_id, "epoch": epoch, "action": action, "now": now},
+    )
+
+
+def test_0008_initializes_the_generation_from_the_recorded_reinstatements(
+    alembic_config: tuple[Config, str],
+) -> None:
+    """The allocator must start where the superseded derivation left off.
+
+    0008 replaces a timestamp-parameterised count of ``REINSTATE`` ledger entries with a
+    durable column, so an existing row must be initialized to exactly that count — the one
+    value for which the new mechanism agrees with the old one at the moment of cutover.
+
+    Three agents cover the ways this can go wrong, and the three expected values are
+    pairwise distinct from each other and from both ``epoch`` and zero, so no single
+    mistaken source reproduces them:
+
+    - ``agent-two-recoveries`` has 4 transitions of which 2 are ``REINSTATE``. Initializing
+      from ``epoch`` would give 4; the correct answer is 2.
+    - ``agent-contained`` has 1 transition and no ``REINSTATE``. An agent suspended and
+      never recovered has never had a recovery generation allocated, so it must be 0 even
+      though its epoch is 1.
+    - ``agent-one-recovery`` distinguishes 1 from both 0 and 2.
+    """
+    config, db_url = alembic_config
+    engine = create_engine(db_url)
+
+    try:
+        command.upgrade(config, "0007")
+
+        now = "2026-10-05 12:00:00+00:00"
+        with engine.begin() as conn:
+            # Suspend, reinstate, suspend, reinstate -> epoch 4, 2 recoveries.
+            _seed_agent_at_0007(conn, "agent-two-recoveries", epoch=4, now=now)
+            for i, action in enumerate(["SUSPEND", "REINSTATE", "SUSPEND", "REINSTATE"], 1):
+                _seed_transition(
+                    conn, "agent-two-recoveries", tid=f"t2-{i}", action=action, epoch=i, now=now
+                )
+
+            # Suspended, never recovered -> epoch 1, 0 recoveries.
+            _seed_agent_at_0007(conn, "agent-contained", epoch=1, now=now)
+            _seed_transition(
+                conn, "agent-contained", tid="tc-1", action="SUSPEND", epoch=1, now=now
+            )
+
+            # One full cycle -> epoch 2, 1 recovery.
+            _seed_agent_at_0007(conn, "agent-one-recovery", epoch=2, now=now)
+            for i, action in enumerate(["SUSPEND", "REINSTATE"], 1):
+                _seed_transition(
+                    conn, "agent-one-recovery", tid=f"t1-{i}", action=action, epoch=i, now=now
+                )
+
+        command.upgrade(config, "0008")
+
+        with engine.connect() as conn:
+            rows = dict(
+                conn.execute(
+                    text(
+                        "SELECT agent_id, recovery_generation FROM agent_enforcement_state"
+                    )
+                ).all()
+            )
+            epochs = dict(
+                conn.execute(
+                    text("SELECT agent_id, epoch FROM agent_enforcement_state")
+                ).all()
+            )
+
+        assert rows["agent-two-recoveries"] == 2, "counts REINSTATE, not every transition"
+        assert rows["agent-contained"] == 0, "no recovery means no generation allocated"
+        assert rows["agent-one-recovery"] == 1
+
+        # The epochs are carried through untouched, and differ from the generations --
+        # which is what makes the assertions above discriminating.
+        assert epochs == {
+            "agent-two-recoveries": 4,
+            "agent-contained": 1,
+            "agent-one-recovery": 2,
+        }
+
+        # Downgrading drops the column and leaves every row in place.
+        command.downgrade(config, "0007")
+
+        with engine.connect() as conn:
+            assert "recovery_generation" not in {
+                c["name"]
+                for c in inspect(engine).get_columns("agent_enforcement_state")
+            }
+            surviving = conn.execute(
+                text("SELECT COUNT(*) FROM agent_enforcement_state")
+            ).scalar_one()
+
+        assert surviving == 3, "a rename-free column drop must not lose rows"
+
+    finally:
+        engine.dispose()
+
+
+def test_0008_refuses_when_the_ledger_disagrees_with_the_epoch(
+    alembic_config: tuple[Config, str],
+) -> None:
+    """Initializing from a ledger that contradicts the state would invent a position.
+
+    Every ``REINSTATE`` is also an enforcement transition and ``epoch`` counts every
+    committed transition, so the reinstatement count can never legitimately exceed it. A
+    database where it does has lost agreement between the ledger and the state it would
+    seed, and seeding the allocator anyway would place it at a position no recorded history
+    supports — which L.6 then treats as authoritative for every Finding stamped afterwards.
+
+    Refusing is the fail-closed direction: the migration is re-runnable once the
+    inconsistency is resolved, whereas a silently wrong allocator start is not detectable
+    afterwards.
+    """
+    config, db_url = alembic_config
+    engine = create_engine(db_url)
+
+    try:
+        command.upgrade(config, "0007")
+
+        now = "2026-10-05 12:00:00+00:00"
+        with engine.begin() as conn:
+            # epoch 1, but two recorded reinstatements -- impossible history.
+            _seed_agent_at_0007(conn, "agent-inconsistent", epoch=1, now=now)
+            for i in (1, 2):
+                _seed_transition(
+                    conn, "agent-inconsistent", tid=f"ti-{i}", action="REINSTATE", epoch=i, now=now
+                )
+
+        with pytest.raises(RuntimeError, match="recovery_generation exceeds epoch"):
+            command.upgrade(config, "0008")
+
+    finally:
+        engine.dispose()

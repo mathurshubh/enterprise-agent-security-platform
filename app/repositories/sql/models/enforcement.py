@@ -33,6 +33,10 @@ class AgentEnforcementStateModel(Base):
             "baseline_agent_sequence >= 0",
             name="chk_agent_enforcement_baseline_agent_seq_non_negative",
         ),
+        CheckConstraint(
+            "recovery_generation >= 0",
+            name="chk_agent_enforcement_recovery_generation_non_negative",
+        ),
     )
 
     agent_id: Mapped[str] = mapped_column(
@@ -56,6 +60,12 @@ class AgentEnforcementStateModel(Base):
     # server_default so the column could be added NOT NULL to tables that already held
     # rows (migration 0002); declared here too so the model and the schema agree.
     baseline_agent_sequence: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0"
+    )
+    # Authoritative recovery-generation allocator (ADR-030 amendment DR-8(c)). server_default
+    # so migration 0008 can add it NOT NULL to tables that already hold rows; existing rows
+    # are then initialized from the REINSTATE ledger rather than left at the default.
+    recovery_generation: Mapped[int] = mapped_column(
         BigInteger, nullable=False, default=0, server_default="0"
     )
     last_transition_at: Mapped[datetime | None] = mapped_column(

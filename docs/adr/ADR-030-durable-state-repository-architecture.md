@@ -842,27 +842,28 @@ Fencing never replaces the restart of every process required on restore (AG.6).
 
 # Amendment — Recovery-Generation Allocation (DR-8(c))
 
-*Status of this amendment: Proposed. Dated 2026-10-05. This ADR remains Proposed. Origin: Gate 3
-DR-8(c) review. It records the allocation design that AG.8 points to. It authorizes no
-implementation.*
+*Status of this amendment: Accepted and implemented. Dated 2026-10-05. This ADR remains Proposed.
+Origin: Gate 3 DR-8(c) review. It records the allocation design that AG.8 points to. RG.2.1 to
+RG.2.9 are implemented and tested; see RG.5. RG.2.10 is not, because findings are not yet durable,
+and RG.3 governs that ordering.*
 
 ## RG.1 Context
 
 AG.8 recorded the allocation mechanism as undecided, including a concern about clocks on different
-replicas. That concern was well founded, and it describes the **current** implementation rather
+replicas. That concern was well founded, and it described the implementation as it then stood rather
 than a hypothetical one.
 
-Today the detection path reads two values that must be coherent from two different sources at two
-different times [Code]:
+Before this amendment the detection path read two values that must be coherent from two different
+sources at two different times:
 
 ```text
 get_enforcement_state(agent_id)            → baseline_agent_sequence     (snapshot)
 enforcement_epoch(agent_id, as_of=event.timestamp)  → recovery generation (separate, clock-parameterised)
-                                           → stamped onto Finding.enforcement_epoch
+                                           → stamped onto the finding
 ```
 
-So the recovery generation is derived from a timestamp-parameterised count of `REINSTATE` ledger
-entries, while the sequence watermark it must be coherent with comes from an earlier snapshot. This
+So the recovery generation was derived from a timestamp-parameterised count of `REINSTATE` ledger
+entries, while the sequence watermark it must be coherent with came from an earlier snapshot. This
 amendment replaces that derivation with an allocated namespace; the same-snapshot requirement in
 RG.2 is therefore a **replacement correctness contract for an existing split read**, not a future
 optimization.
@@ -915,11 +916,37 @@ implementing the durable findings boundary, not the reverse.
 
 ## RG.4 Not decided here
 
-- The identifier alignment of `Finding.enforcement_epoch` to `Finding.recovery_generation`. The
-  field currently holds a recovery generation under an `epoch` name, which the architecture
-  principles already concede is misleading. The rename was anticipated by F-09; because this
-  amendment changes the value's semantics, whether it remains part of F-09 is a separate decision.
-- The durable findings repository and its `evidence_sequence` allocator.
+- The durable findings repository and its `evidence_sequence` allocator. RG.3 governs when it may
+  be introduced; RG.2.10 governs which namespace it must use.
+- The disposition of the superseded `enforcement_epoch(agent_id, as_of=...)` accessor and the
+  repository `get_epoch` it delegates to. Both remain, and the interface documents `get_epoch` as
+  serving historical baseline audit — a purpose distinct from the live detection read this
+  amendment replaced. Removing them is an interface change across both adapters and was therefore
+  kept out of Gate 3 rather than decided by it.
+
+The identifier alignment of `Finding.enforcement_epoch` to `Finding.recovery_generation` was listed
+here as undecided and has since been carried out as a terminology-only change, ahead of this
+amendment's implementation so that no window existed in which an allocated value sat under an
+`epoch` name.
+
+## RG.5 Implementation status
+
+| Requirement | Where |
+| --- | --- |
+| RG.2.1 authoritative namespace | `AgentEnforcementState.recovery_generation`; `agent_enforcement_state.recovery_generation` (`BigInteger`, `NOT NULL`, `server_default 0`, non-negative `CHECK`) |
+| RG.2.2 new agents at 0 | field default, column `server_default` |
+| RG.2.3 existing rows initialized | migration `0008`, from the recorded `REINSTATE` count, with a `recovery_generation <= epoch` integrity check that refuses rather than seeding from a ledger that disagrees with the state |
+| RG.2.4 `REINSTATE` sole mutator, exactly +1 | `AgentService._transition`, inside the same compare-and-set |
+| RG.2.5 monotonic, never restored below | enforced at the persistence boundary in **both** adapters: a generation that is neither the stored value nor its successor is refused. Raised, not reported as a CAS miss, because no retry repairs it |
+| RG.2.6 no wall-clock derivation | the timestamp-parameterised call is gone from the detection path |
+| RG.2.7 same snapshot | `baseline_agent_sequence` and `recovery_generation` are read from one `get_enforcement_state` result |
+| RG.2.8 immutable state stamp | unchanged; the finding carries the value and allocates nothing |
+| RG.2.9 ledger values are evidence | unchanged; the ledger is no longer read for this value |
+| RG.2.10 first durable representation | **not implemented**, because findings are not durable. RG.3 binds this |
+
+Validated by mutation: thirteen mutants covering the allocation rule, both adapter mappings, both
+boundary guards, the migration's initialization source, and the ORM/migration pair were each caught
+by a failing test.
 
 ---
 

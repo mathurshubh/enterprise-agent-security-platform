@@ -3,6 +3,8 @@
 import abc
 from datetime import datetime, timezone
 
+import pytest
+
 from app.models.agent import AgentStatus
 from app.models.agent_enforcement import (
     AgentEnforcementState,
@@ -11,6 +13,7 @@ from app.models.agent_enforcement import (
 )
 from app.repositories.interfaces.enforcement_state_repository import (
     EnforcementStateRepository,
+    EnforcementStateUnavailableError,
 )
 
 
@@ -274,6 +277,13 @@ class BaseEnforcementStateRepositoryContractTests(abc.ABC):
         Every value below is deliberately non-default and distinct: a zero would be
         indistinguishable from a dropped field reconstructing its default, and the two
         baselines differ so that swapping them cannot pass.
+
+        ``recovery_generation`` is 1 rather than an arbitrary distinct value because the
+        allocator invariant below bounds it to the stored value or its successor, and from a
+        fresh repository that is 0 or 1. It therefore coincides with ``epoch`` here, so this
+        test alone cannot catch an adapter that maps one onto the other;
+        ``test_the_recovery_generation_is_not_the_epoch_across_a_cycle`` drives them apart
+        and is what closes that case.
         """
         repo = self.create_repository()
         agent_id = "agent-roundtrip"
@@ -286,6 +296,7 @@ class BaseEnforcementStateRepositoryContractTests(abc.ABC):
             enforcement_baseline_at=datetime(2026, 3, 4, 5, 6, 8, tzinfo=timezone.utc),
             baseline_evidence_sequence=41,
             baseline_agent_sequence=73,
+            recovery_generation=1,
             last_transition_at=datetime(2026, 3, 4, 5, 6, 9, tzinfo=timezone.utc),
         )
 
@@ -299,6 +310,122 @@ class BaseEnforcementStateRepositoryContractTests(abc.ABC):
         )
 
         assert repo.get_state(agent_id) == state
+
+    def test_the_recovery_generation_is_not_the_epoch_across_a_cycle(self) -> None:
+        """The two advance at different rates and must be persisted independently.
+
+        ``epoch`` counts every committed transition; ``recovery_generation`` counts only
+        committed reinstatements (DR-8(c)). Both are integers, both start at 0, and both are
+        called some form of "epoch" in the codebase, so an adapter that maps one column onto
+        the other is persistently plausible and invisible to a single-transition test.
+
+        Driven across a full suspend/reinstate cycle, which is the shortest history that
+        separates them: epoch reaches 2 while the generation reaches 1.
+        """
+        repo = self.create_repository()
+        agent_id = "agent-generation-vs-epoch"
+
+        # Containment: a transition, but not a recovery.
+        assert (
+            repo.record_transition(
+                self._sample_transition(
+                    "t-suspend", agent_id=agent_id, action=EnforcementAction.SUSPEND
+                ),
+                AgentEnforcementState(agent_id=agent_id, epoch=1, recovery_generation=0),
+                expected_epoch=0,
+            )
+            is True
+        )
+        contained = repo.get_state(agent_id)
+        assert contained is not None
+        assert contained.epoch == 1
+        assert contained.recovery_generation == 0
+
+        # Recovery: both advance, by different amounts, to different values.
+        assert (
+            repo.record_transition(
+                self._sample_transition(
+                    "t-reinstate", agent_id=agent_id, action=EnforcementAction.REINSTATE
+                ),
+                AgentEnforcementState(agent_id=agent_id, epoch=2, recovery_generation=1),
+                expected_epoch=1,
+            )
+            is True
+        )
+        recovered = repo.get_state(agent_id)
+        assert recovered is not None
+        assert recovered.epoch == 2
+        assert recovered.recovery_generation == 1
+        assert recovered.recovery_generation != recovered.epoch
+
+    def test_record_transition_refuses_a_non_monotonic_recovery_generation(self) -> None:
+        """Repository invariant: the generation may only hold or advance by exactly one.
+
+        Raised rather than reported as a CAS miss, and the distinction is the point. A CAS
+        miss means "another transition won the race, re-read and retry"; a generation that
+        moved backwards or skipped is a programming error that no retry repairs, so a caller
+        looping on ``False`` would spin forever against a defect. The repository is the
+        boundary that commits, so it is the boundary that must refuse.
+
+        A backwards generation is the one L.6 cares about directly: a durable namespace must
+        not be restored below a durable record that already references it, and a Finding
+        stamped with generation 2 outlives a state rolled back to 1.
+        """
+        repo = self.create_repository()
+        agent_id = "agent-generation-monotonic"
+
+        # Establish generation 1 at epoch 1.
+        assert (
+            repo.record_transition(
+                self._sample_transition("t-base", agent_id=agent_id),
+                AgentEnforcementState(agent_id=agent_id, epoch=1, recovery_generation=1),
+                expected_epoch=0,
+            )
+            is True
+        )
+
+        # Backwards.
+        with pytest.raises(EnforcementStateUnavailableError):
+            repo.record_transition(
+                self._sample_transition("t-back", agent_id=agent_id),
+                AgentEnforcementState(agent_id=agent_id, epoch=2, recovery_generation=0),
+                expected_epoch=1,
+            )
+
+        # Skipped ahead.
+        with pytest.raises(EnforcementStateUnavailableError):
+            repo.record_transition(
+                self._sample_transition("t-skip", agent_id=agent_id),
+                AgentEnforcementState(agent_id=agent_id, epoch=2, recovery_generation=3),
+                expected_epoch=1,
+            )
+
+        # Neither refusal committed anything.
+        state = repo.get_state(agent_id)
+        assert state is not None
+        assert state.epoch == 1
+        assert state.recovery_generation == 1
+        assert len(repo.list_transitions(agent_id)) == 1
+
+        # Holding is permitted (a suspension), and so is advancing by exactly one.
+        assert (
+            repo.record_transition(
+                self._sample_transition("t-hold", agent_id=agent_id),
+                AgentEnforcementState(agent_id=agent_id, epoch=2, recovery_generation=1),
+                expected_epoch=1,
+            )
+            is True
+        )
+        assert repo.get_state(agent_id).recovery_generation == 1
+        assert (
+            repo.record_transition(
+                self._sample_transition("t-advance", agent_id=agent_id),
+                AgentEnforcementState(agent_id=agent_id, epoch=3, recovery_generation=2),
+                expected_epoch=2,
+            )
+            is True
+        )
+        assert repo.get_state(agent_id).recovery_generation == 2
 
     def test_advancing_one_baseline_leaves_the_other_namespace_alone(self) -> None:
         """The two baselines are positions in different monotonic namespaces.

@@ -268,18 +268,20 @@ class TestContentOccurrenceIdentity:
 
 
 @pytest.mark.security_invariant
-def test_invariant_the_runtime_reads_the_epoch_at_the_triggering_event() -> None:
-    """The caller's side of the temporal-epoch contract.
+def test_invariant_the_runtime_allocates_rather_than_derives_the_recovery_generation() -> None:
+    """The caller's side of the recovery-generation contract, after DR-8(c).
 
-    Asserted structurally rather than behaviourally, which is unusual here and
-    deliberate. Live, the agent's current epoch and the epoch at the triggering
-    event are the same value, because the event is happening now — so no live
-    request can distinguish the two, and the only input that could is a replay of a
-    past event, which the platform cannot yet perform. A behavioural test would
-    pass against the defect and keep passing until a replay harness existed.
+    This replaces a structural assertion that the runtime read the generation at the
+    triggering event's timestamp. That assertion guarded a *derivation*: the value was
+    computed from a timestamp-parameterised count of REINSTATE ledger entries, so reading
+    it at the wrong moment was possible and — as the superseded test recorded, having been
+    found by mutation — undetectable behaviourally, because live the current generation and
+    the generation at the triggering event are the same value.
 
-    Found by mutation: substituting the current moment at this call site left every
-    behavioural test in this module green.
+    DR-8(c) removes the derivation entirely: the generation is allocated on the enforcement
+    state and read from a snapshot. There is no timestamp parameter, so there is no wrong
+    moment to read. The invariant is therefore strictly stronger than the one it replaces,
+    and it stays structural for the same reason: no live request can distinguish these.
     """
     import inspect
 
@@ -289,9 +291,37 @@ def test_invariant_the_runtime_reads_the_epoch_at_the_triggering_event() -> None
     call_start = source.index("recovery_generation = ")
     call = source[call_start : source.index(")", call_start)]
 
-    assert "as_of=recorded_event.timestamp" in call
+    # Allocated, read from the enforcement snapshot.
+    assert "enforcement_state.recovery_generation" in call
+
+    # No derivation of any kind: no ledger count at a timestamp, no wall clock.
+    assert "as_of" not in call
     assert "datetime.now" not in call
     assert "utcnow" not in call
+    assert "enforcement_epoch(" not in call
+
+
+@pytest.mark.security_invariant
+def test_invariant_the_watermark_and_the_generation_come_from_one_snapshot() -> None:
+    """DR-8(c): both must be read from the same authoritative enforcement snapshot.
+
+    Before DR-8(c) they were not. ``baseline_agent_sequence`` came from a snapshot and the
+    recovery generation from a separate timestamp-parameterised call made later in the same
+    request, so two values that must agree about which recovery lifecycle is in force were
+    read from two sources at two moments. Structural for the same reason as above: a live
+    request cannot distinguish one snapshot from two taken microseconds apart.
+    """
+    import inspect
+
+    from app.services.runtime_service import RuntimeService
+
+    source = inspect.getsource(RuntimeService.execute)
+
+    assert "enforcement_state.baseline_agent_sequence" in source
+    assert "enforcement_state.recovery_generation" in source
+
+    # One fetch, so both attribute reads resolve against the same object.
+    assert source.count("get_enforcement_state(") == 1
 
 
 @pytest.mark.security_invariant

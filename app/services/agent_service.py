@@ -258,6 +258,10 @@ class AgentService:
         next_epoch = expected_epoch + 1
 
         if action == EnforcementAction.SUSPEND:
+            # ``recovery_generation`` is deliberately absent from this update. It advances
+            # only on a committed REINSTATE (ADR-030 amendment DR-8(c)); ``epoch`` advances
+            # on every transition, and conflating the two is the namespace substitution the
+            # architecture principles prohibit.
             new_state = state.model_copy(
                 update={
                     "epoch": next_epoch,
@@ -286,6 +290,9 @@ class AgentService:
                     "enforcement_baseline_at": baseline_at,
                     "baseline_evidence_sequence": baseline_evidence_seq,
                     "baseline_agent_sequence": baseline_agent_seq,
+                    # The sole mutator, by exactly +1, committed in the same
+                    # compare-and-set that records the reinstatement (DR-8(c)).
+                    "recovery_generation": state.recovery_generation + 1,
                     "last_transition_at": now,
                 }
             )

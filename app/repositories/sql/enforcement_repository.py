@@ -70,6 +70,7 @@ class SqlEnforcementStateRepository(EnforcementStateRepository):
                     enforcement_baseline_at=_ensure_utc(row.enforcement_baseline_at),
                     baseline_evidence_sequence=row.baseline_evidence_sequence,
                     baseline_agent_sequence=row.baseline_agent_sequence,
+                    recovery_generation=row.recovery_generation,
                     last_transition_at=_ensure_utc(row.last_transition_at),
                 )
         except Exception as exc:
@@ -114,6 +115,27 @@ class SqlEnforcementStateRepository(EnforcementStateRepository):
                 if current_epoch != expected_epoch or new_state.epoch != expected_epoch + 1:
                     return False
 
+                # Recovery-generation integrity (DR-8(c)). The allocator advances by exactly
+                # +1 on a committed REINSTATE and by nothing else, so the only two values
+                # that can legitimately arrive here are the current one and its successor.
+                #
+                # Raised rather than returned as a CAS miss: `return False` means "another
+                # transition won the race, re-read and retry", and a retry cannot repair a
+                # generation that moved backwards or skipped. Conflating the two would let a
+                # caller loop on a programming error. This is the boundary that commits, so
+                # it is the boundary that must refuse.
+                current_generation = state_row.recovery_generation if state_row is not None else 0
+                if new_state.recovery_generation not in (
+                    current_generation,
+                    current_generation + 1,
+                ):
+                    raise EnforcementStateUnavailableError(
+                        f"Refusing to persist a non-monotonic recovery generation for agent "
+                        f"'{transition.agent_id}': stored {current_generation}, offered "
+                        f"{new_state.recovery_generation}. The generation may only hold or "
+                        f"advance by exactly one."
+                    )
+
                 status_str = "SUSPENDED" if new_state.suspended_at else "ACTIVE"
 
                 if state_row is None:
@@ -126,6 +148,7 @@ class SqlEnforcementStateRepository(EnforcementStateRepository):
                         enforcement_baseline_at=new_state.enforcement_baseline_at,
                         baseline_evidence_sequence=new_state.baseline_evidence_sequence,
                         baseline_agent_sequence=new_state.baseline_agent_sequence,
+                        recovery_generation=new_state.recovery_generation,
                         last_transition_at=new_state.last_transition_at,
                         updated_at=datetime.now(timezone.utc),
                     )
@@ -138,6 +161,7 @@ class SqlEnforcementStateRepository(EnforcementStateRepository):
                     state_row.enforcement_baseline_at = new_state.enforcement_baseline_at
                     state_row.baseline_evidence_sequence = new_state.baseline_evidence_sequence
                     state_row.baseline_agent_sequence = new_state.baseline_agent_sequence
+                    state_row.recovery_generation = new_state.recovery_generation
                     state_row.last_transition_at = new_state.last_transition_at
                     state_row.updated_at = datetime.now(timezone.utc)
 
