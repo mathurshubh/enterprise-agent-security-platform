@@ -424,10 +424,31 @@ is a deployment decision and carries no domain default.
 
 ### 12.6 Startup recovery boundary
 
+**Stage A** ([ADR-030](ADR-030-durable-state-repository-architecture.md) amendment DB.2) — the
+chain below. *Amended 2026-10-05: this existing behaviour is now identified as the Stage-A path.
+Nothing about it changes; no authority acquisition and no durable-integrity check are added to it,
+because Stage A has neither an active-instance authority mechanism nor durable state to check.*
+
 ```text
 process startup → live evidence reconciliation → reconciliation succeeds
     → application ready → execution permitted
 ```
+
+**Stages B and B2** — two steps precede reconciliation, per ADR-030 amendment DB.5:
+
+```text
+acquire active-instance authority → L.6 integrity check → live evidence reconciliation
+    → application ready → execution permitted
+```
+
+The integrity check precedes reconciliation because reconciliation mutates evidence, and authority
+acquisition precedes both because a process holding no active-instance authority must not mutate
+evidence belonging to the active instance. A process that cannot acquire authority runs neither
+step and serves nothing. Failure at any step prevents serving.
+
+This amendment is written now because DB.5 deferred it until stage B2 was designed. It records the
+ordering only; the authority mechanism itself is ADR-030 amendment SB.2, and no stage-B or B2
+implementation is authorized.
 
 Recovery runs in the application lifespan, synchronously with respect to readiness: the
 application serves no request until it returns, so no live execution enters the

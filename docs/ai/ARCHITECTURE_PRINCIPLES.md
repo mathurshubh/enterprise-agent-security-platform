@@ -28,7 +28,7 @@ The platform currently distinguishes seven:
 | `Finding.evidence_sequence` | `FindingsService` | finding ordering and projection cursor | risk aggregate, enforcement baseline |
 | `AgentEnforcementState.epoch` | enforcement state repository (CAS, +1 per committed transition) | enforcement generation and freshness | grant issuance, enforcement ledger |
 | `administrative_version` | administrative state repository (CAS, +1 per committed administrative transition) | administrative lifecycle generation | administrative transitions, administrative ledger, administrative audit evidence |
-| `recovery_generation` | derived from the enforcement ledger (count of `REINSTATE` transitions at or before the evaluated event's timestamp) | recovery lifecycle of a detection crossing | finding identity |
+| `recovery_generation` | `AgentEnforcementState.recovery_generation` (CAS, +1 per committed `REINSTATE`) | recovery lifecycle of a detection crossing | finding identity |
 | `authority_generation` | execution-authority state (+1 per transition that removes execution authority, inside that plane's transaction) | execution-authority invalidation generation | grant issuance (binding), grant claim (revocation check) |
 
 These are **not interchangeable merely because they are monotonically increasing
@@ -59,15 +59,24 @@ freshness check later would be a new decision, not an implication of this namesp
 persistence-level expression of this namespace's identity, as `UNIQUE(agent_id, epoch)` is
 for enforcement (ADR-030 amendment L.3).
 
-`recovery_generation` is a detection and evidence namespace, not a lifecycle plane and not
-a generation counter with its own allocator. It is derived from the enforcement ledger and
-answers *which recovery lifecycle does this detection crossing belong to*: reinstatement
-starts a new one, suspension does not. It is part of finding identity. It is currently
-exposed as `get_epoch(as_of=...)` and stored as `Finding.enforcement_epoch`; those
-identifiers are renamed to `get_recovery_generation(as_of=...)` and
-`Finding.recovery_generation` during the F-09 implementation, with values and semantics
-unchanged (ADR-030 amendment L.5). It is never compared with or substituted for `epoch`,
-although its current identifiers suggest otherwise.
+`recovery_generation` is a detection and evidence namespace with its **own authoritative
+durable allocator**, `AgentEnforcementState.recovery_generation`, advanced by exactly one
+per committed `REINSTATE` inside that transition's compare-and-set (ADR-030 amendment
+DR-8(c)). It answers *which recovery lifecycle does this detection crossing belong to*:
+reinstatement starts a new one, suspension does not. It is part of finding identity.
+
+It is **not** derived from the enforcement ledger, and **not** derived from wall-clock time:
+ledger generation values are audit evidence, not the allocator, and the live detection path
+derives no recovery generation from a timestamp. `Finding.recovery_generation` is an
+immutable historical **state stamp** of the allocated value, carrying no cursor semantics
+(ADR-030 amendment L.6).
+
+The allocated design supersedes a previously contemplated timestamp-derived
+`get_recovery_generation(as_of=...)`. The value is still exposed as `get_epoch(as_of=...)`
+and stored as `Finding.enforcement_epoch` in the current implementation; those identifiers
+remain misleading until aligned, and that alignment is a separate decision because
+DR-8(c) changes the value's semantics rather than only its name. It is never compared with
+or substituted for `epoch`, although its current identifiers suggest otherwise.
 
 `authority_generation` is an execution-authority invalidation namespace, not a lifecycle
 plane, not lifecycle state, and not an authorization source. Both lifecycle planes advance
