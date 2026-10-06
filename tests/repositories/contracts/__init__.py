@@ -1,5 +1,8 @@
 """Reusable contract test suites for repository implementations (ADR-030)."""
 
+from tests.repositories.contracts.base_administrative_contract import (
+    BaseAdministrativeStateRepositoryContractTests,
+)
 from tests.repositories.contracts.base_agent_contract import (
     BaseAgentRepositoryContractTests,
 )
@@ -20,6 +23,7 @@ from tests.repositories.contracts.base_tool_contract import (
 )
 
 __all__ = [
+    "BaseAdministrativeStateRepositoryContractTests",
     "BaseAgentRepositoryContractTests",
     "BaseApprovalContinuationRepositoryContractTests",
     "BaseAuditEvidenceRepositoryContractTests",
