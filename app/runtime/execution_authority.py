@@ -128,6 +128,18 @@ class ExecutionBindingError(PermissionError):
         self.tool_id = tool_id
 
 
+class IssuancePlane(str, Enum):
+    """The lifecycle planes that can independently close grant issuance (ADR-024 A.7).
+
+    Issuance is open only when **both** planes permit execution. Tracking one flag per
+    agent cannot express that: a single-plane operation reopening the flag would reopen
+    issuance while the other plane still forbids execution.
+    """
+
+    ADMINISTRATIVE = "ADMINISTRATIVE"
+    ENFORCEMENT = "ENFORCEMENT"
+
+
 class ExecutionAuthority:
     """Sole issuer and verifier of execution grants for one process."""
 
@@ -160,10 +172,15 @@ class ExecutionAuthority:
         # Grants withdrawn before use: grant_id -> expires_at. Kept until expiry so a
         # revoked grant is refused as REVOKED rather than as an unknown CONSUMED one.
         self._revoked: dict[str, float] = {}
-        # Agents whose grant issuance is closed. M2b: a suspended agent must not be
-        # able to obtain new authority, including from a request that passed
-        # authorization moments before the suspension was written.
-        self._issuance_suspended: set[str] = set()
+        # Agents whose grant issuance is closed, and which plane closed it. M2b: a
+        # suspended agent must not be able to obtain new authority, including from a
+        # request that passed authorization moments before the suspension was written.
+        #
+        # Per plane, because issuance is open only when both planes permit execution
+        # (ADR-024 A.7). With one flag, reinstating an agent that is also administratively
+        # DISABLED would reopen issuance for it -- a single-plane operation overriding the
+        # other plane's prohibition. An agent is closed while *any* plane has closed it.
+        self._issuance_closed: dict[str, set[IssuancePlane]] = {}
 
     @property
     def authority_id(self) -> str:
@@ -204,7 +221,7 @@ class ExecutionAuthority:
             return None
 
         with self._lock:
-            if agent_id in self._issuance_suspended:
+            if self._issuance_closed.get(agent_id):
                 return None
 
             if expected_epoch is not None and self._enforcement_repository is not None:
@@ -463,18 +480,27 @@ class ExecutionAuthority:
         """
         self.claim_grant(grant, requested)
 
-    def suspend_issuance(self, agent_id: str) -> int:
-        """Close grant issuance for an agent and revoke its outstanding grants.
+    def suspend_issuance(
+        self,
+        agent_id: str,
+        *,
+        plane: IssuancePlane = IssuancePlane.ENFORCEMENT,
+    ) -> int:
+        """Close grant issuance for an agent on one plane, and revoke its grants.
 
         Both halves happen under one lock, so a concurrent request cannot slip a newly
         issued grant past the revocation: either it is issued before the gate closes and
         is revoked here, or it is refused at issuance.
 
+        ``plane`` defaults to ``ENFORCEMENT`` because containment is the only caller that
+        exists today; the administrative plane closes issuance on disablement once that
+        transition is reachable.
+
         Returns:
             The number of outstanding grants revoked.
         """
         with self._lock:
-            self._issuance_suspended.add(agent_id)
+            self._issuance_closed.setdefault(agent_id, set()).add(plane)
 
             revoked = [
                 grant_id
@@ -486,19 +512,44 @@ class ExecutionAuthority:
 
             return len(revoked)
 
-    def resume_issuance(self, agent_id: str) -> None:
-        """Reopen grant issuance after an agent is reinstated.
+    def resume_issuance(
+        self,
+        agent_id: str,
+        *,
+        plane: IssuancePlane = IssuancePlane.ENFORCEMENT,
+    ) -> None:
+        """Reopen grant issuance on one plane.
 
-        Grants revoked while the agent was suspended stay revoked: reinstatement
-        restores the ability to obtain new authority, not the old authority itself.
+        Clears only the named plane's closure. If another plane still forbids execution,
+        issuance stays closed -- no single-plane operation may reopen it while the other
+        plane prohibits (ADR-024 A.7). Reinstating an administratively ``DISABLED`` agent
+        is the case this exists for: A.5 permits the reinstatement and it clears the
+        suspension, but the agent remains non-executable.
+
+        Grants revoked while issuance was closed stay revoked: reopening restores the
+        ability to obtain new authority, not the old authority itself.
         """
         with self._lock:
-            self._issuance_suspended.discard(agent_id)
+            closed = self._issuance_closed.get(agent_id)
+            if closed is None:
+                return
+            closed.discard(plane)
+            if not closed:
+                del self._issuance_closed[agent_id]
 
     def issuance_suspended(self, agent_id: str) -> bool:
-        """Whether grant issuance is currently closed for an agent."""
+        """Whether grant issuance is currently closed for an agent, on any plane."""
         with self._lock:
-            return agent_id in self._issuance_suspended
+            return bool(self._issuance_closed.get(agent_id))
+
+    def issuance_closed_planes(self, agent_id: str) -> frozenset[IssuancePlane]:
+        """Which planes currently close issuance for an agent.
+
+        Exposed so a caller can tell *why* issuance is closed without inferring it from
+        lifecycle state it would have to re-read.
+        """
+        with self._lock:
+            return frozenset(self._issuance_closed.get(agent_id, frozenset()))
 
     @staticmethod
     def _require_exact_match(
