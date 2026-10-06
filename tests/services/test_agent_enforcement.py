@@ -412,6 +412,9 @@ class TestEnforcementPlaneInvariants:
     def test_enforcement_state_unavailable_error_propagates_fail_closed(self) -> None:
         from unittest.mock import MagicMock
 
+        from app.repositories.in_memory.administrative_state_repository import (
+            InMemoryAdministrativeStateRepository,
+        )
         from app.repositories.in_memory.agent_repository import InMemoryAgentRepository
         from app.repositories.in_memory.enforcement_state_repository import (
             InMemoryEnforcementStateRepository,
@@ -419,7 +422,7 @@ class TestEnforcementPlaneInvariants:
 
         agent_repo = InMemoryAgentRepository()
         enf_repo = InMemoryEnforcementStateRepository()
-        service = AgentService(agent_repo, enf_repo)
+        service = AgentService(agent_repo, enf_repo, InMemoryAdministrativeStateRepository())
 
         service.register_agent(create_agent(agent_id="agent-outage"))
 

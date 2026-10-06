@@ -22,6 +22,7 @@ from app.models.tool_metadata import ToolMetadata
 from app.models.tool_operational import ToolOperational
 from app.models.tool_risk_level import ToolRiskLevel
 from app.repositories.in_memory import (
+    InMemoryAdministrativeStateRepository,
     InMemoryAgentRepository,
     InMemoryApprovalContinuationRepository,
     InMemoryAuditEvidenceRepository,
@@ -53,6 +54,7 @@ class TestServiceDIRepositoryContracts:
         service = AgentService(
             agent_repository=agent_repo,
             enforcement_repository=enf_repo,
+            administrative_repository=InMemoryAdministrativeStateRepository(),
         )
 
         assert service.agent_repository is agent_repo
@@ -243,6 +245,7 @@ class TestPR180BehaviorNeutrality:
         service = AgentService(
             agent_repository=agent_repo,
             enforcement_repository=enf_repo,
+            administrative_repository=InMemoryAdministrativeStateRepository(),
         )
 
         agent = Agent(

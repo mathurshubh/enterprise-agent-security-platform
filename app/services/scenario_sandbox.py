@@ -16,6 +16,9 @@ from dataclasses import dataclass
 from app.config.settings import get_max_terminal_execution_receipts
 from app.models.execution_evidence_retention import ExecutionEvidenceRetentionPolicy
 from app.registry.tool_registry import ToolRegistry
+from app.repositories.in_memory.administrative_state_repository import (
+    InMemoryAdministrativeStateRepository,
+)
 from app.repositories.in_memory.agent_repository import InMemoryAgentRepository
 from app.repositories.in_memory.audit_evidence_repository import (
     InMemoryAuditEvidenceRepository,
@@ -69,6 +72,7 @@ def build_scenario_sandbox(agent_id: str = SCENARIO_AGENT_ID) -> ScenarioSandbox
     agent_service = AgentService(
         agent_repository=InMemoryAgentRepository(),
         enforcement_repository=InMemoryEnforcementStateRepository(),
+        administrative_repository=InMemoryAdministrativeStateRepository(),
     )
     session_service = SessionService(
         session_repository=InMemorySessionRepository(),
