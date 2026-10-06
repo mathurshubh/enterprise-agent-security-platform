@@ -343,6 +343,10 @@ These are preconditions, not defects of the current single-process composition.
 - **ADR-030:** a SQL administrative-state store and ledger meeting A.6 and A.8 (version CAS, atomic
   append, `CHECK` constraint on administrative values); an `AgentRepository` whose create path
   yields `REGISTERED`; production composition per A.9.
+  *Refined by the ADR-030 F-09.B contract (AP.1, AP.3): the agent record carries no lifecycle state,
+  so registration creates the administrative-state record at `REGISTERED` rather than a field on the
+  agent. That registration yields `REGISTERED` and grants no authority is unchanged; only the record
+  holding it moves.*
 - **ADR-025:** management-plane authorization for registration, activation and disablement.
 - **ADR-028 / ADR-034:** define the administrative audit record.
 - **Architecture principles:** add `administrative_version` to the namespace table.

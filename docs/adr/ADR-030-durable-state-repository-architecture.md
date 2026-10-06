@@ -1038,3 +1038,215 @@ meaning evaporates with the mechanism.
   requirement for audit persistence, but at stage B the effect is total rather than path-specific.
 - **Reconciliation remains unconditional.** Fencing makes it safe; receipt ownership (DB.7) would
   make it verifiable.
+
+---
+
+# Amendment — Administrative Plane Contract (F-09.B)
+
+*Status of this amendment: Architecturally resolved; not implemented. Dated 2026-10-06. This ADR
+remains Proposed. Origin: the F-09.B contract gate, following F-09.A (merged, `6a61132`). It locks
+what must be true of the administrative lifecycle plane so that F-09.C and F-09.D implement one
+contract. It authorizes no implementation and specifies no adapter mechanics: transaction handling,
+locking strategy, API wiring and storage layout belong to C and D.*
+
+Where a decision already exists in another document this amendment **cites** it rather than
+restating it. Duplicated normative text is how two documents come to disagree, which this project
+has already had to correct more than once.
+
+## AP.1 Administrative state authority
+
+> `agents.status` is removed as a persisted field and is not authoritative. The administrative-state
+> record is the sole authority for administrative lifecycle state.
+
+`Agent.status`, if retained on the domain model, is a **non-persisted computed projection** and MUST
+NOT be consumed by any security decision. Absence of an administrative-state record is
+`ADMINISTRATIVE_STATE_UNAVAILABLE` (L.3, L.10), never `REGISTERED`.
+
+The column cannot be kept "for presentation" and left in place. It is already wired into the
+authorization path — `AgentRepository.get()` supplies it, `AgentService.get_agent` overlays the
+enforcement posture onto it, and `PolicyEngine` reads the result — so a persisted copy is a cached
+lifecycle value used for a security decision, which L.7 prohibits. Absence and `REGISTERED` are also
+indistinguishable today, because `REGISTERED` is the model default; removing the field is what makes
+them distinguishable.
+
+## AP.2 Independent administrative version namespace
+
+Administrative lifecycle state consists of `state` and `administrative_version`.
+
+> `administrative_version` is a monotonic namespace independent of enforcement `epoch`. The two MUST
+> NOT be compared, substituted, or used interchangeably.
+
+Already listed in the namespace table ([docs/ai/ARCHITECTURE_PRINCIPLES.md](../ai/ARCHITECTURE_PRINCIPLES.md));
+this amendment makes non-substitutability an explicit invariant rather than a table row. The
+prohibition is not hypothetical: this repository has twice shipped a namespace conflation — the
+timestamp-derived recovery generation corrected by DR-8(c), and a single `enforcement_epoch`
+identifier meaning two different quantities.
+
+## AP.3 Repository ownership and the CAS boundary
+
+> `AgentRepository` owns descriptive agent configuration only and has no lifecycle compare-and-set
+> responsibility. Lifecycle concurrency control belongs exclusively to the administrative-state
+> repository.
+
+Once lifecycle state leaves the agent record, `AgentRepository` is not a lifecycle participant and
+needs no version. Placing a version on both would create two version namespaces over one agent,
+which is the error AP.2 forbids in another form.
+
+**Amends ADR-024 A.10.** A.10 requires "an `AgentRepository` whose create path yields `REGISTERED`".
+Under AP.1 the agent record carries no lifecycle state, so registration instead creates the
+administrative-state record at `REGISTERED` as the first administrative transition (ADR-024 A.3).
+A.10's intent — that registration yields `REGISTERED` and grants no authority — is unchanged; only
+the record that holds it moves.
+
+**Explicitly out of scope:** concurrency semantics for `approved_tools`. It is an authorization
+input, but it is not lifecycle state, and it requires a separate authorization-data concurrency
+decision if one is needed at all.
+
+## AP.4 Administrative-state repository contract
+
+```text
+get_state(agent_id)                                      -> AdministrativeState | None
+record_transition(transition, new_state, *, expected_version) -> bool
+list_transitions(agent_id)                               -> list[...]
+```
+
+Mirrors `EnforcementStateRepository`, whose shape is already proven here. The return discipline is
+**contract, not implementation detail**:
+
+> `False` means compare-and-set contention — a lost update, and retryable. An invariant violation
+> MUST raise and MUST NOT be represented as `False`.
+
+Established by the DR-8(c) recovery-generation guard: a caller that cannot distinguish the two will
+loop on a programming error, because no retry repairs a violated invariant. Storage failures
+normalize to a plane-specific unavailability error at the repository boundary (L.10).
+
+## AP.5 Lifecycle transition graph
+
+```text
+create    -> REGISTERED
+REGISTERED -> ACTIVE
+REGISTERED -> DISABLED
+ACTIVE     -> DISABLED
+```
+
+`DISABLED` is terminal within the administrative plane (ADR-024 A.3). Enforcement-plane
+reinstatement MUST NOT modify administrative lifecycle state (A.5).
+
+> Enforcement reinstatement MUST NOT require administrative `ACTIVE`. The planes are independent.
+
+Recorded explicitly because the current implementation couples them and C would otherwise reproduce
+the coupling: `AgentService.reinstate_agent` writes `AgentStatus.ACTIVE`, and `EnforcementCoordinator`
+gates reinstatement on `status != ACTIVE`, which would wrongly refuse a `REGISTERED` or `DISABLED`
+agent. A.5 permits reinstating both; it clears the suspension and leaves the agent non-executable.
+
+## AP.6 Lifecycle ledger
+
+> The administrative lifecycle ledger is **both** transition history and authoritative lifecycle
+> evidence. A committed lifecycle transition is represented once, in that ledger, and is not
+> duplicated into `AuditEvent`.
+
+Required semantics per ADR-024 A.8: structured actor `{type, id}`, mandatory correlation id, state
+before and after in administrative vocabulary, `administrative_version_before` and `_after`,
+timestamp, and immutability after commit.
+
+## AP.7 Administrative refusal audit
+
+`AdministrativeAuditEvent` records **refused** administrative attempts only. It is not a widened
+`AuditEvent` and holds no foreign key to any control-plane table (ADR-028 §6, ADR-034 §8).
+
+> Failure to resolve an agent MUST NOT cause the external response to reveal whether that agent
+> exists. Administrative audit evidence is internal evidence.
+
+## AP.8 Multi-plane issuance
+
+> Runtime issuance is permitted only when both the administrative and the enforcement plane permit
+> execution. Neither plane may independently reopen issuance while the other remains prohibitive.
+> Issuance-suspension state therefore has independent administrative and enforcement dimensions.
+
+The contract is established here; implementation belongs to **F-09.C** (ADR-024 A.7). It cannot be
+deferred past C: `ExecutionAuthority` currently tracks issuance suspension as one set per agent and
+`EnforcementCoordinator` reopens it unconditionally on reinstatement. That is inert only because
+`DISABLED` is unreachable today, and C is the gate that makes it reachable.
+
+## AP.9 Refusal vocabulary and precedence
+
+Five codes, with the precedence of L.10:
+
+```text
+ADMINISTRATIVE_STATE_UNAVAILABLE
+  > ENFORCEMENT_STATE_UNAVAILABLE
+  > AGENT_DISABLED
+  > AGENT_NOT_ACTIVE
+  > AGENT_SUSPENDED
+```
+
+> Precedence is **semantic** and MUST NOT depend on the order in which checks happen to execute.
+
+An implementation returning the first failing check in evaluation order satisfies the vocabulary and
+violates the contract whenever two conditions fail together. This is a testable obligation for C.
+
+> `*_UNAVAILABLE` represents inability to establish authoritative state, not a lifecycle state. An
+> unreachable repository is never reported as a disabled or inactive agent.
+
+F-09.A defined `AGENT_NOT_ACTIVE`, `AGENT_DISABLED` and `AGENT_SUSPENDED`, deliberately omitting the
+two `*_UNAVAILABLE` codes and the precedence: with execution gated on a single projected status, one
+value cannot fail two ways at once, so no precedence was observable and none could be tested. The
+second authority is what makes the remaining three statements meaningful.
+
+## AP.10 Failure and rollback semantics
+
+> Administrative and enforcement persistence failures fail closed **independently**. A failure in one
+> plane MUST NOT be interpreted as permission granted by the other.
+
+Independent fail-closed evaluation is what allows ADR-024 A.4 to permit the two planes to commit in
+either order without opening an executable window.
+
+> If persistence of a required `AdministrativeAuditEvent` fails, the operation returns `503`, no
+> administrative mutation commits, and the external response MUST NOT imply that the refusal was
+> recorded.
+
+Consistent with L.10 and with the evidence-integrity property established on the runtime path in
+PR #252: an operation whose mandatory evidence cannot be written fails closed, and the refusal does
+not misrepresent what was recorded.
+
+## AP.11 Adapter parity
+
+> In-memory and SQL administrative-state implementations MUST conform to one shared repository
+> contract suite.
+
+Minimum obligations:
+
+- round-trip of the whole record with values that are **non-default and pairwise distinct**
+- compare-and-set success
+- compare-and-set miss
+- invariant violation, distinguished from a miss per AP.4
+- atomicity on a failed transition
+- rejection of an illegal transition (AP.5)
+- transition-history integrity
+
+> Contract tests MUST verify that a failed compare-and-set mutates neither current state nor
+> transition history.
+
+The returned boolean is the weaker property; a failed transition that silently advanced the ledger
+would satisfy a boolean assertion. The round-trip requirement is stated with its values because this
+repository has shipped that exact omission twice — F-01, and `recovery_generation` under DR-8(c) —
+both times because the test value equalled the field's default and a dropped field reconstructs its
+default.
+
+## AP.12 Production composition boundary
+
+> F-09.C may assume the current single-process, in-memory composition. It MUST NOT infer durable or
+> SQL semantics from it.
+
+C MUST NOT assume that SQL wiring exists, that a process lock constitutes durable concurrency
+control, that `create_repositories` is reachable from the running API — it is not called by
+`app/api/dependencies.py` — or that in-memory behaviour establishes production durability.
+
+## AP.13 Deliberately left open
+
+- **Where the `Agent.status` projection is computed** — service layer or read model. The requirement
+  is that it is not persisted and not an authorization authority (AP.1); the structural choice is C's.
+- **Whether registration and activation are one API call or two.** ADR-024 A.3 requires them to
+  remain two distinct lifecycle events, which constrains the evidence — two ledger entries — not the
+  transport.
+- **`approved_tools` concurrency**, per AP.3.
