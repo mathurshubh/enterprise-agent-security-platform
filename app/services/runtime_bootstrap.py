@@ -21,7 +21,11 @@ from app.repositories.interfaces.tool_repository import ToolRepository
 from app.runtime.contracts import ExecutionEvidenceStoreProtocol
 from app.runtime.execution_authority import ExecutionAuthority
 from app.services.agent_lock_manager import AgentLockManager
-from app.services.agent_service import AgentNotFoundError, AgentService
+from app.services.agent_service import (
+    BOOTSTRAP_ACTOR,
+    AgentNotFoundError,
+    AgentService,
+)
 from app.services.audit_service import AuditService
 from app.services.detection_service import DetectionService
 from app.services.findings_service import FindingsService
@@ -63,7 +67,10 @@ def register_default_agent(
     try:
         agent_service.get_agent(agent_id)
     except AgentNotFoundError:
-        agent_service.register_agent(
+        # Registration and activation are distinct lifecycle events, so the default
+        # agent enters service through both rather than being constructed ACTIVE
+        # (ADR-024 A.3). ``bootstrap`` is a reserved system identifier (A.8).
+        agent_service.register_and_activate_agent(
             Agent(
                 agent_id=agent_id,
                 name="Local Agent",
@@ -71,7 +78,8 @@ def register_default_agent(
                 risk_tier=RiskTier.HIGH,
                 approved_tools=["file_read", "directory_list"],
                 status=AgentStatus.ACTIVE,
-            )
+            ),
+            actor=BOOTSTRAP_ACTOR,
         )
 
 

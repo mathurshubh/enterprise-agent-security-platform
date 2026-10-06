@@ -3,6 +3,15 @@ from threading import RLock
 from uuid import uuid4
 
 from app.models.agent import Agent, AgentStatus
+from app.models.agent_administrative import (
+    ADMINISTRATIVE_TRANSITION_ACTIONS,
+    Actor,
+    ActorType,
+    AdministrativeLifecycleState,
+    AdministrativeTransition,
+    AgentAdministrativeState,
+    is_legal_administrative_transition,
+)
 from app.models.agent_enforcement import (
     AgentEnforcementState,
     EnforcementAction,
@@ -10,6 +19,9 @@ from app.models.agent_enforcement import (
     EnforcementTrigger,
 )
 from app.models.watermark import BaselineWatermark
+from app.repositories.interfaces.administrative_state_repository import (
+    AdministrativeStateRepository,
+)
 from app.repositories.interfaces.agent_repository import AgentRepository
 from app.repositories.interfaces.enforcement_state_repository import (
     EnforcementStateRepository,
@@ -19,6 +31,18 @@ from app.repositories.interfaces.enforcement_state_repository import (
 # Suspension is written by the deterministic runtime pipeline, never by an operator
 # request. Reinstatement is the opposite: it always names the operator who performed it.
 RUNTIME_ACTOR = "runtime"
+
+# Reserved system identifiers for programmatic lifecycle operations (ADR-024 A.8).
+#
+# Defaulting the actor is defensible here in a way it would not be for a decision input:
+# the actor is evidence attribution, nothing authorizes on it, and "system" is the
+# truthful answer for a registration no human requested. A human-initiated registration
+# through the management plane passes its own actor. This is deliberately not the shape of
+# a permissive default on a security predicate, which F-02 corrected on capability digests
+# and F-09.A corrected on the execution gate.
+SYSTEM_REGISTRATION_ACTOR = Actor(type=ActorType.SYSTEM, id="system")
+BOOTSTRAP_ACTOR = Actor(type=ActorType.SYSTEM, id="bootstrap")
+SCENARIO_RUNTIME_ACTOR = Actor(type=ActorType.SYSTEM, id="scenario-runtime")
 
 
 class AgentAlreadyExistsError(Exception):
@@ -37,6 +61,18 @@ class EnforcementConcurrencyError(Exception):
     """Raised when an enforcement state transition fails due to concurrent modification (CAS epoch mismatch)."""
 
 
+class AdministrativeConcurrencyError(Exception):
+    """Raised when an administrative transition loses a compare-and-set race.
+
+    Separate from the enforcement equivalent because the two planes have separate version
+    namespaces, and a caller retrying one must not be told the other moved (AP.2).
+    """
+
+
+class IllegalAdministrativeTransitionError(Exception):
+    """Raised when a requested administrative transition is not in the legal graph (AP.5)."""
+
+
 class AgentService:
     """Registry of agents and the authority for their enforcement state (M2b, PR #181).
 
@@ -52,10 +88,16 @@ class AgentService:
         self,
         agent_repository: AgentRepository,
         enforcement_repository: EnforcementStateRepository,
+        administrative_repository: AdministrativeStateRepository,
     ) -> None:
         self._lock = RLock()
         self._agent_repository = agent_repository
         self._enforcement_repository = enforcement_repository
+        # Required, not optional. An absent administrative authority would make every
+        # agent ADMINISTRATIVE_STATE_UNAVAILABLE once the planes are read for
+        # authorization, and an optional security dependency defaults to whatever the
+        # caller forgot -- the shape F-02 corrected on capability digests.
+        self._administrative_repository = administrative_repository
 
     @property
     def agent_repository(self) -> AgentRepository:
@@ -67,7 +109,31 @@ class AgentService:
         """Injected EnforcementStateRepository protocol instance."""
         return self._enforcement_repository
 
-    def register_agent(self, agent: Agent) -> Agent:
+    @property
+    def administrative_repository(self) -> AdministrativeStateRepository:
+        """Injected AdministrativeStateRepository protocol instance."""
+        return self._administrative_repository
+
+    def register_agent(
+        self,
+        agent: Agent,
+        *,
+        actor: Actor = SYSTEM_REGISTRATION_ACTOR,
+        correlation_id: str | None = None,
+    ) -> Agent:
+        """Register an agent: it becomes known to the platform and holds no authority.
+
+        Registration is the first administrative transition and yields ``REGISTERED``
+        (ADR-024 A.3, A.10 as refined by AP.3). It grants nothing: a registered agent is
+        not executable, and entering service requires a separate, explicitly authorized
+        activation.
+
+        The administrative record is written before the agent record. If the second write
+        fails, the agent is unreachable through this service -- ``get_agent`` raises
+        ``AgentNotFoundError`` -- so the orphan is inert. The reverse order would leave an
+        agent that exists with no establishable administrative state, which every
+        lifecycle read would then have to treat as unavailable.
+        """
         with self._lock:
             existing = self._agent_repository.get(agent.agent_id)
             if existing is not None:
@@ -75,8 +141,180 @@ class AgentService:
                     f"Agent '{agent.agent_id}' already exists"
                 )
 
+            self._administrative_transition(
+                agent_id=agent.agent_id,
+                new_state=AdministrativeLifecycleState.REGISTERED,
+                actor=actor,
+                reason="Agent registered",
+                correlation_id=correlation_id,
+            )
+
             self._agent_repository.save(agent)
             return agent
+
+    def activate_agent(
+        self,
+        agent_id: str,
+        *,
+        actor: Actor,
+        reason: str = "Agent activated",
+        correlation_id: str | None = None,
+    ) -> AgentAdministrativeState:
+        """Put a registered agent into service (ADR-024 A.3).
+
+        The only transition that makes an agent administratively executable, and it is
+        always explicit: registration and activation are distinct lifecycle events even
+        when performed consecutively, so each produces its own ledger entry.
+
+        Activation is not a grant-freshness event (A.7) and does not touch the enforcement
+        plane. An agent activated while contained stays contained.
+        """
+        with self._lock:
+            self.get_agent(agent_id)
+            return self._administrative_transition(
+                agent_id=agent_id,
+                new_state=AdministrativeLifecycleState.ACTIVE,
+                actor=actor,
+                reason=reason,
+                correlation_id=correlation_id,
+            )
+
+    def disable_agent(
+        self,
+        agent_id: str,
+        *,
+        actor: Actor,
+        reason: str = "Agent disabled",
+        correlation_id: str | None = None,
+    ) -> AgentAdministrativeState:
+        """Remove an agent from service permanently (ADR-024 A.3).
+
+        Terminal: no administrative transition leaves ``DISABLED``. A future re-enable
+        would be a separately defined, separately authorized transition, and reinstatement
+        is never that transition.
+
+        Disablement removes execution authority, so it closes issuance on the
+        administrative plane. That closure is the administrative plane's alone: a later
+        reinstatement clears the enforcement plane's closure and leaves this one standing
+        (A.7), which is what keeps a disabled agent non-executable through any enforcement
+        transition.
+        """
+        with self._lock:
+            self.get_agent(agent_id)
+            return self._administrative_transition(
+                agent_id=agent_id,
+                new_state=AdministrativeLifecycleState.DISABLED,
+                actor=actor,
+                reason=reason,
+                correlation_id=correlation_id,
+            )
+
+    def register_and_activate_agent(
+        self,
+        agent: Agent,
+        *,
+        actor: Actor,
+        correlation_id: str | None = None,
+    ) -> Agent:
+        """Register an agent and put it into service, as two distinct transitions.
+
+        ADR-024 A.3 requires registration and activation to be distinct lifecycle events
+        "even when performed consecutively". This performs both and produces **two**
+        ledger entries, which is what makes them distinct; it is a convenience for callers
+        that legitimately do both at once, not a single combined transition.
+
+        Used by system-initiated paths -- bootstrap and the scenario runtime -- which have
+        no operator to perform the activation separately. An operator-driven registration
+        activates through its own authorized request.
+        """
+        with self._lock:
+            registered = self.register_agent(
+                agent, actor=actor, correlation_id=correlation_id
+            )
+            self.activate_agent(
+                agent.agent_id,
+                actor=actor,
+                reason="Activated on registration by a system actor",
+                correlation_id=correlation_id,
+            )
+            return registered
+
+    def administrative_state(self, agent_id: str) -> AgentAdministrativeState | None:
+        """Return the agent's authoritative administrative state, or None if unestablishable.
+
+        None is not ``REGISTERED``. L.10 surfaces it as
+        ``ADMINISTRATIVE_STATE_UNAVAILABLE``, which is not a lifecycle state.
+        """
+        with self._lock:
+            return self._administrative_repository.get_state(agent_id)
+
+    def list_administrative_transitions(
+        self, agent_id: str | None = None
+    ) -> list[AdministrativeTransition]:
+        """Return the administrative ledger, which is authoritative lifecycle evidence."""
+        with self._lock:
+            return self._administrative_repository.list_transitions(agent_id)
+
+    def _administrative_transition(
+        self,
+        *,
+        agent_id: str,
+        new_state: AdministrativeLifecycleState,
+        actor: Actor,
+        reason: str,
+        correlation_id: str | None,
+    ) -> AgentAdministrativeState:
+        """Apply one administrative transition under compare-and-set.
+
+        The legality check happens here as well as in the repository, and that duplication
+        is deliberate: the service can refuse with a domain error naming the states, while
+        the repository refuses anything that reaches it from any caller. The repository is
+        the boundary that commits, so it is the one that must not be bypassable.
+        """
+        current = self._administrative_repository.get_state(agent_id)
+        previous_state = current.state if current else None
+        expected_version = current.administrative_version if current else 0
+
+        if not is_legal_administrative_transition(previous_state, new_state):
+            raise IllegalAdministrativeTransitionError(
+                f"Illegal administrative transition for agent '{agent_id}': "
+                f"{previous_state.value if previous_state else 'none'} -> "
+                f"{new_state.value}."
+            )
+
+        now = datetime.now(timezone.utc)
+        next_version = expected_version + 1
+        transition = AdministrativeTransition(
+            transition_id=f"admin-transition-{uuid4()}",
+            agent_id=agent_id,
+            action=ADMINISTRATIVE_TRANSITION_ACTIONS[(previous_state, new_state)],
+            actor=actor,
+            reason=reason,
+            previous_state=previous_state,
+            new_state=new_state,
+            administrative_version_before=expected_version,
+            administrative_version_after=next_version,
+            correlation_id=correlation_id or f"corr-{uuid4()}",
+            occurred_at=now,
+        )
+        updated = AgentAdministrativeState(
+            agent_id=agent_id,
+            state=new_state,
+            administrative_version=next_version,
+            last_transition_at=now,
+        )
+
+        committed = self._administrative_repository.record_transition(
+            transition,
+            updated,
+            expected_version=expected_version,
+        )
+        if not committed:
+            raise AdministrativeConcurrencyError(
+                f"Concurrent administrative modification for agent '{agent_id}' "
+                f"(expected administrative version {expected_version})"
+            )
+        return updated
 
     def get_agent(self, agent_id: str) -> Agent:
         with self._lock:

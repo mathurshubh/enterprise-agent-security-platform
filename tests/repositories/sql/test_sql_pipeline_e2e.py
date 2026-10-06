@@ -32,7 +32,11 @@ from app.models.tool_metadata import ToolMetadata
 from app.models.tool_operational import ToolOperational
 from app.models.tool_risk_level import ToolRiskLevel
 from app.policy.policy_engine import PolicyEngine
-from app.repositories import InMemoryAgentRepository, create_repositories
+from app.repositories import (
+    InMemoryAdministrativeStateRepository,
+    InMemoryAgentRepository,
+    create_repositories,
+)
 from app.repositories.sql import SqlAuditEvidenceRepository, SqlToolRepository
 from app.repositories.sql.base import Base
 from app.repositories.sql.engine import create_sql_engine, dispose_sql_engine
@@ -120,6 +124,7 @@ def sql_pipeline_setup():
     agent_service = AgentService(
         agent_repository=container.agent_repository,
         enforcement_repository=container.enforcement_repository,
+        administrative_repository=InMemoryAdministrativeStateRepository(),
     )
     agent_service.register_agent(
         Agent(

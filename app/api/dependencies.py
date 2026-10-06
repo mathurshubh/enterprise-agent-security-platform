@@ -17,6 +17,7 @@ from app.models.execution_evidence_retention import (
 from app.registry.scenario_registry import ScenarioRegistry
 from app.registry.tool_registry import ToolRegistry
 from app.repositories.in_memory import (
+    InMemoryAdministrativeStateRepository,
     InMemoryAgentRepository,
     InMemoryApprovalContinuationRepository,
     InMemoryAuditEvidenceRepository,
@@ -53,6 +54,9 @@ agent_repository: InMemoryAgentRepository = InMemoryAgentRepository()
 enforcement_repository: InMemoryEnforcementStateRepository = (
     InMemoryEnforcementStateRepository()
 )
+administrative_repository: InMemoryAdministrativeStateRepository = (
+    InMemoryAdministrativeStateRepository()
+)
 audit_repository: InMemoryAuditEvidenceRepository = InMemoryAuditEvidenceRepository()
 session_repository: InMemorySessionRepository = InMemorySessionRepository()
 tool_repository: InMemoryToolRepository = InMemoryToolRepository()
@@ -65,6 +69,7 @@ approval_grant_repository: InMemoryApprovalContinuationRepository = (
 agent_service: AgentService = AgentService(
     agent_repository=agent_repository,
     enforcement_repository=enforcement_repository,
+    administrative_repository=administrative_repository,
 )
 
 detection_retention_policy: DetectionRetentionPolicy = (

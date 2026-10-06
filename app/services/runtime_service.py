@@ -63,7 +63,11 @@ from app.runtime.filesystem_resource_identity import (
 )
 from app.services.agent_lock_manager import AgentLockManager
 from app.services.agent_risk_aggregate import ProjectionInvariantError
-from app.services.agent_service import AgentNotFoundError, AgentService
+from app.services.agent_service import (
+    BOOTSTRAP_ACTOR,
+    AgentNotFoundError,
+    AgentService,
+)
 from app.services.audit_service import AuditService
 from app.services.detection_service import DetectionService
 from app.services.findings_service import FindingsService
@@ -331,7 +335,8 @@ class RuntimeService:
         agent_service: AgentService,
         agent_id: str,
     ) -> None:
-        agent_service.register_agent(
+        # Two distinct lifecycle events, not a single construction (ADR-024 A.3).
+        agent_service.register_and_activate_agent(
             Agent(
                 agent_id=agent_id,
                 name="Local Agent",
@@ -342,7 +347,8 @@ class RuntimeService:
                     "directory_list",
                 ],
                 status=AgentStatus.ACTIVE,
-            )
+            ),
+            actor=BOOTSTRAP_ACTOR,
         )
 
     @classmethod

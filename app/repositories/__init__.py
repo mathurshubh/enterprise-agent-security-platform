@@ -6,6 +6,8 @@ from app.repositories.factory import (
     create_repositories,
 )
 from app.repositories.in_memory import (
+    InMemoryAdministrativeAuditRepository,
+    InMemoryAdministrativeStateRepository,
     InMemoryAgentRepository,
     InMemoryApprovalContinuationRepository,
     InMemoryAuditEvidenceRepository,
@@ -24,6 +26,8 @@ from app.repositories.interfaces import (
 )
 
 __all__ = [
+    "InMemoryAdministrativeAuditRepository",
+    "InMemoryAdministrativeStateRepository",
     "AgentRepository",
     "ApprovalContinuationRepository",
     "AuditEvidenceRepository",

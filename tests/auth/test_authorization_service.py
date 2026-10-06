@@ -469,6 +469,9 @@ def test_authorization_fails_closed_when_enforcement_state_unavailable():
     from unittest.mock import MagicMock
 
     from app.models.authorization_result import AuthorizationCheckStatus
+    from app.repositories.in_memory.administrative_state_repository import (
+        InMemoryAdministrativeStateRepository,
+    )
     from app.repositories.in_memory.agent_repository import InMemoryAgentRepository
     from app.repositories.in_memory.enforcement_state_repository import (
         InMemoryEnforcementStateRepository,
@@ -477,7 +480,7 @@ def test_authorization_fails_closed_when_enforcement_state_unavailable():
 
     agent_repo = InMemoryAgentRepository()
     enf_repo = InMemoryEnforcementStateRepository()
-    agent_service = AgentService(agent_repo, enf_repo)
+    agent_service = AgentService(agent_repo, enf_repo, InMemoryAdministrativeStateRepository())
     tool_service = create_test_tool_service()
 
     agent_service.register_agent(create_agent(["file_read"]))
