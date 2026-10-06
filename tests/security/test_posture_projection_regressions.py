@@ -517,7 +517,7 @@ class TestProjectionIntegrityFailsClosed:
         self.corrupt_projection(env)
 
         other = "integrity-other-agent"
-        env.agent_service.register_agent(
+        env.agent_service.register_and_activate_agent(
             Agent(
                 agent_id=other,
                 name="Unaffected",

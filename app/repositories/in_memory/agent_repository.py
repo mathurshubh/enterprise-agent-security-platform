@@ -2,7 +2,7 @@
 
 from threading import RLock
 
-from app.models.agent import Agent
+from app.models.agent import Agent, AgentStatus
 from app.repositories.interfaces.agent_repository import AgentRepository
 
 
@@ -27,8 +27,17 @@ class InMemoryAgentRepository(AgentRepository):
             return agent.model_copy(deep=True)
 
     def save(self, agent: Agent) -> None:
+        """Store identity and descriptive configuration. ``status`` is discarded.
+
+        Lifecycle state belongs to the administrative and enforcement planes (AP.1), so
+        storing it here would create a second representation that can drift from its
+        authority. Discarding it at the boundary makes that drift unrepresentable rather
+        than merely discouraged: a stored record has no lifecycle value to disagree with.
+        """
         with self._lock:
-            self._agents[agent.agent_id] = agent.model_copy(deep=True)
+            self._agents[agent.agent_id] = agent.model_copy(
+                deep=True, update={"status": AgentStatus.REGISTERED}
+            )
 
     def list(self) -> list[Agent]:
         with self._lock:

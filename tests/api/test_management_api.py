@@ -86,7 +86,7 @@ class TestListAgents:
 
     def test_populated_registry_returns_agent(self) -> None:
         agent = make_agent("mgmt-list-agent")
-        agent_service.register_agent(agent)
+        agent_service.register_and_activate_agent(agent)
 
         response = client.get("/api/v1/agents")
         assert response.status_code == 200
@@ -95,7 +95,7 @@ class TestListAgents:
 
     def test_response_schema(self) -> None:
         agent = make_agent("mgmt-schema-agent")
-        agent_service.register_agent(agent)
+        agent_service.register_and_activate_agent(agent)
 
         response = client.get("/api/v1/agents")
         assert response.status_code == 200
@@ -112,7 +112,7 @@ class TestListAgents:
 
     def test_response_does_not_contain_runtime_fields(self) -> None:
         agent = make_agent("mgmt-noruntime-agent")
-        agent_service.register_agent(agent)
+        agent_service.register_and_activate_agent(agent)
 
         response = client.get("/api/v1/agents")
         item = next(

@@ -144,10 +144,15 @@ class AuthorizationService:
         # Policy evaluates the family's governance projection, not a version. The
         # projection is deterministic and most-restrictive, so it neither selects an
         # implementation nor lets one version's classification be the family's.
+        # Both lifecycle planes are evaluated against their own authorities here, where
+        # those authorities are held, and the outcome is handed to policy. The engine does
+        # not read ``agent.status``: that is a computed projection, and A.4 requires two
+        # independent readings rather than one collapsed value.
         policy_result = self._policy_engine.evaluate_policy(
             agent=agent,
             tool=self._tool_service.get_family_governance(tool_id),
             resource=resource,
+            lifecycle_refusal=self._agent_service.lifecycle_refusal(agent_id),
         )
 
         return AuthorizationResult(

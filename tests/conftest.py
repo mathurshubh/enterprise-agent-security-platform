@@ -103,7 +103,7 @@ def register_test_agent(
     from app.services.agent_service import AgentAlreadyExistsError
 
     try:
-        agent_service.register_agent(
+        agent_service.register_and_activate_agent(
             Agent(
                 agent_id=agent_id,
                 name=f"Test Agent ({agent_id})",

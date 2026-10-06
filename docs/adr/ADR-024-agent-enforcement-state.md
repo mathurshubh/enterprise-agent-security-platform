@@ -248,6 +248,14 @@ Execution is granted by the presence of both conditions, never inferred from the
 deny condition. Because each condition fails closed independently, administrative and enforcement
 transitions may commit in either order without creating an executable window.
 
+*Implementation status: **Implemented** (F-09.C). Both planes are evaluated independently
+against their own authorities and each fails closed on its own; the precedence among
+simultaneous failures is applied semantically, per
+[ADR-030](ADR-030-durable-state-repository-architecture.md) AP.9 and L.10. `Agent.status`
+is a computed projection and is no longer persisted or consulted by any authorization
+decision (AP.1). F-09.A delivered the fail-closed default alone and was recorded as
+partial; that qualification no longer applies.*
+
 Lifecycle-caused denials carry stable, machine-readable reason codes, independent of message text:
 
 | Condition | Code |

@@ -1007,7 +1007,7 @@ class TestAuditRecordsRequestedAndResolvedIdentitySeparately:
         )
 
         intruder = "other-agent"
-        env.agent_service.register_agent(
+        env.agent_service.register_and_activate_agent(
             Agent(
                 agent_id=intruder,
                 name="Other",
@@ -1129,7 +1129,7 @@ class TestAPersistedEventIsTheAuthoritativeRecord:
         self._execute(env, "s-owned")
 
         intruder = "intruding-agent"
-        env.agent_service.register_agent(
+        env.agent_service.register_and_activate_agent(
             Agent(
                 agent_id=intruder,
                 name="Intruder",

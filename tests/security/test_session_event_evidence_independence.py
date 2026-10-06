@@ -55,7 +55,6 @@ def sql_runtime(build_runtime, sql_engine):
                 name="Corpus Agent",
                 owner="security-team",
                 risk_tier="HIGH",
-                status="ACTIVE",
                 approved_tools=["file_read", "directory_list"],
                 created_at=now,
                 updated_at=now,

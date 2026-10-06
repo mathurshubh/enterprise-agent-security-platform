@@ -46,7 +46,6 @@ def seeded_factory():
                 name="agent-1",
                 owner="secops@enterprise.internal",
                 risk_tier="LOW",
-                status="ACTIVE",
                 approved_tools=["file_read"],
                 created_at=NOW,
                 updated_at=NOW,
@@ -56,7 +55,6 @@ def seeded_factory():
             SessionModel(
                 session_id="sess-1",
                 agent_id="agent-1",
-                status="ACTIVE",
                 next_session_sequence=1,
                 created_at=NOW,
                 updated_at=NOW,

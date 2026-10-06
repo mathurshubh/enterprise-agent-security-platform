@@ -115,7 +115,6 @@ def sql_pipeline_setup():
                 name="E2E Agent",
                 owner="security",
                 risk_tier="LOW",
-                status="ACTIVE",
             )
         )
         session.commit()
@@ -126,7 +125,7 @@ def sql_pipeline_setup():
         enforcement_repository=container.enforcement_repository,
         administrative_repository=InMemoryAdministrativeStateRepository(),
     )
-    agent_service.register_agent(
+    agent_service.register_and_activate_agent(
         Agent(
             agent_id="agent-e2e",
             name="E2E Agent",

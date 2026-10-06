@@ -283,7 +283,7 @@ def create_service(agent_id: str = "agent-1") -> AgentRuntimeService:
 def build_isolated_runtime(agent_id: str) -> RuntimeService:
     """A complete pipeline that shares no state with the live runtime."""
     agent_service = create_test_agent_service()
-    agent_service.register_agent(
+    agent_service.register_and_activate_agent(
         Agent(
             agent_id=agent_id,
             name="Test Agent",

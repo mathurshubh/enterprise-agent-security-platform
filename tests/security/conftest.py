@@ -77,7 +77,7 @@ def build_runtime():
         session_repository=None,
     ) -> SimpleNamespace:
         agent_service = create_test_agent_service()
-        agent_service.register_agent(
+        agent_service.register_and_activate_agent(
             Agent(
                 agent_id=agent_id,
                 name="Corpus Agent",

@@ -54,7 +54,6 @@ def pg_enforcement_repo():
             name="PGEnforcementAgent",
             owner="secops@enterprise.internal",
             risk_tier="HIGH",
-            status="ACTIVE",
             approved_tools=[],
             created_at=now,
             updated_at=now,

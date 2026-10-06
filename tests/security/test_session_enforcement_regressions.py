@@ -318,7 +318,7 @@ def test_invariant_another_agent_cannot_poison_a_session(
     from a non-owner is therefore refused before any session state is touched.
     """
     env = build_runtime(workspace=security_workspace)
-    env.agent_service.register_agent(
+    env.agent_service.register_and_activate_agent(
         Agent(
             agent_id="corpus-attacker",
             name="Attacker",

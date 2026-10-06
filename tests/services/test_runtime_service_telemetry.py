@@ -37,7 +37,7 @@ def _create_test_runtime_service(
     telemetry_emitter: TelemetryEmitter | None = None,
 ) -> RuntimeService:
     agent_service = create_test_agent_service()
-    agent_service.register_agent(
+    agent_service.register_and_activate_agent(
         Agent(
             agent_id="agent-1",
             name="Test Agent",

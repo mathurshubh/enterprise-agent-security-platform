@@ -17,6 +17,7 @@ from pydantic import ValidationError
 
 import app.services.runtime_service as runtime_service_module
 from app.models.agent import Agent, AgentStatus, RiskTier
+from app.models.agent_administrative import Actor
 from app.models.agent_enforcement import EnforcementAction, EnforcementTrigger
 from app.models.audit_event import Decision
 from app.models.risk_assessment import RiskLevel
@@ -37,6 +38,8 @@ from app.services.agent_service import (
     EnforcementStateUnavailableError,
 )
 from tests.conftest import create_test_agent_service
+
+TEST_OPERATOR = Actor(type="human", id="sec-ops-test")
 
 CRITICAL_TRIGGER = EnforcementTrigger(
     session_id="session-1",
@@ -62,7 +65,7 @@ def create_agent(
 
 def registered_service(status: AgentStatus = AgentStatus.ACTIVE) -> AgentService:
     service = create_test_agent_service()
-    service.register_agent(create_agent(status=status))
+    service.register_and_activate_agent(create_agent(status=status))
     return service
 
 
@@ -126,7 +129,10 @@ class TestSuspension:
         assert len(service.list_transitions("soc-agent")) == 1
 
     def test_suspension_leaves_a_disabled_agent_unchanged(self) -> None:
-        service = registered_service(status=AgentStatus.DISABLED)
+        # Disabled through the administrative plane, which is the authority. Assigning
+        # ``status`` on the model no longer disables anything.
+        service = registered_service()
+        service.disable_agent("soc-agent", actor=TEST_OPERATOR)
 
         result = service.suspend_agent("soc-agent", reason="critical risk posture")
 
@@ -152,11 +158,26 @@ class TestSuspension:
         policy = PolicyEngine()
         tool = low_risk_tool()
 
-        assert policy.evaluate(service.get_agent("soc-agent"), tool) == Decision.ALLOW
+        # The lifecycle outcome now comes from the two planes, not from the agent record.
+        assert (
+            policy.evaluate(
+                service.get_agent("soc-agent"),
+                tool,
+                lifecycle_refusal=service.lifecycle_refusal("soc-agent"),
+            )
+            == Decision.ALLOW
+        )
 
         service.suspend_agent("soc-agent", reason="critical risk posture")
 
-        assert policy.evaluate(service.get_agent("soc-agent"), tool) == Decision.DENY
+        assert (
+            policy.evaluate(
+                service.get_agent("soc-agent"),
+                tool,
+                lifecycle_refusal=service.lifecycle_refusal("soc-agent"),
+            )
+            == Decision.DENY
+        )
 
 
 class TestReinstatement:
@@ -229,7 +250,7 @@ class TestMonotonicBoundary:
 
         # Re-registering is refused, suspension stays suspension, reads change nothing.
         with pytest.raises(AgentAlreadyExistsError):
-            service.register_agent(create_agent(status=AgentStatus.ACTIVE))
+            service.register_and_activate_agent(create_agent(status=AgentStatus.ACTIVE))
         service.suspend_agent("soc-agent", reason="again")
         service.get_agent("soc-agent")
         service.list_agents()
@@ -424,7 +445,7 @@ class TestEnforcementPlaneInvariants:
         enf_repo = InMemoryEnforcementStateRepository()
         service = AgentService(agent_repo, enf_repo, InMemoryAdministrativeStateRepository())
 
-        service.register_agent(create_agent(agent_id="agent-outage"))
+        service.register_and_activate_agent(create_agent(agent_id="agent-outage"))
 
         # Simulate storage failure in EnforcementStateRepository
         def broken_get_state(agent_id: str):

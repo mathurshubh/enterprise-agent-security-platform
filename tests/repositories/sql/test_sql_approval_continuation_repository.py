@@ -41,7 +41,6 @@ def _seed_grant_dependencies(session_factory) -> None:
                     name=agent_id,
                     owner="secops@enterprise.internal",
                     risk_tier="LOW",
-                    status="ACTIVE",
                     approved_tools=KNOWN_GRANT_TOOLS,
                     created_at=now,
                     updated_at=now,
@@ -66,7 +65,6 @@ def _seed_grant_dependencies(session_factory) -> None:
                 SessionModel(
                     session_id=session_id,
                     agent_id="agent-1",
-                    status="ACTIVE",
                     next_session_sequence=1,
                     created_at=now,
                     updated_at=now,

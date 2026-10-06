@@ -2,7 +2,7 @@ from typing import ClassVar, Protocol
 
 from pydantic import BaseModel, ConfigDict
 
-from app.models.agent import Agent, AgentStatus, RiskTier
+from app.models.agent import Agent, RiskTier
 from app.models.audit_event import Decision
 from app.models.authorization_result import (
     AuthorizationCheck,
@@ -41,15 +41,6 @@ class PolicyEvaluationResult(BaseModel):
     reason: str
 
 
-# Codes for the lifecycle states that are known to be non-executable (ADR-024 A.4). A state
-# absent from this mapping is still denied; it is the *code* that defaults, never the
-# decision. ``AGENT_NOT_ACTIVE`` is the honest answer for an unclassified state: all that has
-# been established is that it is not the executable one.
-_LIFECYCLE_REFUSAL_CODES: dict[AgentStatus, LifecycleRefusalCode] = {
-    AgentStatus.REGISTERED: LifecycleRefusalCode.AGENT_NOT_ACTIVE,
-    AgentStatus.DISABLED: LifecycleRefusalCode.AGENT_DISABLED,
-    AgentStatus.SUSPENDED: LifecycleRefusalCode.AGENT_SUSPENDED,
-}
 
 
 class PolicyEngine:
@@ -62,32 +53,39 @@ class PolicyEngine:
         agent: Agent,
         tool: ToolGovernanceView,
         resource: str | None = None,
+        *,
+        lifecycle_refusal: LifecycleRefusalCode | None,
     ) -> PolicyEvaluationResult:
-        # Execution is permitted by the presence of the executable state, never inferred
-        # from the absence of a deny condition (ADR-024 amendment A.4). The previous form
-        # denied only SUSPENDED and DISABLED, which made REGISTERED executable by omission
-        # and would have made every state added later executable the same way. An allow-list
-        # inverts that default: a state nobody classified is non-executable.
-        #
-        # Partial implementation of A.4. This reads ``agent.status``, which is a projection
-        # over the administrative and enforcement planes, not the two authoritative sources.
-        # A.4 requires each condition evaluated independently against its own authority, and
-        # that needs the administrative plane. What holds here is the fail-closed default;
-        # independent plane evaluation does not yet.
-        if agent.status is not AgentStatus.ACTIVE:
-            status_value = getattr(agent.status, "value", str(agent.status))
-            code = _LIFECYCLE_REFUSAL_CODES.get(
-                agent.status, LifecycleRefusalCode.AGENT_NOT_ACTIVE
-            )
+        """Evaluate policy for one request.
+
+        ``lifecycle_refusal`` is the outcome of evaluating the administrative and
+        enforcement planes against their own authorities (ADR-024 A.4), computed by the
+        caller that holds those authorities. ``None`` means both planes permit execution.
+
+        It is a **required** keyword rather than an optional one with a permissive default.
+        A caller that forgot to supply it would otherwise obtain an unconditional
+        lifecycle pass, which is the defect class this gate exists to remove -- and the
+        same shape F-02 corrected on capability digests and F-09.A corrected on the
+        execution gate.
+
+        This engine no longer reads ``agent.status``. Under AP.1 that field is a computed
+        projection over both planes and must not be consumed by a security decision: a
+        projection can be stale, can be constructed by a caller, and asserts a single
+        value where A.4 requires two independent readings.
+        """
+        if lifecycle_refusal is not None:
             reason = (
-                f"Agent '{agent.agent_id}' is not in an executable lifecycle state: "
-                f"{status_value}"
+                f"Agent '{agent.agent_id}' may not execute: "
+                f"{lifecycle_refusal.value}"
             )
             status_check = AuthorizationCheck(
                 status=AuthorizationCheckStatus.FAILED,
                 reason=reason,
-                code=code.value,
-                details={"agent_id": agent.agent_id, "status": status_value},
+                code=lifecycle_refusal.value,
+                details={
+                    "agent_id": agent.agent_id,
+                    "lifecycle_refusal": lifecycle_refusal.value,
+                },
             )
             return PolicyEvaluationResult(
                 decision=Decision.DENY,
@@ -100,7 +98,7 @@ class PolicyEngine:
         status_check = AuthorizationCheck(
             status=AuthorizationCheckStatus.PASSED,
             reason=f"Agent '{agent.agent_id}' is active",
-            details={"agent_id": agent.agent_id, "status": AgentStatus.ACTIVE.value},
+            details={"agent_id": agent.agent_id},
         )
 
         if (
@@ -199,5 +197,9 @@ class PolicyEngine:
         agent: Agent,
         tool: ToolGovernanceView,
         resource: str | None = None,
+        *,
+        lifecycle_refusal: LifecycleRefusalCode | None,
     ) -> Decision:
-        return self.evaluate_policy(agent, tool, resource).decision
+        return self.evaluate_policy(
+            agent, tool, resource, lifecycle_refusal=lifecycle_refusal
+        ).decision

@@ -18,7 +18,9 @@ from app.models.agent_enforcement import (
     EnforcementTransition,
     EnforcementTrigger,
 )
+from app.models.authorization_result import LifecycleRefusalCode
 from app.models.watermark import BaselineWatermark
+from app.policy.lifecycle_authorization import evaluate_lifecycle_authorization
 from app.repositories.interfaces.administrative_state_repository import (
     AdministrativeStateRepository,
 )
@@ -213,7 +215,7 @@ class AgentService:
         self,
         agent: Agent,
         *,
-        actor: Actor,
+        actor: Actor = SYSTEM_REGISTRATION_ACTOR,
         correlation_id: str | None = None,
     ) -> Agent:
         """Register an agent and put it into service, as two distinct transitions.
@@ -316,48 +318,113 @@ class AgentService:
             )
         return updated
 
+    def _read_planes(self, agent_id: str):
+        """Read both lifecycle planes, reporting availability separately from content.
+
+        Availability is returned rather than signalled by ``None`` because the two mean
+        different things and L.10 gives them different codes. A repository that cannot
+        answer is ``*_STATE_UNAVAILABLE``; an absent administrative record is also
+        unavailable (L.3), while an absent enforcement record simply means never
+        contained.
+        """
+        try:
+            administrative = self._administrative_repository.get_state(agent_id)
+            administrative_available = True
+        except Exception:
+            administrative, administrative_available = None, False
+
+        try:
+            enforcement = self._enforcement_repository.get_state(agent_id)
+            enforcement_available = True
+        except Exception:
+            enforcement, enforcement_available = None, False
+
+        return administrative, administrative_available, enforcement, enforcement_available
+
+    def lifecycle_refusal(self, agent_id: str) -> LifecycleRefusalCode | None:
+        """Return why this agent may not execute, or None if both planes permit it.
+
+        The authorization path's single entry point into lifecycle state. Each plane is
+        evaluated independently against its own authority and fails closed on its own
+        (ADR-024 A.4); the precedence among simultaneous failures is L.10's, applied
+        semantically rather than in evaluation order.
+        """
+        with self._lock:
+            administrative, admin_ok, enforcement, enf_ok = self._read_planes(agent_id)
+            return evaluate_lifecycle_authorization(
+                administrative=administrative,
+                administrative_available=admin_ok,
+                enforcement=enforcement,
+                enforcement_available=enf_ok,
+            )
+
+    @staticmethod
+    def _project_status(
+        administrative: AgentAdministrativeState | None,
+        enforcement: AgentEnforcementState | None,
+    ) -> AgentStatus:
+        """Compute the effective lifecycle status for presentation (AP.1).
+
+        Never persisted and never an authorization input. Precedence mirrors L.10 so the
+        displayed value cannot disagree with the decision: an unestablishable
+        administrative state is shown as the most restrictive thing it could be, and
+        ``DISABLED`` outranks ``SUSPENDED`` because no enforcement transition can make a
+        disabled agent executable.
+        """
+        if administrative is None:
+            return AgentStatus.REGISTERED
+        if administrative.state is AdministrativeLifecycleState.DISABLED:
+            return AgentStatus.DISABLED
+        if enforcement is not None and enforcement.suspended_at is not None:
+            return AgentStatus.SUSPENDED
+        if administrative.state is AdministrativeLifecycleState.ACTIVE:
+            return AgentStatus.ACTIVE
+        return AgentStatus.REGISTERED
+
     def get_agent(self, agent_id: str) -> Agent:
         with self._lock:
             agent = self._agent_repository.get(agent_id)
             if agent is None:
                 raise AgentNotFoundError(f"Agent '{agent_id}' not found")
 
-            # Dynamic enforcement posture projection (fail-closed)
-            if agent.status != AgentStatus.DISABLED:
-                try:
-                    enf_state = self._enforcement_repository.get_state(agent_id)
-                except EnforcementStateUnavailableError:
-                    raise
-                except Exception as exc:
-                    raise EnforcementStateUnavailableError(
-                        f"Enforcement state repository unavailable for agent '{agent_id}': {exc}"
-                    ) from exc
+            # ``status`` is computed from the two authoritative planes on every read and
+            # is never taken from the stored record (AP.1). The stored value is not
+            # consulted even as a starting point: it is not persisted any more, so a
+            # record read straight from the repository carries the model default.
+            try:
+                enf_state = self._enforcement_repository.get_state(agent_id)
+            except EnforcementStateUnavailableError:
+                raise
+            except Exception as exc:
+                raise EnforcementStateUnavailableError(
+                    f"Enforcement state repository unavailable for agent '{agent_id}': {exc}"
+                ) from exc
 
-                if enf_state is not None and enf_state.suspended_at is not None:
-                    agent = agent.model_copy(update={"status": AgentStatus.SUSPENDED})
-
-            return agent
+            administrative = self._administrative_repository.get_state(agent_id)
+            return agent.model_copy(
+                update={"status": self._project_status(administrative, enf_state)}
+            )
 
     def list_agents(self) -> list[Agent]:
         with self._lock:
             agents = self._agent_repository.list()
             projected = []
             for agent in agents:
-                if agent.status != AgentStatus.DISABLED:
-                    try:
-                        enf_state = self._enforcement_repository.get_state(agent.agent_id)
-                    except EnforcementStateUnavailableError:
-                        raise
-                    except Exception as exc:
-                        raise EnforcementStateUnavailableError(
-                            f"Enforcement state repository unavailable for agent '{agent.agent_id}': {exc}"
-                        ) from exc
+                try:
+                    enf_state = self._enforcement_repository.get_state(agent.agent_id)
+                except EnforcementStateUnavailableError:
+                    raise
+                except Exception as exc:
+                    raise EnforcementStateUnavailableError(
+                        f"Enforcement state repository unavailable for agent '{agent.agent_id}': {exc}"
+                    ) from exc
 
-                    if enf_state is not None and enf_state.suspended_at is not None:
-                        agent = agent.model_copy(
-                            update={"status": AgentStatus.SUSPENDED}
-                        )
-                projected.append(agent)
+                administrative = self._administrative_repository.get_state(agent.agent_id)
+                projected.append(
+                    agent.model_copy(
+                        update={"status": self._project_status(administrative, enf_state)}
+                    )
+                )
             return projected
 
     def suspend_agent(
@@ -376,7 +443,19 @@ class AgentService:
         with self._lock:
             agent = self.get_agent(agent_id)
 
-            if agent.status in {AgentStatus.SUSPENDED, AgentStatus.DISABLED}:
+            # Read the authorities, not the projection. An agent already contained adds no
+            # second transition, and a DISABLED agent is left alone: disablement is the
+            # stronger administrative posture and containment cannot add to it.
+            administrative = self._administrative_repository.get_state(agent_id)
+            enforcement = self._enforcement_repository.get_state(agent_id)
+            already_suspended = (
+                enforcement is not None and enforcement.suspended_at is not None
+            )
+            is_disabled = (
+                administrative is not None
+                and administrative.state is AdministrativeLifecycleState.DISABLED
+            )
+            if already_suspended or is_disabled:
                 return agent
 
             return self._transition(
@@ -415,7 +494,12 @@ class AgentService:
             if not reason.strip():
                 raise ValueError("Reinstatement requires a reason")
 
-            if agent.status != AgentStatus.SUSPENDED:
+            # The enforcement plane decides whether there is a suspension to clear.
+            # Reading the projection would couple this to administrative state, and A.5
+            # permits reinstating a REGISTERED or DISABLED agent -- it clears the
+            # containment and leaves the agent non-executable.
+            enforcement = self._enforcement_repository.get_state(agent_id)
+            if enforcement is None or enforcement.suspended_at is None:
                 raise AgentNotSuspendedError(f"Agent '{agent_id}' is not suspended")
 
             return self._transition(
@@ -481,9 +565,24 @@ class AgentService:
         watermark: BaselineWatermark | None = None,
     ) -> Agent:
         """Apply one enforcement transition under the service lock via CAS and repository persistence."""
-        # Administrative DISABLED is a terminal/non-executable posture.
-        # A dynamic transition must never create enforcement state for a DISABLED agent.
-        if agent.status == AgentStatus.DISABLED:
+        # Administrative DISABLED is terminal and non-executable, and a containment
+        # transition must not create enforcement state for such an agent. Read from the
+        # administrative authority rather than the projection.
+        #
+        # Reinstatement is exempt: A.5 permits reinstating a DISABLED agent, which clears
+        # the suspension and leaves it non-executable through the administrative plane.
+        #
+        # Defence in depth rather than the load-bearing check: ``suspend_agent`` already
+        # returns before reaching here for a disabled agent, which mutation testing
+        # confirmed by producing an equivalent mutant. Kept for any future caller of
+        # ``_transition`` that does not short-circuit, on the same reasoning as the
+        # duplicated legality check in ``_administrative_transition``.
+        administrative = self._administrative_repository.get_state(agent.agent_id)
+        if (
+            action == EnforcementAction.SUSPEND
+            and administrative is not None
+            and administrative.state is AdministrativeLifecycleState.DISABLED
+        ):
             return agent
 
         now = datetime.now(timezone.utc)
@@ -558,10 +657,17 @@ class AgentService:
                 f"(expected epoch {expected_epoch})"
             )
 
-        # Fail-closed cross-repository persistence:
-        # If save() raises, we do NOT roll back EnforcementStateRepository.
-        # get_agent() projects SUSPENDED from EnforcementStateRepository, maintaining fail-closed security.
-        updated = agent.model_copy(update={"status": new_status})
-        self._agent_repository.save(updated)
-
-        return updated
+        # The enforcement transition writes the enforcement plane and nothing else.
+        #
+        # It previously also wrote ``status`` onto the agent record, which made a
+        # containment-recovery operation an administrative one: reinstating an agent that
+        # had never been activated would have put it into service. A.5 forbids that --
+        # reinstatement leaves administrative state exactly as it was -- and with status
+        # no longer persisted there is nothing on the agent record for this to write.
+        #
+        # The returned agent carries the freshly projected status so the caller sees the
+        # effect of the transition without a second read.
+        administrative = self._administrative_repository.get_state(agent.agent_id)
+        return agent.model_copy(
+            update={"status": self._project_status(administrative, new_state)}
+        )
