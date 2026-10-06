@@ -26,18 +26,21 @@ class LifecycleRefusalCode(str, Enum):
     Machine-readable and independent of message text, so a caller can distinguish *why*
     an agent may not execute without parsing a human-readable reason.
 
-    Only the codes for **known** lifecycle states are defined here, because only these are
-    reachable today. ADR-030 L.10 additionally specifies
-    ``ADMINISTRATIVE_STATE_UNAVAILABLE`` and ``ENFORCEMENT_STATE_UNAVAILABLE`` for the case
-    where a plane's authoritative state cannot be established, together with a precedence
-    ordering among all five. Neither is reachable while execution is gated on a single
-    projected status: one value cannot fail two ways at once, so no precedence is
-    observable and nothing could test it. Both arrive with the administrative plane, which
-    is what makes two authorities — and therefore simultaneous failures — possible.
+    Five codes, in the precedence ADR-030 L.10 defines. The two ``*_UNAVAILABLE`` codes
+    say a plane's authoritative state could not be **established**; they are not lifecycle
+    states, and an unreachable repository is never reported as a disabled or inactive
+    agent.
+
+    Precedence matters only once two authorities exist, because a single value cannot fail
+    two ways at once. F-09.A defined the three known-state codes alone for that reason;
+    the administrative plane is what makes simultaneous failures — and therefore an
+    ordering — observable.
     """
 
-    AGENT_NOT_ACTIVE = "AGENT_NOT_ACTIVE"
+    ADMINISTRATIVE_STATE_UNAVAILABLE = "ADMINISTRATIVE_STATE_UNAVAILABLE"
+    ENFORCEMENT_STATE_UNAVAILABLE = "ENFORCEMENT_STATE_UNAVAILABLE"
     AGENT_DISABLED = "AGENT_DISABLED"
+    AGENT_NOT_ACTIVE = "AGENT_NOT_ACTIVE"
     AGENT_SUSPENDED = "AGENT_SUSPENDED"
 
 
