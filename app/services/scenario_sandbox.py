@@ -69,10 +69,13 @@ class ScenarioSandbox:
 
 def build_scenario_sandbox(agent_id: str = SCENARIO_AGENT_ID) -> ScenarioSandbox:
     """Build a throwaway pipeline that shares no state with the live runtime."""
+    agent_repository = InMemoryAgentRepository()
     agent_service = AgentService(
-        agent_repository=InMemoryAgentRepository(),
+        agent_repository=agent_repository,
         enforcement_repository=InMemoryEnforcementStateRepository(),
-        administrative_repository=InMemoryAdministrativeStateRepository(),
+        administrative_repository=InMemoryAdministrativeStateRepository(
+            agent_repository=agent_repository
+        ),
     )
     session_service = SessionService(
         session_repository=InMemorySessionRepository(),

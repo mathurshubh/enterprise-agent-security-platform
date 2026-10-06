@@ -55,7 +55,7 @@ enforcement_repository: InMemoryEnforcementStateRepository = (
     InMemoryEnforcementStateRepository()
 )
 administrative_repository: InMemoryAdministrativeStateRepository = (
-    InMemoryAdministrativeStateRepository()
+    InMemoryAdministrativeStateRepository(agent_repository=agent_repository)
 )
 audit_repository: InMemoryAuditEvidenceRepository = InMemoryAuditEvidenceRepository()
 session_repository: InMemorySessionRepository = InMemorySessionRepository()

@@ -36,12 +36,13 @@ def create_test_agent_service(
     )
     from app.services.agent_service import AgentService
 
+    _agents = agent_repository or InMemoryAgentRepository()
     return AgentService(
-        agent_repository=agent_repository or InMemoryAgentRepository(),
+        agent_repository=_agents,
         enforcement_repository=enforcement_repository
         or InMemoryEnforcementStateRepository(),
         administrative_repository=administrative_repository
-        or InMemoryAdministrativeStateRepository(),
+        or InMemoryAdministrativeStateRepository(agent_repository=_agents),
     )
 
 

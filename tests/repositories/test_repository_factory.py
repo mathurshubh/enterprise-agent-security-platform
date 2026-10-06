@@ -15,6 +15,9 @@ from app.repositories import (
 )
 from app.repositories.sql import (
     Base,
+    SqlAdministrativeAuditRepository,
+    SqlAdministrativeStateRepository,
+    SqlAgentRepository,
     SqlApprovalContinuationRepository,
     SqlAuditEvidenceRepository,
     SqlEnforcementStateRepository,
@@ -124,15 +127,46 @@ def test_invariant_sql_backend_never_substitutes_an_in_memory_repository() -> No
 
 
 @pytest.mark.security_invariant
-def test_invariant_sql_backend_without_an_agent_repository_fails_at_composition() -> None:
-    """There is no SQL AgentRepository, so the gap is refused before any service exists.
+def test_invariant_sql_backend_defaults_the_agent_repository_to_the_sql_adapter() -> None:
+    """Supersedes the composition refusal, now that a SQL AgentRepository exists (F-09.D).
 
-    Previously an in-memory registry was substituted, and every session bind then failed
-    on its foreign key to ``agents`` at request time.
+    Finding 3 made this a hard refusal because there was no SQL adapter: an in-memory
+    registry was being substituted, and every session bind then failed on its foreign key
+    to ``agents`` at request time. Refusing made the gap visible rather than deferring it
+    to a request.
+
+    The gap is closed, so the refusal is obsolete -- but the property it protected is not,
+    and is asserted here instead: under ``backend="sql"`` the agent repository is the SQL
+    adapter, never an implicit volatile substitute. Supplying one explicitly still wins,
+    which is what the in-memory-substitution test above continues to cover.
     """
     engine = create_sql_engine("sqlite:///:memory:")
-    with pytest.raises(RepositoryCompositionError, match="agent_repository"):
-        create_repositories(backend="sql", engine=engine)
+
+    container = create_repositories(backend="sql", engine=engine)
+
+    assert isinstance(container.agent_repository, SqlAgentRepository)
+    assert not isinstance(container.agent_repository, _IN_MEMORY_TYPES)
+
+
+@pytest.mark.security_invariant
+def test_invariant_the_administrative_plane_is_sql_backed_under_the_sql_backend() -> None:
+    """The administrative plane is a lifecycle authority and must not be volatile.
+
+    L.6 requirement 1: a composition must not make one store durable while it holds a
+    reference into a volatile namespace. Administrative state is the authority the
+    authorization path consults, so a volatile one under a durable backend would be
+    exactly that topology.
+    """
+    engine = create_sql_engine("sqlite:///:memory:")
+
+    container = create_repositories(backend="sql", engine=engine)
+
+    assert isinstance(
+        container.administrative_repository, SqlAdministrativeStateRepository
+    )
+    assert isinstance(
+        container.administrative_audit_repository, SqlAdministrativeAuditRepository
+    )
 
 
 def test_repository_composition_error_is_a_value_error() -> None:

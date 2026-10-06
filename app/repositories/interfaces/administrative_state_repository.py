@@ -5,10 +5,19 @@ ADR-024 A.6 (concurrency), A.8 (evidence); ADR-030 L.3 (persistence), AP.3, AP.4
 
 from typing import Protocol
 
+from app.models.agent import Agent
 from app.models.agent_administrative import (
     AdministrativeTransition,
     AgentAdministrativeState,
 )
+
+
+class AgentAlreadyRegisteredError(Exception):
+    """Raised when registration targets an agent id that already exists.
+
+    Detected inside the registration transaction rather than by a prior read, so two
+    concurrent registrations for one id cannot both observe "absent" and both commit.
+    """
 
 
 class AdministrativeStateUnavailableError(Exception):
@@ -78,6 +87,41 @@ class AdministrativeStateRepository(Protocol):
                 administrative graph, or the offered version does not advance by exactly
                 one. Not a retryable condition.
             AdministrativeStateUnavailableError: the storage is unavailable.
+        """
+        ...
+
+    def commit_registration(
+        self,
+        agent: Agent,
+        transition: AdministrativeTransition,
+        new_state: AgentAdministrativeState,
+    ) -> None:
+        """Atomically create an agent and its initial administrative state.
+
+        **The durable composition boundary (ADR-030 AP.3, F-09.D).** Registration commits
+        the identity record and the administrative record together, or neither. This is the
+        literal invariant -- *no durable agent exists without its administrative state* --
+        rather than the weaker reachability property that a fail-closed read would provide.
+
+        It lives here, rather than on ``AgentRepository``, because registration **is** the
+        first administrative transition (ADR-024 A.3): the ledger entry and the state row
+        are this repository's, and the identity row is the foreign-key prerequisite they
+        cannot be written without. Splitting the three writes across two repositories would
+        put them in two transactions, and the ordering that makes a partial failure safe
+        in memory is the one the foreign key forbids in SQL -- the two substrates would
+        then need different composition strategies for the same invariant.
+
+        ``AgentRepository`` keeps no lifecycle responsibility and no compare-and-set
+        (AP.3); it is not involved in this operation.
+
+        Raises:
+            AgentAlreadyRegisteredError: an agent with this id already exists. Checked
+                inside the same transaction, so two concurrent registrations cannot both
+                succeed.
+            AdministrativeTransitionInvariantError: the transition is not a legal
+                registration.
+            AdministrativeStateUnavailableError: the storage is unavailable. Nothing is
+                committed.
         """
         ...
 

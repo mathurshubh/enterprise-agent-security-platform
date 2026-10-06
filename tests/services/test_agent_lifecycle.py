@@ -218,26 +218,28 @@ class TestAdministrativeConcurrency:
         Driven with a repository stubbed to lose the race, which is the only way to reach
         the branch without real concurrency.
         """
-        from app.repositories.in_memory import InMemoryAdministrativeStateRepository
+        from app.repositories.in_memory import (
+            InMemoryAdministrativeStateRepository,
+            InMemoryAgentRepository,
+        )
         from app.services.agent_service import AdministrativeConcurrencyError
 
         class LosingRepository(InMemoryAdministrativeStateRepository):
-            """Commits registration, then loses every subsequent race."""
+            """Registers normally, then loses every compare-and-set after that.
 
-            def __init__(self) -> None:
-                super().__init__()
-                self.calls = 0
+            ``commit_registration`` is left alone deliberately: registration is a separate
+            composition that does not go through ``record_transition``, so overriding it
+            would test the wrong boundary.
+            """
 
             def record_transition(self, transition, new_state, *, expected_version):
-                self.calls += 1
-                if self.calls == 1:
-                    return super().record_transition(
-                        transition, new_state, expected_version=expected_version
-                    )
                 return False
 
-        repo = LosingRepository()
-        service = create_test_agent_service(administrative_repository=repo)
+        agents = InMemoryAgentRepository()
+        repo = LosingRepository(agent_repository=agents)
+        service = create_test_agent_service(
+            agent_repository=agents, administrative_repository=repo
+        )
         service.register_agent(agent())
 
         with pytest.raises(AdministrativeConcurrencyError):

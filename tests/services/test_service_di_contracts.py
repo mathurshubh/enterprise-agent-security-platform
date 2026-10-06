@@ -54,7 +54,9 @@ class TestServiceDIRepositoryContracts:
         service = AgentService(
             agent_repository=agent_repo,
             enforcement_repository=enf_repo,
-            administrative_repository=InMemoryAdministrativeStateRepository(),
+            administrative_repository=InMemoryAdministrativeStateRepository(
+                agent_repository=agent_repo
+            ),
         )
 
         assert service.agent_repository is agent_repo
@@ -245,7 +247,9 @@ class TestPR180BehaviorNeutrality:
         service = AgentService(
             agent_repository=agent_repo,
             enforcement_repository=enf_repo,
-            administrative_repository=InMemoryAdministrativeStateRepository(),
+            administrative_repository=InMemoryAdministrativeStateRepository(
+                agent_repository=agent_repo
+            ),
         )
 
         agent = Agent(

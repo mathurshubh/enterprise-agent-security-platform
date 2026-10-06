@@ -123,7 +123,9 @@ def sql_pipeline_setup():
     agent_service = AgentService(
         agent_repository=container.agent_repository,
         enforcement_repository=container.enforcement_repository,
-        administrative_repository=InMemoryAdministrativeStateRepository(),
+        administrative_repository=InMemoryAdministrativeStateRepository(
+            agent_repository=container.agent_repository
+        ),
     )
     agent_service.register_and_activate_agent(
         Agent(

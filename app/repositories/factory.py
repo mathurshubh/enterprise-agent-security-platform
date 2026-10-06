@@ -23,6 +23,8 @@ from sqlalchemy.orm import Session as OrmSession
 from sqlalchemy.orm import sessionmaker
 
 from app.repositories.in_memory import (
+    InMemoryAdministrativeAuditRepository,
+    InMemoryAdministrativeStateRepository,
     InMemoryAgentRepository,
     InMemoryApprovalContinuationRepository,
     InMemoryAuditEvidenceRepository,
@@ -31,6 +33,8 @@ from app.repositories.in_memory import (
     InMemoryToolRepository,
 )
 from app.repositories.interfaces import (
+    AdministrativeAuditRepository,
+    AdministrativeStateRepository,
     AgentRepository,
     ApprovalContinuationRepository,
     AuditEvidenceRepository,
@@ -39,6 +43,9 @@ from app.repositories.interfaces import (
     ToolRepository,
 )
 from app.repositories.sql import (
+    SqlAdministrativeAuditRepository,
+    SqlAdministrativeStateRepository,
+    SqlAgentRepository,
     SqlApprovalContinuationRepository,
     SqlAuditEvidenceRepository,
     SqlEnforcementStateRepository,
@@ -66,6 +73,8 @@ class RepositoryContainer:
     """
 
     agent_repository: AgentRepository
+    administrative_repository: AdministrativeStateRepository
+    administrative_audit_repository: AdministrativeAuditRepository
     tool_repository: ToolRepository
     session_repository: SessionRepository
     enforcement_repository: EnforcementStateRepository
@@ -100,9 +109,14 @@ def create_repositories(
             raise ValueError(
                 "Cannot provide 'engine' or 'session_factory' when backend='memory'."
             )
+        _memory_agents = agent_repository or InMemoryAgentRepository()
         return RepositoryContainer(
-            agent_repository=agent_repository or InMemoryAgentRepository(),
+            agent_repository=_memory_agents,
             tool_repository=tool_repository or InMemoryToolRepository(),
+            administrative_repository=InMemoryAdministrativeStateRepository(
+                agent_repository=_memory_agents
+            ),
+            administrative_audit_repository=InMemoryAdministrativeAuditRepository(),
             session_repository=InMemorySessionRepository(),
             enforcement_repository=InMemoryEnforcementStateRepository(),
             approval_grant_repository=InMemoryApprovalContinuationRepository(),
@@ -119,22 +133,23 @@ def create_repositories(
                 "Cannot provide both 'engine' and 'session_factory'; provide exactly one."
             )
 
-        if agent_repository is None:
-            # The SQL tables already reference ``agents``, but nothing here can write them.
-            # Substituting an in-memory registry would leave every session bind failing on
-            # its foreign key at request time; refusing now makes the gap visible instead.
-            raise RepositoryCompositionError(
-                "backend='sql' has no SQL AgentRepository; supply 'agent_repository' "
-                "explicitly. An in-memory substitute is never applied implicitly."
-            )
-
         sf = session_factory if session_factory is not None else create_session_factory(engine)  # type: ignore[arg-type]
 
         return RepositoryContainer(
-            agent_repository=agent_repository,
+            # A SQL agent repository now exists (F-09.D), so this no longer refuses.
+            # An in-memory substitute is still never applied implicitly: the SQL tables
+            # reference ``agents``, and a volatile registry would leave every bind failing
+            # on its foreign key at request time.
+            agent_repository=(
+                agent_repository
+                if agent_repository is not None
+                else SqlAgentRepository(sf)
+            ),
             tool_repository=(
                 tool_repository if tool_repository is not None else SqlToolRepository(sf)
             ),
+            administrative_repository=SqlAdministrativeStateRepository(sf),
+            administrative_audit_repository=SqlAdministrativeAuditRepository(sf),
             session_repository=SqlSessionRepository(sf),
             enforcement_repository=SqlEnforcementStateRepository(sf),
             approval_grant_repository=SqlApprovalContinuationRepository(sf),

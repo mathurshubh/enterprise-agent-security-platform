@@ -489,7 +489,7 @@ def test_authorization_fails_closed_when_enforcement_state_unavailable():
 
     agent_repo = InMemoryAgentRepository()
     enf_repo = InMemoryEnforcementStateRepository()
-    agent_service = AgentService(agent_repo, enf_repo, InMemoryAdministrativeStateRepository())
+    agent_service = AgentService(agent_repo, enf_repo, InMemoryAdministrativeStateRepository(agent_repository=agent_repo))
     tool_service = create_test_tool_service()
 
     agent_service.register_and_activate_agent(create_agent(["file_read"]))
