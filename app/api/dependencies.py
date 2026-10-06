@@ -8,7 +8,12 @@ instances with diverging state.
 """
 
 from app.auth.jwt_service import JWTService
-from app.config.settings import get_jwt_secret_key, get_max_terminal_execution_receipts
+from app.config.settings import (
+    get_database_url,
+    get_jwt_secret_key,
+    get_max_terminal_execution_receipts,
+    get_repository_backend,
+)
 from app.detection.registry import DetectionRegistry
 from app.models.detection_retention import DetectionRetentionPolicy
 from app.models.execution_evidence_retention import (
@@ -16,15 +21,9 @@ from app.models.execution_evidence_retention import (
 )
 from app.registry.scenario_registry import ScenarioRegistry
 from app.registry.tool_registry import ToolRegistry
-from app.repositories.in_memory import (
-    InMemoryAdministrativeStateRepository,
-    InMemoryAgentRepository,
-    InMemoryApprovalContinuationRepository,
-    InMemoryAuditEvidenceRepository,
-    InMemoryEnforcementStateRepository,
-    InMemorySessionRepository,
-    InMemoryToolRepository,
-)
+from app.repositories.composition_validation import validate_durable_composition
+from app.repositories.factory import RepositoryContainer, create_repositories
+from app.repositories.sql.engine import create_sql_engine
 from app.runtime.execution_authority import ExecutionAuthority
 from app.services.agent_lock_manager import AgentLockManager
 from app.services.agent_service import AgentService
@@ -49,20 +48,45 @@ from app.services.tool_service import ToolService
 from app.telemetry.dispatcher import InMemoryTelemetryDispatcher
 
 # ── Shared repository singletons (ADR-030 composition root) ──────────────────
+#
+# Assembled by the factory for the configured backend, then validated against ADR-030 L.6
+# before any service is constructed. DB.5 places the L.6 integrity check at startup, and
+# this is where startup happens: the factory assembles adapters, the composition root
+# deploys them, and only the second is a topology.
+#
+# The default is ``memory``. A durable backend is refused today, deliberately and with an
+# explanation: ``agent_enforcement_state.baseline_evidence_sequence`` is a watermark into
+# ``Finding.evidence_sequence``, whose allocator is ``FindingsService`` in process memory
+# with no repository at all. L.6 requirement 1 names that case exactly -- durable
+# enforcement with in-memory findings is not a valid durable-security topology -- because
+# a durable watermark over a volatile allocator suppresses detection after a restart. The
+# durable findings boundary is what unblocks it.
 
-agent_repository: InMemoryAgentRepository = InMemoryAgentRepository()
-enforcement_repository: InMemoryEnforcementStateRepository = (
-    InMemoryEnforcementStateRepository()
-)
-administrative_repository: InMemoryAdministrativeStateRepository = (
-    InMemoryAdministrativeStateRepository(agent_repository=agent_repository)
-)
-audit_repository: InMemoryAuditEvidenceRepository = InMemoryAuditEvidenceRepository()
-session_repository: InMemorySessionRepository = InMemorySessionRepository()
-tool_repository: InMemoryToolRepository = InMemoryToolRepository()
-approval_grant_repository: InMemoryApprovalContinuationRepository = (
-    InMemoryApprovalContinuationRepository()
-)
+
+def _build_repositories() -> RepositoryContainer:
+    """Assemble and validate the configured composition, or refuse to start."""
+    backend = get_repository_backend()
+    if backend == "sql":
+        engine = create_sql_engine(get_database_url())
+        container = create_repositories(backend="sql", engine=engine)
+    else:
+        container = create_repositories(backend="memory")
+
+    # Fail closed on an invalid topology rather than discovering it at request time.
+    validate_durable_composition(container)
+    return container
+
+
+_repositories: RepositoryContainer = _build_repositories()
+
+agent_repository = _repositories.agent_repository
+enforcement_repository = _repositories.enforcement_repository
+administrative_repository = _repositories.administrative_repository
+administrative_audit_repository = _repositories.administrative_audit_repository
+audit_repository = _repositories.audit_repository
+session_repository = _repositories.session_repository
+tool_repository = _repositories.tool_repository
+approval_grant_repository = _repositories.approval_grant_repository
 
 # ── Shared service singletons ────────────────────────────────────────────────
 
