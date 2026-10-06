@@ -72,7 +72,7 @@ class TestTheEpochIsEvaluatedAtTheMomentBeingEvaluated:
 
     def service_with_recovery_at(self, offset: float) -> AgentService:
         service = create_test_agent_service()
-        service.register_agent(
+        service.register_and_activate_agent(
             Agent(
                 agent_id="a",
                 name="A",

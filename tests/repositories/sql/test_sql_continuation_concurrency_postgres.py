@@ -61,7 +61,6 @@ def pg_grant_env():
             name="PGGrantAgent",
             owner="secops@enterprise.internal",
             risk_tier="HIGH",
-            status="ACTIVE",
             approved_tools=["bash"],
             created_at=now,
             updated_at=now,
@@ -73,7 +72,6 @@ def pg_grant_env():
         session = SessionModel(
             session_id="sess-pg-grant",
             agent_id="agent-pg-grant",
-            status="ACTIVE",
             next_session_sequence=1,
             created_at=now,
             updated_at=now,

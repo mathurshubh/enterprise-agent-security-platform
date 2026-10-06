@@ -144,7 +144,6 @@ class TestDurableFamilyReferentialIntegrity:
                     name="agent-1",
                     owner="secops@enterprise.internal",
                     risk_tier="LOW",
-                    status="ACTIVE",
                     approved_tools=[],
                     created_at=now,
                     updated_at=now,
@@ -154,7 +153,6 @@ class TestDurableFamilyReferentialIntegrity:
                 SessionModel(
                     session_id="sess-1",
                     agent_id="agent-1",
-                    status="ACTIVE",
                     created_at=now,
                     updated_at=now,
                 )

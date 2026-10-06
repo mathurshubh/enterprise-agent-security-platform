@@ -59,7 +59,6 @@ def _seed_enforcement_agents(session_factory) -> None:
                     name=agent_id,
                     owner="secops@enterprise.internal",
                     risk_tier="LOW",
-                    status="ACTIVE",
                     approved_tools=[],
                     created_at=now,
                     updated_at=now,

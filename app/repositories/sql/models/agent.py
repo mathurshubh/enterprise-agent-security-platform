@@ -10,7 +10,15 @@ from app.repositories.sql.base import Base
 
 
 class AgentModel(Base):
-    """Relational representation of an enterprise AI agent."""
+    """Relational representation of an enterprise AI agent.
+
+    Identity and descriptive configuration only. Administrative lifecycle state lives in
+    ``agent_administrative_state`` and enforcement posture in ``agent_enforcement_state``
+    (ADR-030 L.3, AP.1). There is deliberately no ``status`` column: a persisted copy of
+    lifecycle state would be a cached lifecycle value on the authorization path, which
+    L.7 prohibits, and would make an absent administrative record indistinguishable from
+    a registered one.
+    """
 
     __tablename__ = "agents"
 
@@ -18,7 +26,6 @@ class AgentModel(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     owner: Mapped[str] = mapped_column(String(255), nullable=False)
     risk_tier: Mapped[str] = mapped_column(String(32), nullable=False)
-    status: Mapped[str] = mapped_column(String(32), nullable=False, default="REGISTERED")
     approved_tools: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

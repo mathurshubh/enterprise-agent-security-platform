@@ -83,7 +83,7 @@ class TestEveryDecisionProducesAttributedEvidence:
             tool_id="file_read",
             resource=BENIGN_FILE,
         )
-        env.agent_service.register_agent(
+        env.agent_service.register_and_activate_agent(
             Agent(
                 agent_id="audit-intruder",
                 name="Intruder",
@@ -297,7 +297,7 @@ class TestExecutionResultCorrelatesToAuditEvent:
         assert result_allow.audit_event_id == events_allow[0].event_id
 
         # 2. Session binding refusal path
-        env.agent_service.register_agent(
+        env.agent_service.register_and_activate_agent(
             Agent(
                 agent_id="audit-corr-intruder",
                 name="Intruder",

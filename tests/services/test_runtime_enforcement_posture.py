@@ -97,7 +97,7 @@ def build_runtime(
     below asserts directly.
     """
     agent_service = create_test_agent_service()
-    agent_service.register_agent(
+    agent_service.register_and_activate_agent(
         Agent(
             agent_id=agent_id,
             name="Posture Agent",
@@ -398,7 +398,7 @@ class TestConcurrentPublication:
         """The lock is per agent: another agent's request must not wait behind it."""
         findings_service = DelayedSnapshotFindingsService(delay_seconds=0.3)
         env = build_runtime(findings_service=findings_service)
-        env.agent_service.register_agent(
+        env.agent_service.register_and_activate_agent(
             Agent(
                 agent_id="other-agent",
                 name="Other Agent",
@@ -515,7 +515,7 @@ class TestSuspensionWriter:
 
     def test_suspension_does_not_reach_other_agents(self) -> None:
         env = build_runtime()
-        env.agent_service.register_agent(
+        env.agent_service.register_and_activate_agent(
             Agent(
                 agent_id="bystander",
                 name="Bystander",
@@ -566,7 +566,7 @@ class TestStep8RuntimePostureConsumption:
         from app.services.risk_aggregator import RiskAggregator
 
         agent_service = create_test_agent_service()
-        agent_service.register_agent(
+        agent_service.register_and_activate_agent(
             Agent(
                 agent_id=agent_id,
                 name="Step8 Agent",

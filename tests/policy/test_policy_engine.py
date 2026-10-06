@@ -62,31 +62,12 @@ def test_allow_normal_access():
     decision = engine.evaluate(
         create_agent(),
         create_tool(),
+    lifecycle_refusal=None,
     )
 
     assert decision == Decision.ALLOW
 
 
-def test_deny_suspended_agent():
-    engine = PolicyEngine()
-
-    decision = engine.evaluate(
-        create_agent(status=AgentStatus.SUSPENDED),
-        create_tool(),
-    )
-
-    assert decision == Decision.DENY
-
-
-def test_deny_disabled_agent():
-    engine = PolicyEngine()
-
-    decision = engine.evaluate(
-        create_agent(status=AgentStatus.DISABLED),
-        create_tool(),
-    )
-
-    assert decision == Decision.DENY
 
 
 def test_deny_low_risk_agent_using_critical_tool():
@@ -95,6 +76,7 @@ def test_deny_low_risk_agent_using_critical_tool():
     decision = engine.evaluate(
         create_agent(risk_tier=RiskTier.LOW),
         create_tool(risk_level=ToolRiskLevel.CRITICAL),
+    lifecycle_refusal=None,
     )
 
     assert decision == Decision.DENY
@@ -106,6 +88,7 @@ def test_approval_required_for_critical_tool():
     decision = engine.evaluate(
         create_agent(risk_tier=RiskTier.HIGH),
         create_tool(risk_level=ToolRiskLevel.CRITICAL),
+    lifecycle_refusal=None,
     )
 
     assert decision == Decision.APPROVAL_REQUIRED
@@ -118,6 +101,7 @@ def test_allow_access_to_non_protected_resource():
         create_agent(),
         create_tool(),
         resource="notes.txt",
+        lifecycle_refusal=None,
     )
 
     assert decision == Decision.ALLOW
@@ -131,6 +115,7 @@ def test_deny_access_to_protected_resource():
         create_agent(),
         create_tool(),
         resource="secrets.txt",
+        lifecycle_refusal=None,
     )
 
     assert decision == Decision.DENY
@@ -138,7 +123,9 @@ def test_deny_access_to_protected_resource():
 
 def test_evaluate_policy_allow_normal_access():
     engine = PolicyEngine()
-    result = engine.evaluate_policy(create_agent(), create_tool(), resource="notes.txt")
+    result = engine.evaluate_policy(
+        create_agent(), create_tool(), resource="notes.txt", lifecycle_refusal=None
+    )
 
     assert result.decision == Decision.ALLOW
     assert result.status_check.status == "passed"
@@ -147,26 +134,13 @@ def test_evaluate_policy_allow_normal_access():
     assert result.reason == "All policy checks passed"
 
 
-def test_evaluate_policy_deny_suspended_agent():
-    engine = PolicyEngine()
-    result = engine.evaluate_policy(
-        create_agent(status=AgentStatus.SUSPENDED),
-        create_tool(),
-    )
-
-    assert result.decision == Decision.DENY
-    assert result.status_check.status == "failed"
-    assert result.risk_tier_check.status == "not_evaluated"
-    assert result.risk_tier_check.details["skipped_after"] == "status_check"
-    assert result.resource_check.status == "not_evaluated"
-    assert result.resource_check.details["skipped_after"] == "status_check"
-
 
 def test_evaluate_policy_deny_low_risk_critical_tool():
     engine = PolicyEngine()
     result = engine.evaluate_policy(
         create_agent(risk_tier=RiskTier.LOW),
         create_tool(risk_level=ToolRiskLevel.CRITICAL),
+        lifecycle_refusal=None,
     )
 
     assert result.decision == Decision.DENY
@@ -182,6 +156,7 @@ def test_evaluate_policy_deny_protected_resource():
         create_agent(),
         create_tool(),
         resource="secrets.txt",
+        lifecycle_refusal=None,
     )
 
     assert result.decision == Decision.DENY
@@ -196,6 +171,7 @@ def test_evaluate_policy_approval_required_for_critical_tool():
     result = engine.evaluate_policy(
         create_agent(risk_tier=RiskTier.HIGH),
         create_tool(risk_level=ToolRiskLevel.CRITICAL),
+        lifecycle_refusal=None,
     )
 
     # All checks passed, but decision is APPROVAL_REQUIRED
@@ -211,56 +187,50 @@ def test_policy_evaluation_result_immutability():
     from pydantic import ValidationError
 
     engine = PolicyEngine()
-    result = engine.evaluate_policy(create_agent(), create_tool())
+    result = engine.evaluate_policy(create_agent(), create_tool(), lifecycle_refusal=None)
 
     with pytest.raises(ValidationError):
         result.decision = Decision.DENY
 
-# --- Lifecycle execution gate (F-09.A, ADR-024 amendment A.4) --------------------------
+# --- Lifecycle gate, after the two-plane flip (ADR-024 A.4, ADR-030 AP.1) ---
 #
-# The gate is an allow-list: execution is permitted by the presence of the executable
-# state, never inferred from the absence of a deny condition. These tests exist because
-# the suite previously could not tell the two apart -- swapping the deny-list for an
-# allow-list broke none of its 1,668 tests, since nothing asserted that a REGISTERED
-# agent could execute and nothing asserted it could not. The invariant was untested in
-# both directions, which is how REGISTERED came to be executable by omission.
+# The F-09.A tests that lived here drove the gate through ``agent.status``. That is no
+# longer how it works: PolicyEngine does not read the projection, and the state-space
+# coverage those tests provided now lives in tests/policy/test_lifecycle_authorization.py
+# against the two authoritative planes, where the conditions actually are.
 #
-# They therefore cover the whole state space rather than today's reachable subset.
+# What belongs here is the engine's own half of the contract: it refuses exactly when it
+# is told to, surfaces the code it was given, and cannot be talked out of it by a status
+# field.
 
 
 @pytest.mark.security_invariant
-@pytest.mark.parametrize(
-    ("status", "expected_code"),
-    [
-        (AgentStatus.REGISTERED, LifecycleRefusalCode.AGENT_NOT_ACTIVE),
-        (AgentStatus.DISABLED, LifecycleRefusalCode.AGENT_DISABLED),
-        (AgentStatus.SUSPENDED, LifecycleRefusalCode.AGENT_SUSPENDED),
-    ],
-)
-def test_only_active_may_execute_and_each_refusal_carries_its_code(
-    status: AgentStatus, expected_code: LifecycleRefusalCode
+@pytest.mark.parametrize("code", list(LifecycleRefusalCode))
+def test_a_supplied_refusal_denies_and_is_surfaced_verbatim(
+    code: LifecycleRefusalCode,
 ) -> None:
-    """Every non-executable lifecycle state is denied, with its own stable code.
+    """Every refusal code denies, and reaches the caller unchanged.
 
-    The code is asserted rather than the message, because ADR-024 A.4 makes the code the
-    contract and the prose explicitly not one. A test that matched on the reason text
-    would pin wording and still not pin the decision.
+    Parametrized over the whole enum rather than a sample, so a code added later is
+    covered without anyone extending this test. The code is the contract (A.4), so an
+    engine that denied correctly while reporting a different code would still be wrong --
+    an operator acts on the code.
     """
     engine = PolicyEngine()
 
-    result = engine.evaluate_policy(create_agent(status=status), create_tool())
+    result = engine.evaluate_policy(create_agent(), create_tool(), lifecycle_refusal=code)
 
     assert result.decision == Decision.DENY
     assert result.status_check.status == AuthorizationCheckStatus.FAILED
-    assert result.status_check.code == expected_code.value
+    assert result.status_check.code == code.value
 
 
 @pytest.mark.security_invariant
-def test_active_is_permitted_and_carries_no_refusal_code() -> None:
-    """The positive half. Without it, denying everything would pass the tests above."""
+def test_no_refusal_permits_and_carries_no_code() -> None:
+    """The positive half. Without it, denying everything would pass the test above."""
     engine = PolicyEngine()
 
-    result = engine.evaluate_policy(create_agent(status=AgentStatus.ACTIVE), create_tool())
+    result = engine.evaluate_policy(create_agent(), create_tool(), lifecycle_refusal=None)
 
     assert result.decision == Decision.ALLOW
     assert result.status_check.status == AuthorizationCheckStatus.PASSED
@@ -268,51 +238,31 @@ def test_active_is_permitted_and_carries_no_refusal_code() -> None:
 
 
 @pytest.mark.security_invariant
-def test_an_unknown_lifecycle_state_is_not_executable() -> None:
-    """A state nobody classified must be non-executable (ADR-024 A.4).
+@pytest.mark.parametrize("status", list(AgentStatus))
+def test_the_engine_does_not_consult_agent_status(status: AgentStatus) -> None:
+    """AP.1: ``Agent.status`` must not be an authorization input.
 
-    This is the property the deny-list could not express: it denied an enumerated set, so
-    anything outside that set -- including a state added years later by someone who never
-    read the policy engine -- was executable by default. Constructed through
-    ``model_construct`` to bypass enum validation, which is the only way to present the
-    gate with a state the enum does not contain.
+    Driven from both directions, because either alone is satisfiable by accident:
 
-    Asserting the decision *and* that it does not raise: a gate that crashes on an unknown
-    state is not fail-closed, it is merely unavailable, and the two are different outcomes
-    for the caller.
+    - a refusal must hold even when the projection says ACTIVE, so a stale or
+      caller-constructed projection cannot buy execution;
+    - permission must hold even when the projection says DISABLED, which proves the
+      engine is reading the supplied plane outcome rather than falling back to the field.
+
+    The second direction looks alarming out of context and is the point. The projection is
+    not an authority, and an engine that honoured it would be consulting a value that can
+    disagree with the planes it was computed from.
     """
     engine = PolicyEngine()
-    agent = create_agent().model_construct(
-        agent_id="agent-unknown",
-        name="Test Agent",
-        owner="security-team",
-        risk_tier=RiskTier.HIGH,
-        approved_tools=["file_read"],
-        status="QUARANTINED",  # type: ignore[arg-type]
+
+    refused = engine.evaluate_policy(
+        create_agent(status=status),
+        create_tool(),
+        lifecycle_refusal=LifecycleRefusalCode.AGENT_SUSPENDED,
     )
+    assert refused.decision == Decision.DENY
 
-    result = engine.evaluate_policy(agent, create_tool())
-
-    assert result.decision == Decision.DENY
-    assert result.status_check.status == AuthorizationCheckStatus.FAILED
-    # No classification exists, so the code says only what was established.
-    assert result.status_check.code == LifecycleRefusalCode.AGENT_NOT_ACTIVE.value
-
-
-@pytest.mark.security_invariant
-def test_every_lifecycle_state_is_classified_as_executable_or_not() -> None:
-    """No member of AgentStatus may be left unconsidered by the gate.
-
-    Guards the omission itself rather than any one state: a state added to the enum
-    without a decision here fails this test, instead of silently inheriting whichever
-    default the gate happens to have.
-    """
-    engine = PolicyEngine()
-
-    executable = {
-        s for s in AgentStatus
-        if engine.evaluate_policy(create_agent(status=s), create_tool()).decision
-        != Decision.DENY
-    }
-
-    assert executable == {AgentStatus.ACTIVE}
+    permitted = engine.evaluate_policy(
+        create_agent(status=status), create_tool(), lifecycle_refusal=None
+    )
+    assert permitted.decision == Decision.ALLOW

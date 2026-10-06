@@ -305,7 +305,7 @@ class TestCompleteM5BLifecycleE2E:
         """
         agent_id = "lifecycle-agent"
         agent_service = create_test_agent_service()
-        agent_service.register_agent(
+        agent_service.register_and_activate_agent(
             Agent(
                 agent_id=agent_id,
                 name="Lifecycle Agent",

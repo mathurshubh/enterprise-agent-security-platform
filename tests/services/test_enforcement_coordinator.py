@@ -58,7 +58,7 @@ class RefusingAuthority(ExecutionAuthority):
 
 def build(authority: ExecutionAuthority | None = None):
     agents = create_test_agent_service()
-    agents.register_agent(
+    agents.register_and_activate_agent(
         Agent(
             agent_id=AGENT_ID,
             name="Contained",
@@ -219,7 +219,7 @@ class TestEnforcementBaselineIntegration:
     def test_first_time_agent_baseline_semantics(self) -> None:
         """First-time agent has None baseline_at and 0 baseline_evidence_sequence."""
         agents = create_test_agent_service()
-        agents.register_agent(
+        agents.register_and_activate_agent(
             Agent(
                 agent_id="fresh-agent",
                 name="Fresh",
@@ -245,7 +245,7 @@ class TestEnforcementBaselineIntegration:
         findings = FindingsService()
         coordinator = EnforcementCoordinator(agents, authority, findings)
 
-        agents.register_agent(
+        agents.register_and_activate_agent(
             Agent(
                 agent_id=AGENT_ID,
                 name="Contained",
@@ -281,7 +281,7 @@ class TestEnforcementBaselineIntegration:
         findings = FindingsService()
         coordinator = EnforcementCoordinator(agents, authority, findings)
 
-        agents.register_agent(
+        agents.register_and_activate_agent(
             Agent(
                 agent_id=AGENT_ID,
                 name="Contained",
@@ -350,7 +350,7 @@ class TestEnforcementCoordinatorRiskAggregatorIntegration:
             lock_manager=lock_mgr,
         )
 
-        agents.register_agent(
+        agents.register_and_activate_agent(
             Agent(
                 agent_id=AGENT_ID,
                 name="Contained",
@@ -405,7 +405,7 @@ class TestEnforcementCoordinatorRiskAggregatorIntegration:
             lock_manager=lock_mgr,
         )
 
-        agents.register_agent(
+        agents.register_and_activate_agent(
             Agent(
                 agent_id=AGENT_ID,
                 name="Contained",
@@ -443,7 +443,7 @@ class TestEnforcementCoordinatorRiskAggregatorIntegration:
             lock_manager=lock_mgr,
         )
 
-        agents.register_agent(
+        agents.register_and_activate_agent(
             Agent(
                 agent_id=AGENT_ID,
                 name="Contained",
@@ -550,7 +550,7 @@ class TestConcurrencyAndRaceSerialization:
                 lock_manager=lock_mgr,
             )
 
-            agents.register_agent(
+            agents.register_and_activate_agent(
                 Agent(
                     agent_id=agent_id,
                     name="RaceAgent",
@@ -794,7 +794,7 @@ class TestBaselineSequenceNamespacesAreSeparate:
             agents, authority, findings, session_service=sessions
         )
 
-        agents.register_agent(
+        agents.register_and_activate_agent(
             Agent(
                 agent_id=AGENT_ID,
                 name="Contained",

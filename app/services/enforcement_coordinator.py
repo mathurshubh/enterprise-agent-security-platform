@@ -16,9 +16,9 @@ state that is still fail-closed for execution and repairable by retrying.
 
 from datetime import datetime, timezone
 
-from app.models.agent import Agent, AgentStatus
+from app.models.agent import Agent
 from app.models.watermark import BaselineWatermark
-from app.runtime.execution_authority import ExecutionAuthority
+from app.runtime.execution_authority import ExecutionAuthority, IssuancePlane
 from app.services.agent_lock_manager import AgentLockManager
 from app.services.agent_service import AgentService
 from app.services.findings_service import FindingsService
@@ -126,10 +126,18 @@ class EnforcementCoordinator:
 
             # Success is reported only when both halves hold. Anything else is incomplete,
             # never a successful reinstatement with a quietly blocked agent.
-            if (
-                agent.status != AgentStatus.ACTIVE
-                or self._execution_authority.issuance_suspended(agent_id)
-            ):
+            # Success means the enforcement half completed: the containment is cleared and
+            # issuance is open again on this plane. It deliberately does not require
+            # administrative ACTIVE -- A.5 permits reinstating a REGISTERED or DISABLED
+            # agent, and requiring ACTIVE here would refuse exactly those cases while
+            # reporting it as an incomplete reinstatement.
+            enforcement = self._agent_service.get_enforcement_state(agent_id)
+            still_contained = (
+                enforcement is not None and enforcement.suspended_at is not None
+            )
+            if still_contained or self._execution_authority.issuance_closed_planes(
+                agent_id
+            ) & {IssuancePlane.ENFORCEMENT}:
                 raise ReinstatementIncompleteError(agent_id)
 
             return agent
@@ -143,7 +151,12 @@ class EnforcementCoordinator:
         with self._lock_manager.get_lock(agent_id):
             agent = self._agent_service.get_agent(agent_id)
 
-            if agent.status != AgentStatus.ACTIVE:
+            # Repair reopens issuance for an agent whose containment is already cleared.
+            # The precondition is therefore enforcement-plane only: an agent that is not
+            # contained but is administratively REGISTERED or DISABLED is a legitimate
+            # repair target, and stays non-executable through the administrative plane.
+            enforcement = self._agent_service.get_enforcement_state(agent_id)
+            if enforcement is not None and enforcement.suspended_at is not None:
                 raise ReinstatementIncompleteError(agent_id)
 
             if self._risk_aggregator is not None:

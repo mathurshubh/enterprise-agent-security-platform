@@ -255,7 +255,7 @@ class TestPR180BehaviorNeutrality:
             risk_tier=RiskTier.LOW,
             status=AgentStatus.ACTIVE,
         )
-        service.register_agent(agent)
+        service.register_and_activate_agent(agent)
 
         # In PR #181, AgentRepository is the authoritative state source
         stored = agent_repo.get("test-agent")

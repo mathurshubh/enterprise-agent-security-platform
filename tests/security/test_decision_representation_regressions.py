@@ -121,7 +121,7 @@ class TestTheTwoFieldsHaveDistinctMeanings:
             tool_id="file_read",
             resource=BENIGN_FILE,
         )
-        env.agent_service.register_agent(
+        env.agent_service.register_and_activate_agent(
             Agent(
                 agent_id="repr-intruder",
                 name="Intruder",

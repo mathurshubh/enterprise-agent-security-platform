@@ -28,7 +28,7 @@ def test_register_agent():
 
     agent = create_agent()
 
-    service.register_agent(agent)
+    service.register_and_activate_agent(agent)
 
     assert service.get_agent("soc-agent") == agent
 
@@ -38,10 +38,10 @@ def test_duplicate_agent_rejected():
 
     agent = create_agent()
 
-    service.register_agent(agent)
+    service.register_and_activate_agent(agent)
 
     with pytest.raises(AgentAlreadyExistsError):
-        service.register_agent(agent)
+        service.register_and_activate_agent(agent)
 
 
 def test_get_unknown_agent():
@@ -54,8 +54,8 @@ def test_get_unknown_agent():
 def test_list_agents():
     service = create_test_agent_service()
 
-    service.register_agent(create_agent("agent-1"))
-    service.register_agent(create_agent("agent-2"))
+    service.register_and_activate_agent(create_agent("agent-1"))
+    service.register_and_activate_agent(create_agent("agent-2"))
 
     agents = service.list_agents()
 

@@ -54,7 +54,6 @@ def pg_session_repo():
             name="PGConcurrencyAgent",
             owner="secops@enterprise.internal",
             risk_tier="HIGH",
-            status="ACTIVE",
             approved_tools=["file_read"],
             created_at=now,
             updated_at=now,

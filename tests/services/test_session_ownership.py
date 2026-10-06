@@ -30,7 +30,7 @@ VICTIM_SESSION = "victim-session"
 
 
 def register_attacker(env) -> None:
-    env.agent_service.register_agent(
+    env.agent_service.register_and_activate_agent(
         Agent(
             agent_id=ATTACKER,
             name="Attacker",

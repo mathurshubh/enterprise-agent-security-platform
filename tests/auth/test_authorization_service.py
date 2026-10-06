@@ -1,5 +1,6 @@
 from app.auth.authorization_service import AuthorizationService, Decision
 from app.models.agent import Agent, AgentStatus, RiskTier
+from app.models.agent_administrative import Actor
 from app.models.tool import Tool
 from app.models.tool_capability import ToolCapability
 from app.models.tool_governance import ToolGovernance
@@ -12,6 +13,8 @@ from tests.conftest import (
     create_test_agent_service,
     create_test_tool_service,
 )
+
+TEST_OPERATOR = Actor(type="human", id="sec-ops-test")
 
 
 def create_agent(
@@ -55,7 +58,7 @@ def test_allow_authorized_tool():
     agent_service = create_test_agent_service()
     tool_service = create_test_tool_service()
 
-    agent_service.register_agent(create_agent(["file_read"]))
+    agent_service.register_and_activate_agent(create_agent(["file_read"]))
 
     tool_service.register_tool(create_tool("file_read"))
 
@@ -77,7 +80,7 @@ def test_deny_unapproved_tool():
     agent_service = create_test_agent_service()
     tool_service = create_test_tool_service()
 
-    agent_service.register_agent(create_agent(["file_read"]))
+    agent_service.register_and_activate_agent(create_agent(["file_read"]))
 
     tool_service.register_tool(create_tool("shell_execute"))
 
@@ -99,7 +102,7 @@ def test_approval_required():
     agent_service = create_test_agent_service()
     tool_service = create_test_tool_service()
 
-    agent_service.register_agent(create_agent(["shell_execute"]))
+    agent_service.register_and_activate_agent(create_agent(["shell_execute"]))
 
     tool_service.register_tool(
         Tool(
@@ -163,7 +166,7 @@ def test_deny_unknown_tool():
     agent_service = create_test_agent_service()
     tool_service = create_test_tool_service()
 
-    agent_service.register_agent(create_agent(["file_read"]))
+    agent_service.register_and_activate_agent(create_agent(["file_read"]))
 
     service = AuthorizationService(
         agent_service,
@@ -183,10 +186,11 @@ def test_deny_suspended_agent():
     agent_service = create_test_agent_service()
     tool_service = create_test_tool_service()
 
+    # Driven through the enforcement plane. Assigning ``agent.status`` no longer makes an
+    # agent suspended -- that field is a projection, and the authority is the plane.
     agent = create_agent(["file_read"])
-    agent.status = AgentStatus.SUSPENDED
-
-    agent_service.register_agent(agent)
+    agent_service.register_and_activate_agent(agent)
+    agent_service.suspend_agent(agent.agent_id, reason="contained for test")
 
     tool_service.register_tool(create_tool("file_read"))
 
@@ -208,10 +212,10 @@ def test_deny_disabled_agent():
     agent_service = create_test_agent_service()
     tool_service = create_test_tool_service()
 
+    # Driven through the administrative plane, for the same reason.
     agent = create_agent(["file_read"])
-    agent.status = AgentStatus.DISABLED
-
-    agent_service.register_agent(agent)
+    agent_service.register_and_activate_agent(agent)
+    agent_service.disable_agent(agent.agent_id, actor=TEST_OPERATOR)
 
     tool_service.register_tool(create_tool("file_read"))
 
@@ -232,7 +236,7 @@ def test_deny_disabled_agent():
 def test_evaluate_allow_authorized_tool_structured_evidence():
     agent_service = create_test_agent_service()
     tool_service = create_test_tool_service()
-    agent_service.register_agent(create_agent(["file_read"]))
+    agent_service.register_and_activate_agent(create_agent(["file_read"]))
     tool_service.register_tool(create_tool("file_read"))
 
     service = AuthorizationService(agent_service, tool_service, PolicyEngine())
@@ -277,7 +281,7 @@ def test_evaluate_unknown_agent_short_circuits_with_structured_evidence():
 def test_evaluate_unknown_tool_short_circuits_with_structured_evidence():
     agent_service = create_test_agent_service()
     tool_service = create_test_tool_service()
-    agent_service.register_agent(create_agent(["file_read"]))
+    agent_service.register_and_activate_agent(create_agent(["file_read"]))
 
     service = AuthorizationService(agent_service, tool_service, PolicyEngine())
     result = service.evaluate("soc-agent", "missing-tool")
@@ -301,7 +305,7 @@ def test_evaluate_unknown_tool_short_circuits_with_structured_evidence():
 def test_evaluate_unapproved_tool_short_circuits_with_structured_evidence():
     agent_service = create_test_agent_service()
     tool_service = create_test_tool_service()
-    agent_service.register_agent(create_agent(["file_read"]))
+    agent_service.register_and_activate_agent(create_agent(["file_read"]))
     tool_service.register_tool(create_tool("shell_execute"))
 
     service = AuthorizationService(agent_service, tool_service, PolicyEngine())
@@ -327,8 +331,9 @@ def test_evaluate_suspended_agent_short_circuits_with_structured_evidence():
     agent_service = create_test_agent_service()
     tool_service = create_test_tool_service()
     agent = create_agent(["file_read"])
-    agent.status = AgentStatus.SUSPENDED
-    agent_service.register_agent(agent)
+
+    agent_service.register_and_activate_agent(agent)
+    agent_service.suspend_agent("soc-agent", reason="contained for test")
     tool_service.register_tool(create_tool("file_read"))
 
     service = AuthorizationService(agent_service, tool_service, PolicyEngine())
@@ -339,7 +344,11 @@ def test_evaluate_suspended_agent_short_circuits_with_structured_evidence():
     assert result.tool_check.status == "passed"
     assert result.approved_tool_check.status == "passed"
     assert result.status_check.status == "failed"
-    assert result.status_check.details["status"] == "SUSPENDED"
+    # The stable refusal code, not a projected status string. ADR-024 A.4 makes the code
+    # the contract; the engine no longer reports a lifecycle status at all, because it no
+    # longer reads one.
+    assert result.status_check.code == "AGENT_SUSPENDED"
+    assert result.status_check.details["lifecycle_refusal"] == "AGENT_SUSPENDED"
 
     for check in [
         result.risk_tier_check,
@@ -355,7 +364,7 @@ def test_evaluate_risk_tier_mismatch_short_circuits_resource_check():
     tool_service = create_test_tool_service()
     agent = create_agent(["critical_tool"])
     agent.risk_tier = RiskTier.LOW
-    agent_service.register_agent(agent)
+    agent_service.register_and_activate_agent(agent)
 
     tool = create_tool("critical_tool")
     tool.metadata.governance.risk_level = ToolRiskLevel.CRITICAL
@@ -380,7 +389,7 @@ def test_evaluate_risk_tier_mismatch_short_circuits_resource_check():
 def test_evaluate_protected_resource_denied_with_structured_evidence():
     agent_service = create_test_agent_service()
     tool_service = create_test_tool_service()
-    agent_service.register_agent(create_agent(["file_read"]))
+    agent_service.register_and_activate_agent(create_agent(["file_read"]))
     tool_service.register_tool(create_tool("file_read"))
 
     service = AuthorizationService(agent_service, tool_service, PolicyEngine())
@@ -401,7 +410,7 @@ def test_evaluate_critical_tool_requires_approval_without_check_failure():
     tool_service = create_test_tool_service()
     agent = create_agent(["critical_tool"])
     agent.risk_tier = RiskTier.HIGH
-    agent_service.register_agent(agent)
+    agent_service.register_and_activate_agent(agent)
 
     tool = create_tool("critical_tool")
     tool.metadata.governance.risk_level = ToolRiskLevel.CRITICAL
@@ -428,7 +437,7 @@ def test_authorization_result_and_check_immutability():
 
     agent_service = create_test_agent_service()
     tool_service = create_test_tool_service()
-    agent_service.register_agent(create_agent(["file_read"]))
+    agent_service.register_and_activate_agent(create_agent(["file_read"]))
     tool_service.register_tool(create_tool("file_read"))
 
     service = AuthorizationService(agent_service, tool_service, PolicyEngine())
@@ -483,7 +492,7 @@ def test_authorization_fails_closed_when_enforcement_state_unavailable():
     agent_service = AgentService(agent_repo, enf_repo, InMemoryAdministrativeStateRepository())
     tool_service = create_test_tool_service()
 
-    agent_service.register_agent(create_agent(["file_read"]))
+    agent_service.register_and_activate_agent(create_agent(["file_read"]))
     tool_service.register_tool(create_tool("file_read"))
 
     service = AuthorizationService(agent_service, tool_service, PolicyEngine())
@@ -519,7 +528,7 @@ def test_authorization_succeeds_for_pristine_agent_without_dynamic_enforcement_s
     agent_service = create_test_agent_service()
     tool_service = create_test_tool_service()
 
-    agent_service.register_agent(create_agent(["file_read"]))
+    agent_service.register_and_activate_agent(create_agent(["file_read"]))
     tool_service.register_tool(create_tool("file_read"))
 
     # Explicitly verify repository has no dynamic state for pristine agent
@@ -551,7 +560,7 @@ def test_authorization_is_family_scoped_and_ignores_version_enablement():
 
     agent_service = create_test_agent_service()
     tool_service = ToolService(tool_repository=InMemoryToolRepository())
-    agent_service.register_agent(create_agent(["file_read"]))
+    agent_service.register_and_activate_agent(create_agent(["file_read"]))
 
     tool_service.register_tool(create_tool("file_read"))
     tool_service.disable_tool("file_read", "1.0.0")

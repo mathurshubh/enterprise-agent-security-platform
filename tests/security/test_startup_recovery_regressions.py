@@ -91,7 +91,7 @@ def _execute_once() -> None:
     import uuid
 
     agent_id = f"startup-recovery-{uuid.uuid4()}"
-    dependencies.agent_service.register_agent(
+    dependencies.agent_service.register_and_activate_agent(
         Agent(
             agent_id=agent_id,
             name="Startup Recovery Probe",

@@ -34,9 +34,32 @@ class BaseAgentRepositoryContractTests(abc.ABC):
         assert retrieved is not None
         assert retrieved.agent_id == agent.agent_id
         assert retrieved.name == agent.name
-        assert retrieved.status == agent.status
         assert retrieved.risk_tier == agent.risk_tier
         assert retrieved.approved_tools == agent.approved_tools
+
+    def test_lifecycle_state_is_not_persisted(self) -> None:
+        """An agent repository stores identity and configuration, never lifecycle state.
+
+        This assertion is the inverse of the one it replaces. The suite previously required
+        ``status`` to round-trip, which under ADR-030 AP.1 is exactly what must not happen:
+        lifecycle state is authoritative in the administrative and enforcement planes, and
+        a persisted copy here is a cached lifecycle value on the authorization path that
+        L.7 prohibits.
+
+        The stored record comes back non-executable rather than carrying what was saved, so
+        a caller that bypasses ``AgentService`` and reads the repository directly fails
+        closed instead of obtaining an executable agent.
+        """
+        repo = self.create_repository()
+        agent = self._sample_agent()
+        assert agent.status is AgentStatus.ACTIVE
+
+        repo.save(agent)
+        retrieved = repo.get(agent.agent_id)
+
+        assert retrieved is not None
+        assert retrieved.status is not AgentStatus.ACTIVE
+        assert retrieved.status is AgentStatus.REGISTERED
 
     def test_get_missing_entity_returns_none(self) -> None:
         repo = self.create_repository()

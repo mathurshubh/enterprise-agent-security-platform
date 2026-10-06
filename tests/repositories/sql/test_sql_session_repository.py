@@ -64,7 +64,6 @@ def _seed_test_dependencies(session_factory) -> None:
                     name=agent_id,
                     owner="secops@enterprise.internal",
                     risk_tier="LOW",
-                    status="ACTIVE",
                     approved_tools=KNOWN_CONTRACT_TOOLS,
                     created_at=now,
                     updated_at=now,

@@ -19,12 +19,12 @@ from uuid import uuid4
 import pytest
 
 from app.models.agent import Agent, AgentStatus, RiskTier
+from app.models.agent_administrative import Actor
 from app.models.agent_enforcement import (
     AgentEnforcementState,
     EnforcementAction,
     EnforcementTransition,
 )
-from app.models.audit_event import Decision
 from app.models.authorization_result import LifecycleRefusalCode
 from app.models.tool import Tool
 from app.models.tool_capability import ToolCapability
@@ -34,7 +34,6 @@ from app.models.tool_metadata import ToolMetadata
 from app.models.tool_operational import ToolOperational
 from app.models.tool_risk_level import ToolRiskLevel
 from app.models.watermark import BaselineWatermark
-from app.policy.policy_engine import PolicyEngine
 from app.repositories.in_memory.administrative_state_repository import (
     InMemoryAdministrativeStateRepository,
 )
@@ -150,13 +149,15 @@ class TestAgentServiceRepositoryAuthority:
         service = AgentService(agent_repo, enf_repo, InMemoryAdministrativeStateRepository())
 
         agent = make_test_agent("ag-1")
-        service.register_agent(agent)
+        service.register_and_activate_agent(agent)
 
         # Repositories are authoritative
         persisted = agent_repo.get("ag-1")
         assert persisted is not None
         assert persisted.agent_id == "ag-1"
-        assert persisted.status == AgentStatus.ACTIVE
+        # The raw record carries no lifecycle state (AP.1); the service projects it.
+        assert persisted.status == AgentStatus.REGISTERED
+        assert service.get_agent("ag-1").status == AgentStatus.ACTIVE
 
         # Service reads from repository
         retrieved = service.get_agent("ag-1")
@@ -168,18 +169,18 @@ class TestAgentServiceRepositoryAuthority:
         service = AgentService(agent_repo, enf_repo, InMemoryAdministrativeStateRepository())
 
         agent = make_test_agent("ag-dup")
-        service.register_agent(agent)
+        service.register_and_activate_agent(agent)
 
         with pytest.raises(AgentAlreadyExistsError):
-            service.register_agent(agent)
+            service.register_and_activate_agent(agent)
 
     def test_list_agents_reads_from_agent_repository(self) -> None:
         agent_repo = InMemoryAgentRepository()
         enf_repo = InMemoryEnforcementStateRepository()
         service = AgentService(agent_repo, enf_repo, InMemoryAdministrativeStateRepository())
 
-        service.register_agent(make_test_agent("ag-1"))
-        service.register_agent(make_test_agent("ag-2"))
+        service.register_and_activate_agent(make_test_agent("ag-1"))
+        service.register_and_activate_agent(make_test_agent("ag-2"))
 
         listed = service.list_agents()
         assert len(listed) == 2
@@ -197,7 +198,7 @@ class TestEnforcementCASAndEpochSemantics:
         enf_repo = RacingEnforcementRepository(raw_enf_repo)
         service = AgentService(agent_repo, enf_repo, InMemoryAdministrativeStateRepository())
 
-        service.register_agent(make_test_agent("ag-race"))
+        service.register_and_activate_agent(make_test_agent("ag-race"))
 
         # Configure repository wrapper to commit a concurrent transition before service commits,
         # using only the public EnforcementStateRepository protocol (no private _epochs access).
@@ -210,7 +211,7 @@ class TestEnforcementCASAndEpochSemantics:
         # Verify AgentRepository was NOT updated by service's failed transition
         persisted_agent = agent_repo.get("ag-race")
         assert persisted_agent is not None
-        assert persisted_agent.status == AgentStatus.ACTIVE
+        assert persisted_agent.status == AgentStatus.REGISTERED
 
     def test_monotonic_epoch_progression_across_suspend_reinstate_cycles(self) -> None:
         agent_repo = InMemoryAgentRepository()
@@ -218,7 +219,7 @@ class TestEnforcementCASAndEpochSemantics:
         service = AgentService(agent_repo, enf_repo, InMemoryAdministrativeStateRepository())
 
         agent_id = "ag-lifecycle"
-        service.register_agent(make_test_agent(agent_id))
+        service.register_and_activate_agent(make_test_agent(agent_id))
 
         t0 = datetime.now(timezone.utc)
         assert service.enforcement_epoch(agent_id, as_of=t0) == 0
@@ -263,101 +264,73 @@ class TestEnforcementCASAndEpochSemantics:
         assert service.enforcement_epoch(agent_id, as_of=t2) == 2
 
 
-class TestPostCASFailureAndFailClosedProjection:
-    """Verifies fail-closed security projection when AgentRepository.save() fails post-CAS."""
+class TestEnforcementWritesOnlyItsOwnPlane:
+    """What replaced the post-CAS cross-repository failure tests.
 
-    def test_post_cas_save_failure_propagates_and_projects_suspended_fail_closed(
-        self,
-    ) -> None:
+    Those tests covered a real hazard: an enforcement transition committed its CAS and
+    then wrote ``status`` onto the agent record, so a failure between the two left the two
+    stores disagreeing, and the projection had to recover a fail-closed answer from the
+    wreckage.
+
+    The flip removes the hazard rather than handling it better. An enforcement transition
+    now writes the enforcement plane and nothing else, so there is no second write to fail
+    and no window in which the stores can disagree. The tests are replaced rather than
+    deleted, because the property worth keeping is the one that makes them unnecessary.
+    """
+
+    def test_an_enforcement_transition_does_not_write_the_agent_record(self) -> None:
         agent_repo = InMemoryAgentRepository()
         enf_repo = InMemoryEnforcementStateRepository()
-        service = AgentService(agent_repo, enf_repo, InMemoryAdministrativeStateRepository())
-
-        agent_id = "ag-crash"
-        service.register_agent(make_test_agent(agent_id))
-
-        # Mock agent_repo.save to raise an exception post-CAS
-        original_save = agent_repo.save
-
-        def broken_save(agent: Agent) -> None:
-            if agent.status == AgentStatus.SUSPENDED:
-                raise OSError("Disk full / DB connection lost during agent save")
-            original_save(agent)
-
-        agent_repo.save = MagicMock(side_effect=broken_save)
-
-        # 1. Attempt to suspend: CAS commits to enf_repo, then save() fails
-        with pytest.raises(OSError, match="Disk full / DB connection lost"):
-            service.suspend_agent(agent_id, reason="attack detected")
-
-        # 2. Verify EnforcementStateRepository HAS the transition recorded (no 2PC rollback)
-        enf_state = enf_repo.get_state(agent_id)
-        assert enf_state is not None
-        assert enf_state.suspended_at is not None
-        assert enf_state.suspension_reason == "attack detected"
-
-        # 3. Verify AgentRepository raw record still has ACTIVE
-        raw_agent = original_save.__self__.get(agent_id)
-        assert raw_agent.status == AgentStatus.ACTIVE
-
-        # 4. CRITICAL INVARIANT: AgentService.get_agent() projects SUSPENDED (fail-closed!)
-        projected = service.get_agent(agent_id)
-        assert projected.status == AgentStatus.SUSPENDED
-
-        # 5. CRITICAL INVARIANT: AgentService.list_agents() projects SUSPENDED
-        listed = service.list_agents()
-        assert len(listed) == 1
-        assert listed[0].status == AgentStatus.SUSPENDED
-
-        # 6. CRITICAL SECURITY BOUNDARY: PolicyEngine evaluates DENY
-        policy_engine = PolicyEngine()
-        tool = make_test_tool("file_read")
-        eval_result = policy_engine.evaluate_policy(projected, tool)
-        assert eval_result.decision == Decision.DENY
-        # Asserted on the stable code, not the message text: ADR-024 A.4 makes the code
-        # the contract and the prose explicitly not one.
-        assert eval_result.status_check.code == LifecycleRefusalCode.AGENT_SUSPENDED.value
-
-    def test_disabled_agent_status_takes_priority_over_dynamic_posture(self) -> None:
-        agent_repo = InMemoryAgentRepository()
-        enf_repo = InMemoryEnforcementStateRepository()
-        service = AgentService(agent_repo, enf_repo, InMemoryAdministrativeStateRepository())
-
-        agent_id = "ag-disabled"
-        service.register_agent(make_test_agent(agent_id, status=AgentStatus.DISABLED))
-
-        # Dynamic suspension on a DISABLED agent must be rejected / no-op before transition
-        result = service.suspend_agent(agent_id, reason="trigger attempt")
-        assert result.status == AgentStatus.DISABLED
-        assert service.get_agent(agent_id).status == AgentStatus.DISABLED
-
-        # Invariant: NO EnforcementTransition recorded, NO dynamic suspension state created
-        assert enf_repo.get_state(agent_id) is None
-        assert enf_repo.list_transitions(agent_id) == []
-        assert service.list_transitions(agent_id) == []
-
-        # Direct _transition attempt also preserves DISABLED invariant
-        disabled_agent = agent_repo.get(agent_id)
-        assert disabled_agent is not None
-        direct_result = service._transition(
-            agent=disabled_agent,
-            new_status=AgentStatus.SUSPENDED,
-            action=EnforcementAction.SUSPEND,
-            actor="runtime",
-            reason="direct attempt",
-            trigger=None,
+        service = AgentService(
+            agent_repo, enf_repo, InMemoryAdministrativeStateRepository()
         )
-        assert direct_result.status == AgentStatus.DISABLED
-        assert enf_repo.get_state(agent_id) is None
-        assert enf_repo.list_transitions(agent_id) == []
+        agent_id = "ag-no-write"
+        service.register_and_activate_agent(make_test_agent(agent_id))
 
-        # Policy engine denies disabled agent
-        policy_engine = PolicyEngine()
-        tool = make_test_tool("file_read")
-        eval_result = policy_engine.evaluate_policy(result, tool)
-        assert eval_result.decision == Decision.DENY
-        assert eval_result.status_check.code == LifecycleRefusalCode.AGENT_DISABLED.value
+        # Any write to the agent store during a transition is a failure of the invariant,
+        # so the store is made to refuse one outright.
+        def refuse(agent: Agent) -> None:
+            raise AssertionError(
+                "an enforcement transition must not write the agent record"
+            )
 
+        agent_repo.save = MagicMock(side_effect=refuse)
+
+        service.suspend_agent(agent_id, reason="contained")
+        service.reinstate_agent(
+            agent_id,
+            actor="admin",
+            reason="cleared",
+            watermark=BaselineWatermark(
+                agent_id=agent_id,
+                baseline_evidence_sequence=1,
+                baseline_agent_sequence=1,
+            ),
+        )
+
+        agent_repo.save.assert_not_called()
+
+    def test_a_disabled_agent_stays_disabled_through_a_containment_cycle(self) -> None:
+        """DISABLED outranks SUSPENDED in the projection, and no enforcement transition
+        can make a disabled agent executable (A.5).
+        """
+        agent_repo = InMemoryAgentRepository()
+        enf_repo = InMemoryEnforcementStateRepository()
+        service = AgentService(
+            agent_repo, enf_repo, InMemoryAdministrativeStateRepository()
+        )
+        agent_id = "ag-disabled"
+        service.register_and_activate_agent(make_test_agent(agent_id))
+        service.disable_agent(agent_id, actor=Actor(type="human", id="sec-ops"))
+
+        # Containment is refused for a disabled agent, and the projection still says so.
+        service.suspend_agent(agent_id, reason="contained")
+
+        assert service.get_agent(agent_id).status == AgentStatus.DISABLED
+        assert (
+            service.lifecycle_refusal(agent_id)
+            is LifecycleRefusalCode.AGENT_DISABLED
+        )
 
 class TestObjectIsolationAndDefensiveCopies:
     """Verifies bidirectional alias isolation between callers and repositories."""
@@ -367,7 +340,7 @@ class TestObjectIsolationAndDefensiveCopies:
         enf_repo = InMemoryEnforcementStateRepository()
         service = AgentService(agent_repo, enf_repo, InMemoryAdministrativeStateRepository())
 
-        service.register_agent(make_test_agent("ag-iso", approved_tools=["file_read"]))
+        service.register_and_activate_agent(make_test_agent("ag-iso", approved_tools=["file_read"]))
 
         # Retrieve and mutate caller-owned copy
         caller_copy = service.get_agent("ag-iso")

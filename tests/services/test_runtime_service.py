@@ -42,7 +42,7 @@ def create_runtime_service(
     tool_service = create_test_tool_service()
     session_service = create_test_session_service()
 
-    agent_service.register_agent(
+    agent_service.register_and_activate_agent(
         Agent(
             agent_id="agent-1",
             name="Test Agent",
@@ -360,7 +360,7 @@ def test_execute_session_binding_refusal_correlates_audit_event():
         agent_id="agent-1",
         tool_id="file_read",
     )
-    service._agent_service.register_agent(
+    service._agent_service.register_and_activate_agent(
         Agent(
             agent_id="agent-2",
             name="Agent 2",
