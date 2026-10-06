@@ -110,3 +110,45 @@ def get_jwt_secret_key() -> str:
         )
 
     return secret
+
+
+REPOSITORY_BACKEND_ENV_VAR = "REPOSITORY_BACKEND"
+DATABASE_URL_ENV_VAR = "DATABASE_URL"
+_SUPPORTED_BACKENDS = ("memory", "sql")
+
+
+def get_repository_backend() -> str:
+    """Return the configured persistence backend, defaulting to ``memory``.
+
+    Defaults to ``memory`` rather than inferring a backend from the presence of a database
+    URL. Inferring would make persistence a side effect of an environment variable someone
+    set for another reason, and the composition it produces is security-relevant: ADR-030
+    L.6 forbids pairing a durable store with a volatile namespace, so which backend is in
+    use must be stated, not deduced.
+
+    An unrecognised value is refused rather than falling back. A typo that silently
+    produced an in-memory platform is the failure this avoids.
+    """
+    raw = os.environ.get(REPOSITORY_BACKEND_ENV_VAR, "memory").strip().lower()
+    if raw not in _SUPPORTED_BACKENDS:
+        raise ConfigurationError(
+            f"{REPOSITORY_BACKEND_ENV_VAR}={raw!r} is not a supported persistence "
+            f"backend. Supported values are {', '.join(_SUPPORTED_BACKENDS)}."
+        )
+    return raw
+
+
+def get_database_url() -> str:
+    """Return the database URL, required when the backend is ``sql``.
+
+    No default. A development fallback would be a durable-looking composition pointed at a
+    throwaway database, which is worse than refusing to start.
+    """
+    url = os.environ.get(DATABASE_URL_ENV_VAR, "").strip()
+    if not url:
+        raise ConfigurationError(
+            f"{DATABASE_URL_ENV_VAR} is not set, and is required when "
+            f"{REPOSITORY_BACKEND_ENV_VAR}=sql. The platform will not start a durable "
+            f"composition without an explicit database URL."
+        )
+    return url
