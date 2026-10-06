@@ -146,7 +146,7 @@ class TestAgentServiceRepositoryAuthority:
     def test_registration_and_retrieval_backed_by_agent_repository(self) -> None:
         agent_repo = InMemoryAgentRepository()
         enf_repo = InMemoryEnforcementStateRepository()
-        service = AgentService(agent_repo, enf_repo, InMemoryAdministrativeStateRepository())
+        service = AgentService(agent_repo, enf_repo, InMemoryAdministrativeStateRepository(agent_repository=agent_repo))
 
         agent = make_test_agent("ag-1")
         service.register_and_activate_agent(agent)
@@ -166,7 +166,7 @@ class TestAgentServiceRepositoryAuthority:
     def test_duplicate_registration_rejected_against_repository(self) -> None:
         agent_repo = InMemoryAgentRepository()
         enf_repo = InMemoryEnforcementStateRepository()
-        service = AgentService(agent_repo, enf_repo, InMemoryAdministrativeStateRepository())
+        service = AgentService(agent_repo, enf_repo, InMemoryAdministrativeStateRepository(agent_repository=agent_repo))
 
         agent = make_test_agent("ag-dup")
         service.register_and_activate_agent(agent)
@@ -177,7 +177,7 @@ class TestAgentServiceRepositoryAuthority:
     def test_list_agents_reads_from_agent_repository(self) -> None:
         agent_repo = InMemoryAgentRepository()
         enf_repo = InMemoryEnforcementStateRepository()
-        service = AgentService(agent_repo, enf_repo, InMemoryAdministrativeStateRepository())
+        service = AgentService(agent_repo, enf_repo, InMemoryAdministrativeStateRepository(agent_repository=agent_repo))
 
         service.register_and_activate_agent(make_test_agent("ag-1"))
         service.register_and_activate_agent(make_test_agent("ag-2"))
@@ -196,7 +196,7 @@ class TestEnforcementCASAndEpochSemantics:
         agent_repo = InMemoryAgentRepository()
         raw_enf_repo = InMemoryEnforcementStateRepository()
         enf_repo = RacingEnforcementRepository(raw_enf_repo)
-        service = AgentService(agent_repo, enf_repo, InMemoryAdministrativeStateRepository())
+        service = AgentService(agent_repo, enf_repo, InMemoryAdministrativeStateRepository(agent_repository=agent_repo))
 
         service.register_and_activate_agent(make_test_agent("ag-race"))
 
@@ -216,7 +216,7 @@ class TestEnforcementCASAndEpochSemantics:
     def test_monotonic_epoch_progression_across_suspend_reinstate_cycles(self) -> None:
         agent_repo = InMemoryAgentRepository()
         enf_repo = InMemoryEnforcementStateRepository()
-        service = AgentService(agent_repo, enf_repo, InMemoryAdministrativeStateRepository())
+        service = AgentService(agent_repo, enf_repo, InMemoryAdministrativeStateRepository(agent_repository=agent_repo))
 
         agent_id = "ag-lifecycle"
         service.register_and_activate_agent(make_test_agent(agent_id))
@@ -282,7 +282,7 @@ class TestEnforcementWritesOnlyItsOwnPlane:
         agent_repo = InMemoryAgentRepository()
         enf_repo = InMemoryEnforcementStateRepository()
         service = AgentService(
-            agent_repo, enf_repo, InMemoryAdministrativeStateRepository()
+            agent_repo, enf_repo, InMemoryAdministrativeStateRepository(agent_repository=agent_repo)
         )
         agent_id = "ag-no-write"
         service.register_and_activate_agent(make_test_agent(agent_id))
@@ -317,7 +317,7 @@ class TestEnforcementWritesOnlyItsOwnPlane:
         agent_repo = InMemoryAgentRepository()
         enf_repo = InMemoryEnforcementStateRepository()
         service = AgentService(
-            agent_repo, enf_repo, InMemoryAdministrativeStateRepository()
+            agent_repo, enf_repo, InMemoryAdministrativeStateRepository(agent_repository=agent_repo)
         )
         agent_id = "ag-disabled"
         service.register_and_activate_agent(make_test_agent(agent_id))
@@ -338,7 +338,7 @@ class TestObjectIsolationAndDefensiveCopies:
     def test_modifying_retrieved_agent_does_not_mutate_repository(self) -> None:
         agent_repo = InMemoryAgentRepository()
         enf_repo = InMemoryEnforcementStateRepository()
-        service = AgentService(agent_repo, enf_repo, InMemoryAdministrativeStateRepository())
+        service = AgentService(agent_repo, enf_repo, InMemoryAdministrativeStateRepository(agent_repository=agent_repo))
 
         service.register_and_activate_agent(make_test_agent("ag-iso", approved_tools=["file_read"]))
 

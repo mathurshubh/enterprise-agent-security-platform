@@ -6,7 +6,9 @@ must reproduce these semantics with durable row locking rather than inherit them
 """
 
 from threading import RLock
+from typing import Any
 
+from app.models.agent import Agent
 from app.models.agent_administrative import (
     AdministrativeTransition,
     AgentAdministrativeState,
@@ -14,7 +16,9 @@ from app.models.agent_administrative import (
 )
 from app.repositories.interfaces.administrative_state_repository import (
     AdministrativeStateRepository,
+    AdministrativeStateUnavailableError,
     AdministrativeTransitionInvariantError,
+    AgentAlreadyRegisteredError,
 )
 
 
@@ -28,10 +32,15 @@ class InMemoryAdministrativeStateRepository(AdministrativeStateRepository):
     - Atomicity: on any refusal neither the state nor the ledger is touched.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, agent_repository: Any | None = None) -> None:
         self._lock = RLock()
         self._states: dict[str, AgentAdministrativeState] = {}
         self._transitions: list[AdministrativeTransition] = []
+        # The registration composition spans identity and lifecycle by definition, so the
+        # repository that owns it needs the identity store it composes with. Optional
+        # because every other operation is lifecycle-only; ``commit_registration`` is the
+        # one method that requires it, and says so.
+        self._agent_repository = agent_repository
 
     def get_state(self, agent_id: str) -> AgentAdministrativeState | None:
         with self._lock:
@@ -90,6 +99,44 @@ class InMemoryAdministrativeStateRepository(AdministrativeStateRepository):
             self._states[agent_id] = new_state.model_copy(deep=True)
             self._transitions.append(transition.model_copy(deep=True))
             return True
+
+    def commit_registration(
+        self,
+        agent: Agent,
+        transition: AdministrativeTransition,
+        new_state: AgentAdministrativeState,
+    ) -> None:
+        """Create the agent and its administrative state under one lock.
+
+        Atomic for the same reason the SQL adapter's transaction is: no partial state is
+        observable. In memory this is simpler than it looks -- dict assignments between
+        the existence check and the final write cannot fail partway -- so the composition
+        reduces to holding the lock across all three.
+        """
+        if self._agent_repository is None:
+            raise AdministrativeStateUnavailableError(
+                "This administrative repository was constructed without an agent "
+                "repository and cannot compose a registration."
+            )
+        with self._lock:
+            if self._agent_repository.get(agent.agent_id) is not None:
+                raise AgentAlreadyRegisteredError(
+                    f"Agent '{agent.agent_id}' already exists"
+                )
+            if not is_legal_administrative_transition(None, new_state.state):
+                raise AdministrativeTransitionInvariantError(
+                    f"Illegal administrative transition for agent '{agent.agent_id}': "
+                    f"none -> {new_state.state.value}."
+                )
+            if new_state.administrative_version != 1:
+                raise AdministrativeTransitionInvariantError(
+                    f"Registration must commit administrative version 1 for agent "
+                    f"'{agent.agent_id}', offered {new_state.administrative_version}."
+                )
+
+            self._agent_repository.save(agent)
+            self._states[agent.agent_id] = new_state.model_copy(deep=True)
+            self._transitions.append(transition.model_copy(deep=True))
 
     def list_transitions(
         self,

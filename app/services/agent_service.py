@@ -7,6 +7,7 @@ from app.models.agent_administrative import (
     ADMINISTRATIVE_TRANSITION_ACTIONS,
     Actor,
     ActorType,
+    AdministrativeAction,
     AdministrativeLifecycleState,
     AdministrativeTransition,
     AgentAdministrativeState,
@@ -23,6 +24,7 @@ from app.models.watermark import BaselineWatermark
 from app.policy.lifecycle_authorization import evaluate_lifecycle_authorization
 from app.repositories.interfaces.administrative_state_repository import (
     AdministrativeStateRepository,
+    AgentAlreadyRegisteredError,
 )
 from app.repositories.interfaces.agent_repository import AgentRepository
 from app.repositories.interfaces.enforcement_state_repository import (
@@ -130,28 +132,48 @@ class AgentService:
         not executable, and entering service requires a separate, explicitly authorized
         activation.
 
-        The administrative record is written before the agent record. If the second write
-        fails, the agent is unreachable through this service -- ``get_agent`` raises
-        ``AgentNotFoundError`` -- so the orphan is inert. The reverse order would leave an
-        agent that exists with no establishable administrative state, which every
-        lifecycle read would then have to treat as unavailable.
+        The identity record and the administrative record commit **together**, through
+        ``commit_registration``, which is the durable composition boundary (AP.3, F-09.D).
+        No agent can exist without its administrative state, and the duplicate check runs
+        inside that transaction so two concurrent registrations cannot both succeed.
+
+        The earlier ordering -- administrative record first, agent second, leaving an inert
+        orphan on failure -- was safe in memory and impossible in SQL, where the foreign
+        key from ``agent_administrative_state`` to ``agents`` forbids writing the child
+        first. Composing both writes removes the ordering question rather than answering
+        it differently per substrate.
         """
         with self._lock:
-            existing = self._agent_repository.get(agent.agent_id)
-            if existing is not None:
-                raise AgentAlreadyExistsError(
-                    f"Agent '{agent.agent_id}' already exists"
-                )
-
-            self._administrative_transition(
+            now = datetime.now(timezone.utc)
+            transition = AdministrativeTransition(
+                transition_id=f"admin-transition-{uuid4()}",
                 agent_id=agent.agent_id,
-                new_state=AdministrativeLifecycleState.REGISTERED,
+                action=AdministrativeAction.REGISTER,
                 actor=actor,
                 reason="Agent registered",
-                correlation_id=correlation_id,
+                previous_state=None,
+                new_state=AdministrativeLifecycleState.REGISTERED,
+                administrative_version_before=0,
+                administrative_version_after=1,
+                correlation_id=correlation_id or f"corr-{uuid4()}",
+                occurred_at=now,
+            )
+            state = AgentAdministrativeState(
+                agent_id=agent.agent_id,
+                state=AdministrativeLifecycleState.REGISTERED,
+                administrative_version=1,
+                last_transition_at=now,
             )
 
-            self._agent_repository.save(agent)
+            try:
+                self._administrative_repository.commit_registration(
+                    agent, transition, state
+                )
+            except AgentAlreadyRegisteredError as exc:
+                raise AgentAlreadyExistsError(
+                    f"Agent '{agent.agent_id}' already exists"
+                ) from exc
+
             return agent
 
     def activate_agent(

@@ -64,4 +64,6 @@ class TestInMemoryAdministrativeStateRepository(
     BaseAdministrativeStateRepositoryContractTests
 ):
     def create_repository(self) -> InMemoryAdministrativeStateRepository:
-        return InMemoryAdministrativeStateRepository()
+        return InMemoryAdministrativeStateRepository(
+            agent_repository=InMemoryAgentRepository()
+        )

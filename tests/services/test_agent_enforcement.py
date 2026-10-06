@@ -443,7 +443,7 @@ class TestEnforcementPlaneInvariants:
 
         agent_repo = InMemoryAgentRepository()
         enf_repo = InMemoryEnforcementStateRepository()
-        service = AgentService(agent_repo, enf_repo, InMemoryAdministrativeStateRepository())
+        service = AgentService(agent_repo, enf_repo, InMemoryAdministrativeStateRepository(agent_repository=agent_repo))
 
         service.register_and_activate_agent(create_agent(agent_id="agent-outage"))
 
