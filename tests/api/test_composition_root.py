@@ -1,12 +1,18 @@
 """The composition root refuses an invalid topology at startup (ADR-030 DB.5, L.6)."""
 
+import os
 import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
 from app.config.settings import ConfigurationError, get_repository_backend
 
-PROJECT = "/Users/shubhankarmathur/projects/enterprise-agent-security-platform"
+# Derived, not hardcoded: the suite runs on developer machines and on CI runners, and an
+# absolute path works only on the first. Caught by CI, which is the environment the
+# hardcoded path excluded.
+PROJECT = Path(__file__).resolve().parents[2]
 
 
 def _start(env_extra: dict[str, str]) -> subprocess.CompletedProcess:
@@ -16,14 +22,19 @@ def _start(env_extra: dict[str, str]) -> subprocess.CompletedProcess:
     happens when the platform *starts*. Re-importing a module in-process would exercise
     import caching rather than startup.
     """
+    # A minimal environment, plus whatever the OS needs to run the interpreter at all.
+    # PATH is inherited rather than fixed, because the interpreter location differs
+    # between a local .venv and a CI runner's toolchain.
     env = {
-        "PATH": "/usr/bin:/bin",
+        "PATH": os.environ.get("PATH", ""),
         "JWT_SECRET_KEY": "k" * 48,
         **env_extra,
     }
     return subprocess.run(
-        [f"{PROJECT}/.venv/bin/python", "-c", "import app.api.dependencies"],
-        cwd=PROJECT,
+        # ``sys.executable`` is the interpreter already running the suite, so the
+        # subprocess cannot drift from it.
+        [sys.executable, "-c", "import app.api.dependencies"],
+        cwd=str(PROJECT),
         capture_output=True,
         text=True,
         env=env,
