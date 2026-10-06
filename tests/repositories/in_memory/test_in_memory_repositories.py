@@ -1,6 +1,7 @@
 """Concrete contract test suite executing against all InMemory repository adapters."""
 
 from app.repositories.in_memory import (
+    InMemoryAdministrativeStateRepository,
     InMemoryAgentRepository,
     InMemoryApprovalContinuationRepository,
     InMemoryAuditEvidenceRepository,
@@ -17,6 +18,7 @@ from app.repositories.interfaces import (
     ToolRepository,
 )
 from tests.repositories.contracts import (
+    BaseAdministrativeStateRepositoryContractTests,
     BaseAgentRepositoryContractTests,
     BaseApprovalContinuationRepositoryContractTests,
     BaseAuditEvidenceRepositoryContractTests,
@@ -56,3 +58,10 @@ class TestInMemorySessionRepository(BaseSessionRepositoryContractTests):
 class TestInMemoryApprovalContinuationRepository(BaseApprovalContinuationRepositoryContractTests):
     def create_repository(self) -> ApprovalContinuationRepository:
         return InMemoryApprovalContinuationRepository()
+
+
+class TestInMemoryAdministrativeStateRepository(
+    BaseAdministrativeStateRepositoryContractTests
+):
+    def create_repository(self) -> InMemoryAdministrativeStateRepository:
+        return InMemoryAdministrativeStateRepository()

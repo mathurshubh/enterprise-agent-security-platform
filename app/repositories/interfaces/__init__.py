@@ -1,5 +1,14 @@
 """Repository protocol interfaces defining domain persistence boundaries (ADR-030, ADR-031)."""
 
+from app.repositories.interfaces.administrative_audit_repository import (
+    AdministrativeAuditRepository,
+    AdministrativeAuditUnavailableError,
+)
+from app.repositories.interfaces.administrative_state_repository import (
+    AdministrativeStateRepository,
+    AdministrativeStateUnavailableError,
+    AdministrativeTransitionInvariantError,
+)
 from app.repositories.interfaces.agent_repository import AgentRepository
 from app.repositories.interfaces.approval_continuation_repository import (
     ApprovalContinuationRepository,
@@ -15,6 +24,11 @@ from app.repositories.interfaces.session_repository import SessionRepository
 from app.repositories.interfaces.tool_repository import ToolRepository
 
 __all__ = [
+    "AdministrativeAuditRepository",
+    "AdministrativeAuditUnavailableError",
+    "AdministrativeStateRepository",
+    "AdministrativeStateUnavailableError",
+    "AdministrativeTransitionInvariantError",
     "AgentRepository",
     "ApprovalContinuationRepository",
     "AuditEvidenceRepository",
