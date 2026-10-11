@@ -15,7 +15,7 @@ PyJWT
 PyYAML
 requests
 # Plane 3: Durable SQL State Repository Architecture requires modern SQLAlchemy 2.0+
-sqlalchemy>=2.0
+sqlalchemy>=2.1.4
 # Plane 3: Schema versioning and migration management
 alembic>=1.13.0
 # Plane 3: PostgreSQL DBAPI driver
