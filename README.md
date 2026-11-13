@@ -337,7 +337,8 @@ viewport in headless Chrome. The data was produced by the platform itself: six d
 sent to the real runtime endpoint as the bootstrap agent `agent-1` (three benign workspace requests, a prompt
 injection, an unregistered tool and a protected-resource read with exfiltration intent), plus
 scenario runs from the console. Nothing was edited after capture. The only presentation change
-was hiding the development-only TanStack Query devtools button.
+was hiding the development-only TanStack Query devtools button. The Findings screenshot was
+recaptured at commit `2445a92`, after the `detected_at` fix in #273, from the same six requests.
 
 #### Runtime decision — the platform's core function
 
@@ -363,8 +364,8 @@ Action Required queue is still a placeholder.
 ![Findings and alerts](docs/assets/screenshots/05-findings.png)
 
 **Findings & Alerts** — findings from the runtime requests, with severity, rule, framework
-control (`AML.T0043`, `T1048`), agent and session, plus session risk posture. *Known display
-defect:* "Detected At" shows `1970-01-01` — see [Known gaps](#known-gaps-and-limitations).
+control (`AML.T0043`, `T1048`), agent and session, plus session risk posture. "Detected At" is
+the time the platform recorded each finding as evidence.
 
 ![Audit trail](docs/assets/screenshots/07-audit-trail.png)
 
@@ -596,9 +597,7 @@ Stated plainly so the platform is not read as claiming more than it delivers:
 - **Not yet implemented:** the ADR-033 tool catalog API projection, ADR-034 §2.5 audit
   reconciliation detection, and persistence for execution receipts and capability profiles.
 - **Process sandbox, not a kernel sandbox** (see the sandbox boundary note above).
-- **Observed while capturing screenshots** (recorded, not fixed in this documentation change):
-  - Findings from the content rules carry a fixed epoch `created_at`, which the management API
-    projects as `detected_at`, so the console shows `1970-01-01`.
+- **Observed while capturing screenshots** (recorded, not yet fixed):
   - The console's 10-second API timeout can expire before a local `PROMPT`-mode scenario
     finishes with `llama3.2:3b`, and the run is reported as a timeout.
   - Some console placeholder text still refers to `v0.13.0` as the target release.
