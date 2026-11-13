@@ -14,7 +14,8 @@ class FindingsService:
     time: after a reinstatement, evidence accepted before that moment no longer drives
     enforcement, while evidence accepted afterwards does (M2b).
 
-    ``recorded_at`` is internal to the evidence store and is not exposed by the API.
+    The management API exposes ``recorded_at`` read-only as a finding's ``detected_at``,
+    because ``created_at`` is not a detection time. Nothing outside the store may set it.
     """
 
     def __init__(

@@ -318,7 +318,15 @@ def _map_finding_to_response(finding: Finding) -> FindingResponse:
         category=finding.category,
         status=finding.status,
         description=finding.description,
-        detected_at=finding.created_at,
+        # When the platform accepted the finding as evidence. Content rules pin
+        # ``created_at`` to the Unix epoch so findings are reproducible, so it is not a
+        # detection time; ``recorded_at`` is. A finding the store never stamped keeps
+        # the previous projection rather than having a time invented for it.
+        detected_at=(
+            finding.recorded_at
+            if finding.recorded_at is not None
+            else finding.created_at
+        ),
         mitre_techniques=mitre_techniques,
     )
 
