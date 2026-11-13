@@ -172,9 +172,11 @@ verified grant lets the tool run in the process sandbox. The public runtime endp
 Two concepts are deliberately kept separate
 ([ADR-031](docs/adr/ADR-031-execution-grant-approval-control-plane.md)):
 
-- **`ApprovalContinuation`** — durable, human-approved authority with the states
-  `PENDING → APPROVED / REJECTED / EXPIRED → CONSUMED`. It is a frozen artifact and is **not**
-  directly executable.
+- **`ApprovalContinuation`** — an approval-lifecycle artifact representing human-approved
+  authority, with the states `PENDING → APPROVED / REJECTED / EXPIRED → CONSUMED`. It is a frozen
+  artifact and is **not** directly executable. Its repository interface has in-memory and SQL
+  adapters, but durable operation is not available in the runnable configuration today (see
+  [Known gaps](#known-gaps-and-limitations)).
 - **`RuntimeExecutionGrant`** — ephemeral, cryptographically signed execution authority.
 
 A continuation must be claimed (exactly once) before a runtime grant is minted; the ordering is
