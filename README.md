@@ -1,431 +1,642 @@
 # Enterprise Agent Security Platform
 
 ![Python](https://img.shields.io/badge/Python-3.13-blue)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.116+-009688)
-![Tests](https://img.shields.io/badge/Tests-1619%2B_Passing-success)
-![GitHub Release](https://img.shields.io/badge/GitHub_Release-v0.18.0-blue)
-![Git Tag](https://img.shields.io/badge/Git_Tag-v0.18.0-blue)
-![Development Cycle](https://img.shields.io/badge/Release-v0.18.0--published-brightgreen)
-![Providers](https://img.shields.io/badge/Providers-Ollama_|_Gemini-orange)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.142-009688)
+![React](https://img.shields.io/badge/React-19-61DAFB)
+![Tests](https://img.shields.io/badge/Tests-1%2C788_passing-success)
+![Release](https://img.shields.io/badge/Release-v0.18.0-blue)
 ![Security](https://img.shields.io/badge/Security-Zero_Trust-red)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
-**A production-quality reference implementation of Zero Trust security controls for enterprise AI agents.**
+**A Zero Trust security and governance platform for enterprise AI agents.**
 
-A Zero Trust security platform for governing autonomous AI agents in enterprise environments. Rather than building another AI agent framework, this platform provides runtime security orchestration, policy-driven authorization, real-time threat detection, dynamic risk assessment, and risk-based response controls.
+The platform governs AI agents through deterministic identity verification, authentication,
+authorization, policy enforcement, runtime containment, detection, risk assessment, response
+and auditability. It is **not** an AI agent framework and is not itself an AI agent: it is the
+control layer that sits between agents and the tools they want to use.
 
-> **The platform treats every LLM as an untrusted intent parser. All security decisions remain deterministic, auditable, and are enforced outside the AI model.**
+> **Every LLM is treated as an untrusted intent parser. The LLM may propose a structured
+> `ToolInvocation`; it never makes an authorization, policy, risk, detection, response or
+> execution decision. Those decisions are deterministic code, enforced outside the model.**
 
----
+![Command Center of the Enterprise Security Console](docs/assets/screenshots/01-command-center.png)
 
-## What This Platform Is
-
-The Enterprise Agent Security Platform is a security and governance layer for enterprise AI agents.
-
-It is **not** an AI agent framework or orchestration tool.
-
-Instead, it provides deterministic security controls around AI agents, including:
-
-- Authentication (FastAPI HTTPBearer JWT) and plane authorization (role-gated API surfaces, execution identity bound to the authenticated agent)
-- Resource-Aware Authorization
-- Policy Enforcement
-- Threat Detection & Behavioral Intelligence
-- Behavioral Telemetry Architecture (Non-Blocking Dispatcher & Canonical BehavioralEvent)
-- Authoritative Security Findings Persistence
-- Dynamic Risk Assessment & Risk Level Calculation
-- Automated Response Actions
-- Immutable Audit Logging
-- **Durable SQL Security State Architecture (Plane 3, ADR-030):** Relational persistence (SQLAlchemy 2.0+, Alembic) providing foreign-key enforced integrity, dual monotonic sequence counters (`sequence_number`, `agent_sequence`), temporal detection-horizon windows with watermark isolation, and CAS monotonic enforcement epoch progression
-- **Execution Grant & Approval Control Plane (ADR-031):** Durable human-in-the-loop approval lifecycle with atomic exactly-once claim resumption (`PENDING -> APPROVED -> CONSUMED`)
-- **Runtime Tool Execution Isolation (v0.17, ADR-032):** Process-level execution containment (`ProcessToolExecutionSandbox`), immutable capability bindings, process-level filesystem and network guards, and zero in-process fallback
-- **Execution Provenance & Boundary Hardening (v0.17.1, ADR-023/ADR-032):** Execution identity (`agent_id`, `session_id`) bound into the signed `RuntimeExecutionGrant` and derived from it rather than from caller-supplied context, an explicit `ExecutionAuthorityProtocol`, fail-closed capability-profile and workspace-root requirements, and isolation probes removed from the production child registry
-- **Execution Evidence & Recovery (v0.17.2, ADR-032 §12):** Execution evidence recorded on the production path with grant-derived correlation, execution-outcome and evidence-integrity treated as independent axes, bounded terminal retention, lifecycle counters and a non-silent integrity signal, scenario evidence isolated from live evidence (ADR-013 M2a), and startup reconciliation completed before readiness. Production-wired, not durably persisted
-- Management API & Enterprise Findings Console
+*The Enterprise Security Console running locally. A complete runtime decision timeline is shown
+under [Enterprise Security Console](#enterprise-security-console).*
 
 ---
 
-## High-Level Architecture
+## Contents
+
+- [Why this platform exists](#why-this-platform-exists)
+- [Core design principles](#core-design-principles)
+- [Architecture overview](#architecture-overview)
+- [Security enforcement lifecycle](#security-enforcement-lifecycle)
+- [Implemented capabilities](#implemented-capabilities)
+- [Enterprise Security Console](#enterprise-security-console)
+- [API surface](#api-surface)
+- [Technology stack](#technology-stack)
+- [Repository structure](#repository-structure)
+- [Installation and local development](#installation-and-local-development)
+- [Running tests and quality checks](#running-tests-and-quality-checks)
+- [Security architecture and threat model](#security-architecture-and-threat-model)
+- [Architecture Decision Records](#architecture-decision-records)
+- [Current implementation status](#current-implementation-status)
+- [Known gaps and limitations](#known-gaps-and-limitations)
+- [Roadmap](#roadmap)
+- [License](#license)
+
+---
+
+## Why this platform exists
+
+Enterprise AI agents turn natural language into actions against files, systems and data. The
+model that interprets the request can be manipulated — by a user prompt, by retrieved content,
+or by a tool's own output — so it cannot also be the component that decides whether an action
+is allowed.
+
+This platform separates the two responsibilities:
+
+| LLM responsibility | Security platform responsibility |
+|---|---|
+| Interpret natural language | Authenticate callers and agents (JWT) |
+| Produce a structured `ToolInvocation` | Authorize the agent for the tool (approved tools, lifecycle state) |
+| | Evaluate resource-aware policy (risk tier, protected resources) |
+| | Detect threats in prompts, model output, tool output and session behaviour |
+| | Assess cumulative risk and select a response |
+| | Issue single-use execution authority and run the tool in a process sandbox |
+| | Record audit evidence for every decision |
+
+---
+
+## Core design principles
+
+- **Zero Trust.** Every request is authenticated, authorized, evaluated and audited. No agent
+  action or internal transition is implicitly trusted.
+- **Least privilege.** Agents may use only explicitly approved tools, within the resource and
+  risk-tier constraints policy allows. Each API plane admits only the roles it declares.
+- **Deterministic security decisions.** Authorization, policy, detection, risk and response are
+  implemented in deterministic code ([ADR-002](docs/adr/ADR-002-llm-untrusted-intent-parser.md),
+  [ADR-004](docs/adr/ADR-004-deterministic-security-pipeline.md)).
+- **Resource-aware authorization.** Policy evaluates what would actually be executed — the
+  resource and parameters — not just the tool name
+  ([ADR-006](docs/adr/ADR-006-resource-aware-authorization.md)).
+- **Fail closed.** Missing configuration, an invalid persistence topology, an unrecordable
+  detection result, a missing sandbox or missing lifecycle state all refuse rather than degrade.
+- **Immutable, monotonic authority.** Once `(tool_id, tool_version)` is resolved and authorized,
+  nothing downstream re-resolves, substitutes, downgrades or upgrades it. Execution identity is
+  carried on the signed grant, never inferred from caller context.
+- **Auditability and evidence integrity.** Audit records requested and resolved identity as
+  separate facts, and denial evidence is recorded even when a request names a tool that does not
+  exist ([ADR-034](docs/adr/ADR-034-audit-identity-contract.md)).
+- **Provider-agnostic.** Security services are decoupled from the LLM provider (Ollama and
+  Google Gemini adapters are implemented).
+
+---
+
+## Architecture overview
 
 ```mermaid
 flowchart TD
-    A["User Request"] --> B["Enterprise Agent"]
-    B --> C["Provider-Agnostic LLM (Intent Parser)"]
-    C --> D["ToolInvocation"]
-    D --> E["RuntimeService (Single Security Authority)"]
-    E --> F["Authorization & Policy Engine"]
-    F --> G["Session Event Recording"]
-    G --> H["Threat Detection Engine"]
-    H --> I["FindingsService (Authoritative Evidence)"]
-    J --> K["ResponseService (Recommendation & Enforcement)"]
-    I --> J["RiskService (Derived Posture: session_id + agent_id)"]
-    K --> L{"Authoritative Decision"}
-    L -->|ALLOW| M["Tool Execution"]
-    L -->|DENY| N["Blocked"]
-    L -->|APPROVAL_REQUIRED| O["Held for Review"]
-    E --> P["Audit Event Logging"]
-    E -.-> Q["TelemetryDispatcher (ADR-015 Behavioral Telemetry)"]
+    U["User request"] --> LLM["LLM provider (Ollama / Gemini)<br/>untrusted intent parser"]
+    LLM --> TI["Structured ToolInvocation"]
+    TI --> RS["RuntimeService<br/>single security authority"]
+
+    subgraph PIPE["Deterministic security pipeline"]
+        RS --> AZ["Authorization + PolicyEngine<br/>agent, tool, lifecycle, risk tier, resource"]
+        AZ --> SE["Session event recording"]
+        SE --> DET["Detection<br/>content rules + EXCESSIVE_DENIALS"]
+        DET --> FS["FindingsService<br/>authoritative evidence"]
+        FS --> RK["RiskService / RiskAggregator<br/>derived posture"]
+        RK --> RP["ResponseService<br/>MONITOR / ALERT / REQUIRE_APPROVAL / SUSPEND_AGENT"]
+        RP --> DEC{"Final decision"}
+    end
+
+    DEC -->|ALLOW| EA["ExecutionAuthority<br/>signed single-use RuntimeExecutionGrant"]
+    EA --> SB["ProcessToolExecutionSandbox<br/>isolated child process"]
+    DEC -->|DENY| BL["Blocked"]
+    DEC -->|APPROVAL_REQUIRED| HR["Held for human approval"]
+    RS --> AU["AuditService"]
+    RS -.-> TD["TelemetryDispatcher<br/>non-blocking BehavioralEvent"]
 ```
 
-`RuntimeService` is the single authoritative source of security decisions. The LLM never makes authorization, policy, detection, risk, or enforcement decisions.
+`RuntimeService` is the single authoritative source of runtime security decisions. The
+Enterprise Security Console and the management API are read-mostly observability and control
+clients; they hold no security authority.
 
-### Canonical Architectural Security Chain
-
-Every interaction is governed through a deterministic, end-to-end security chain:
+### Canonical security chain
 
 ```text
 Identity → Authority → Policy → Capability → Runtime → Resource → Telemetry → Response
 ```
 
-1. **Identity:** Authenticates agent and caller principals with cryptographic binding.
-2. **Authority:** Determines whether the principal is permitted to execute or manage capabilities.
-3. **Policy:** Evaluates fine-grained, resource-aware access rules over requested parameters.
-4. **Capability:** Resolves approved operations against strictly governed capability registries.
-5. **Runtime:** Enforces containment, execution grants, and one-way suspension boundaries.
-6. **Resource:** Restricts operations against enterprise data, filesystems, and network endpoints.
-7. **Telemetry:** Captures non-blocking behavioral events and tamper-resistant audit logs.
-8. **Response:** Dynamically mitigates risk via automated monitoring, escalation, or suspension.
+1. **Identity** — authenticate the caller and bind execution to the authenticated agent.
+2. **Authority** — the agent's administrative and enforcement lifecycle planes must both permit
+   execution, and the tool must be approved for the agent.
+3. **Policy** — resource-aware rules over the requested resource and parameters.
+4. **Capability** — resolve one concrete, enabled tool version from the governed catalog.
+5. **Runtime** — a signed, single-use grant bound to exactly the evaluated operation.
+6. **Resource** — process-level filesystem and network guards inside the sandbox.
+7. **Telemetry** — audit events and non-blocking behavioural telemetry.
+8. **Response** — monitoring, alerting, approval escalation or agent suspension.
 
 ---
 
-## Release & Platform Status
+## Security enforcement lifecycle
 
-- **Latest Published GitHub Release:** `v0.18.0`
-- **Latest Repository Tag:** `v0.18.0`
-- **Current Release:** `v0.18.0` — Published ([release notes](docs/releases/v0.18.0.md))
-- **Strategic Architecture Baseline:** Jan–Aug 2026 AI Security Architecture Baseline Review (`4abf2b6`)
-- **Automated Test Coverage:** **1,619 automated tests passing** (11 skipped, 7 xfailed, `.venv/bin/python -m pytest`)
-- **Frontend Build Status:** Passing (`npm run build` & `npm run lint`)
-- **Architecture Reference Range:** ADR-000 through ADR-034
-
----
-
-## Project Metrics
-
-| Metric | Value |
-|----------|---------|
-| Automated Tests | 1,619 Passing (11 skipped, 7 xfailed) |
-| Latest Published GitHub Release | v0.18.0 |
-| Latest Repository Tag | v0.18.0 |
-| Current Release | v0.18.0 (Published) |
-| Architecture Baseline Commit | 4abf2b6134d894d15bad76a0ec45db6adecb6262 |
-| Detection Rules | 4 (`PROMPT_INJECTION`, `SENSITIVE_FILE_ACCESS`, `DATA_EXFILTRATION`, `EXCESSIVE_DENIALS`) |
-| Security Framework Mappings | 3 (OWASP LLM Top 10, MITRE ATLAS, MITRE ATT&CK) |
-| Core Services | 10+ (`AgentService`, `ToolService`, `SessionService`, `FindingsService`, `RiskService`, `ResponseService`, `AuditService`, `RuntimeService`, `CapabilityService`, `ScenarioRunnerService`, `ExecutionAuthority`) |
-| Python Version | 3.13+ |
-| Security Model | Zero Trust (Deterministic Security Pipeline) |
-
----
-
-## Core Design Principles
-
-This platform is engineered around the following core security and software design principles:
-
-*   **Zero Trust Architecture:** Every request is authenticated, authorized, evaluated, and audited; no internal transitions or agent actions are implicitly trusted.
-*   **Deterministic Security Decisions:** All authorization, detection, risk assessment, and mitigation logic is implemented in deterministic code. The LLM never makes security decisions.
-*   **Least Privilege Access:** Agents are restricted to explicitly approved tools and resources, guided by dynamic policies that evaluate agent and tool metadata.
-*   **LLM as an Untrusted Intent Parser:** The AI model is treated as an untrusted client whose sole responsibility is converting natural language into structured request objects (`ToolInvocation`).
-*   **Authoritative Evidence vs Derived Posture:** `Finding` objects stored in `FindingsService` represent authoritative security evidence. `RiskAssessment` objects in `RiskService` represent derived process-local posture indexed by composite `(session_id, agent_id)` keys.
-*   **Cumulative Risk Posture:** Dynamic risk calculation aggregates all authoritative findings recorded for a session and agent scope. Subsequent benign tool executions maintain the session's cumulative risk level.
-*   **Complete Auditability:** Every tool request, authorization decision, policy evaluation, finding, risk score, and mitigation action is logged as an immutable event.
-*   **Provider-Agnostic Design:** Core security services are decoupled from underlying LLMs, permitting integration with alternative AI providers (Ollama, Gemini).
-
----
-
-## Runtime Security Pipeline
-
-The `RuntimeService` executes a deterministic security pipeline for every incoming `ToolInvocation`:
+For every runtime request, the pipeline produces the stages shown in the console's
+*Authoritative Execution Timeline* (screenshot above):
 
 ```text
-1. Authorization     → Is the agent permitted to use this tool?
-2. Policy Evaluation → Does the resource-aware policy allow this action?
-3. Session Event     → Record the initial decision state
-4. Detection         → Run detection rules against prompt, model output, tool output, and session events
-5. Findings          → Record security findings in FindingsService (authoritative evidence)
-6. Risk Assessment   → Calculate cumulative risk score and risk level for (session_id, agent_id) scope
-7. Response          → Select response recommendation based on risk level
-8. Decision Override → Apply Zero Trust enforcement (SUSPEND_AGENT → DENY, REQUIRE_APPROVAL → APPROVAL_REQUIRED)
-9. Audit Event       → Record the final authoritative decision in AuditService
-10. Execution        → Governed tool execution occurs ONLY if the final decision is ALLOW
+1. Request         Agent identity, session and requested tool/resource
+2. Intent          The ToolInvocation (from the LLM, or a deterministic tool sequence)
+3. Authorization   Six canonical policy checks, short-circuiting on the first failure:
+                     agent_check · tool_check · approved_tool_check ·
+                     status_check · risk_tier_check · resource_check
+4. Detection       Content rules over prompt / model output / tool output,
+                   plus the stateful EXCESSIVE_DENIALS rule over the session horizon
+5. Risk            Cumulative risk level and score for the (session_id, agent_id) scope
+6. Response        MONITOR, ALERT, REQUIRE_APPROVAL or SUSPEND_AGENT
+7. Audit           An audit event correlated to the session
+8. Final decision  ALLOW, DENY or APPROVAL_REQUIRED (response overrides apply:
+                   SUSPEND_AGENT → DENY, REQUIRE_APPROVAL → APPROVAL_REQUIRED)
+```
+
+Only an `ALLOW` causes `ExecutionAuthority` to mint a signed `RuntimeExecutionGrant`, and only a
+verified grant lets the tool run in the process sandbox. The public runtime endpoint is
+**decision-only**: it never executes a tool and never returns a grant
+([ADR-023](docs/adr/ADR-023-execution-authorization-grants.md)).
+
+### Approval authority
+
+Two concepts are deliberately kept separate
+([ADR-031](docs/adr/ADR-031-execution-grant-approval-control-plane.md)):
+
+- **`ApprovalContinuation`** — an approval-lifecycle artifact representing human-approved
+  authority, with the states `PENDING → APPROVED / REJECTED / EXPIRED → CONSUMED`. It is a frozen
+  artifact and is **not** directly executable. Its repository interface has in-memory and SQL
+  adapters, but durable operation is not available in the runnable configuration today (see
+  [Known gaps](#known-gaps-and-limitations)).
+- **`RuntimeExecutionGrant`** — ephemeral, cryptographically signed execution authority.
+
+A continuation must be claimed (exactly once) before a runtime grant is minted; the ordering is
+never reversed.
+
+---
+
+## Implemented capabilities
+
+### Identity, authentication and plane authorization
+
+- JWT authentication (FastAPI `HTTPBearer`, PyJWT). The platform refuses to start without an
+  explicit `JWT_SECRET_KEY` of sufficient length; there is no development fallback and `.env`
+  files are not loaded.
+- Plane authorization ([ADR-025](docs/adr/ADR-025-management-plane-authorization.md)): each
+  router is mounted with the roles its plane admits — runtime `AGENT`; scenarios and management
+  `ANALYST`/`ADMIN`; reinstatement `ADMIN` only. A route may narrow its plane, never widen it.
+- Execution identity is bound to the authenticated agent: an agent can execute only as itself,
+  and authority to manage an agent is never authority to act as one.
+
+### Agent identity and lifecycle (F-09)
+
+- Agent registry with owner, risk tier and approved tools.
+- **Two lifecycle planes**, evaluated independently:
+  - *Administrative plane* — `REGISTERED → ACTIVE → DISABLED`, with attributed, versioned
+    compare-and-set transitions and an administrative audit trail.
+  - *Enforcement plane* — runtime `SUSPEND` and administrative `REINSTATE`, with monotonic
+    enforcement epochs ([ADR-024](docs/adr/ADR-024-agent-enforcement-state.md),
+    [ADR-026](docs/adr/ADR-026-materialized-risk-projection-and-enforcement-epochs.md)).
+- Execution authority is issued only when **both** planes permit it; missing administrative
+  state fails closed. The runtime may contain an agent but never returns one to service —
+  recovery runs only through the `EnforcementCoordinator` reinstatement path.
+- Suspension revokes the agent's outstanding execution grants immediately.
+
+### Tool registry and authorization
+
+- Versioned tool identity: tool families plus concrete `(tool_id, version)` rows, with
+  version-scoped enablement and family-scoped authorization kept distinct
+  ([ADR-005](docs/adr/ADR-005-tool-registry.md), [ADR-033](docs/adr/ADR-033-tool-catalog-contract.md)).
+- Default tools: `file_read` and `directory_list`, operating on a confined workspace.
+- An authorization decision binds to one concrete operation — tool, version, resource and
+  parameters — and an explicit resource that contradicts its path parameter is denied.
+
+### Policy enforcement
+
+- `PolicyEngine` with lifecycle, risk-tier/tool-risk alignment and protected-resource checks;
+  `CRITICAL`-risk tools require human approval.
+- Canonical filesystem resource identity, so a protected resource cannot be reached through an
+  alternative spelling of its path.
+
+### Detection and findings
+
+| Rule | Type | Framework mapping |
+|---|---|---|
+| `PROMPT_INJECTION` | Content (registry) | OWASP LLM01, MITRE ATLAS AML.T0043 |
+| `SENSITIVE_FILE_ACCESS` | Content (registry) | MITRE ATT&CK T1083 |
+| `DATA_EXFILTRATION` | Content (registry) | MITRE ATT&CK T1048 |
+| `EXCESSIVE_DENIALS` | Stateful, over a 30-minute session detection horizon | — |
+
+- The three content rules are registered at a single authoritative site and are what the
+  console's Detection Rules page lists; `EXCESSIVE_DENIALS` is evaluated by `DetectionService`.
+- `FindingsService` records findings as authoritative evidence, with identity derived from the
+  occurrence ([ADR-029](docs/adr/ADR-029-finding-occurrence-identity.md)). If detection evidence
+  cannot be recorded, the request is refused.
+
+### Risk assessment and response
+
+- Cumulative risk per `(session_id, agent_id)` scope, plus a materialized agent-level risk
+  projection (`RiskAggregator`).
+- `ResponseService` maps risk to `MONITOR`, `ALERT`, `REQUIRE_APPROVAL` or `SUSPEND_AGENT`, and
+  the runtime applies Zero Trust overrides to the final decision.
+
+### Runtime tool execution isolation
+
+- `ProcessToolExecutionSandbox`: tools run in a dedicated child process across a JSON-only IPC
+  boundary. There is no in-process fallback — a missing sandbox or a sandbox failure fails
+  closed ([ADR-032](docs/adr/ADR-032-runtime-tool-execution-isolation.md)).
+- Grants carry an HMAC-signed `capability_profile_id` and a SHA-256 `capability_digest`,
+  verified before consumption.
+- `FilesystemSandboxGuard` (workspace confinement, symlink-escape detection, scratch
+  directories) and `NetworkSandboxGuard` (egress limited to declared CIDRs/ports; loopback,
+  link-local, cloud-metadata and Unix sockets denied by default).
+- Process-group cleanup (`SIGTERM`, then `SIGKILL`) and differentiated receipts (`TIMEOUT`,
+  `RESOURCE_EXHAUSTED`, `ISOLATION_FAILURE`, `TOOL_EXECUTION_ERROR`).
+- Execution evidence with grant-derived correlation, bounded terminal retention, and startup
+  reconciliation that resolves interrupted executions to `UNKNOWN` before the application
+  serves requests.
+
+> **Sandbox boundary.** The process sandbox enforces capabilities for standard Python
+> execution. It is not a kernel-level sandbox for hostile code: native extensions, raw syscalls,
+> privileged operations and kernel escapes are outside its boundary. Strong isolation of
+> arbitrary native code needs a future container or microVM backend.
+
+### Durable state (Plane 3)
+
+- Repository protocol interfaces with in-memory and SQL (SQLAlchemy 2.0, psycopg 3) adapters
+  held to one shared contract suite ([ADR-030](docs/adr/ADR-030-durable-state-repository-architecture.md)).
+- Alembic migrations `0001`–`0010` covering agents, administrative lifecycle, enforcement state
+  and ledger, sessions and events, tool families/versions, audit evidence and approval
+  continuations.
+- Compare-and-set state progression, dual monotonic sequences (session-local and agent-scoped),
+  detection-horizon watermarks, and parent-row serialization anchors, validated against
+  PostgreSQL concurrency tests.
+- **Configurable backend with startup validation:** `REPOSITORY_BACKEND` defaults to `memory`.
+  Setting it to `sql` is currently **refused at startup** by the ADR-030 L.6 topology check,
+  because findings are not yet durable and a durable enforcement watermark over a volatile
+  findings allocator would silently suppress detection after a restart. See
+  [Known gaps](#known-gaps-and-limitations).
+
+### LLM integration and scenario execution
+
+- Provider-agnostic adapter layer with Ollama (default model `llama3.2:3b`) and Google Gemini
+  providers ([ADR-007](docs/adr/ADR-007-provider-agnostic-runtime.md)). Malformed model output
+  fails closed.
+- Scenario framework ([ADR-010](docs/adr/ADR-010-scenario-execution-architecture.md)–
+  [ADR-013](docs/adr/ADR-013-scenario-runner-service-boundaries.md)): 19 YAML-defined
+  scenarios across prompt injection, data exfiltration, authorization, sensitive data, tool
+  abuse, provider failure, session behaviour, workflow security and benign baselines.
+- Two execution modes: `TOOL_SEQUENCE` (deterministic, no LLM) and `PROMPT` (the LLM parses
+  intent; requires a running provider).
+- Scenario runs execute in an isolated sandbox pipeline with their own evidence store, so
+  scenario activity never enters live security state (ADR-013 M2a).
+
+### Audit and observability
+
+- `AuditService` with an append-only audit trail; events record requested and resolved tool
+  identity separately and correlate to their originating session.
+- Non-blocking `TelemetryDispatcher` emitting canonical `BehavioralEvent`s
+  ([ADR-015](docs/adr/ADR-015-behavioral-telemetry-architecture.md)).
+- Runtime capability discovery (`CapabilityService`, `GET /api/v1/info`).
+
+---
+
+## Enterprise Security Console
+
+The console is a React + TypeScript single-page application in [`frontend/`](frontend/) that
+reads the management and scenario APIs. It is an observability and control-plane client and
+holds no security authority: it implements no client-side authorization, and the browser holds
+no credentials (see [Local development](docs/development/local-development.md)). Its nine routes
+are grouped as defined in [ADR-022](docs/adr/ADR-022-enterprise-security-console-evolution.md):
+
+| Section | Route | Page | State |
+|---|---|---|---|
+| Monitor | `/` | Command Center | Live data |
+| Monitor | `/approvals` | Approval Queue | Placeholder — no approval API exists yet |
+| Investigate | `/sessions` | Sessions | Live data |
+| Investigate | `/findings` | Findings & Alerts | Live data |
+| Investigate | `/audit` | Audit Trail | Live data |
+| Govern | `/agents` | Agent Registry | Live data |
+| Govern | `/tools` | Tool Registry | Live data |
+| Govern | `/detection` | Detection Rules | Live data |
+| Govern | `/scenarios` | Scenario Library and execution | Live data |
+
+### Screenshots
+
+These are screenshots of the running application at commit `8bc5c74`, taken at a 1440×900
+viewport in headless Chrome. The data was produced by the platform itself: six decision requests
+sent to the real runtime endpoint as the bootstrap agent `agent-1` (three benign workspace requests, a prompt
+injection, an unregistered tool and a protected-resource read with exfiltration intent), plus
+scenario runs from the console. Nothing was edited after capture. The only presentation change
+was hiding the development-only TanStack Query devtools button.
+
+#### Runtime decision — the platform's core function
+
+![Scenario execution timeline showing a DENY decision](docs/assets/screenshots/09-runtime-decision-deny.png)
+
+Scenario `TOOL-002` (deterministic tool sequence) run from the console. The timeline shows each
+pipeline stage for the final request in the sequence: the deterministic intent, the six canonical
+policy checks (the tool check fails because `unauthorized_tool` is not registered, so later checks
+are `NOT EVALUATED`), an `EXCESSIVE_DENIALS` finding, `MEDIUM` risk, an `ALERT` response, the
+correlated audit event, and the final `DENY`. The evaluation `PASSED` because observed outcomes
+matched the scenario's expectations.
+
+#### Monitor
+
+![Command Center](docs/assets/screenshots/01-command-center.png)
+
+**Command Center** — platform inventory (agents, tools, detection rules, sessions, audit
+events) and activity (healthy and high-risk agents, allowed and denied decisions). The
+Action Required queue is still a placeholder.
+
+#### Investigate
+
+![Findings and alerts](docs/assets/screenshots/05-findings.png)
+
+**Findings & Alerts** — findings from the runtime requests, with severity, rule, framework
+control (`AML.T0043`, `T1048`), agent and session, plus session risk posture. *Known display
+defect:* "Detected At" shows `1970-01-01` — see [Known gaps](#known-gaps-and-limitations).
+
+![Audit trail](docs/assets/screenshots/07-audit-trail.png)
+
+**Audit Trail** — every runtime decision (`ALLOW`, `APPROVAL_REQUIRED`, `DENY`) with agent, tool
+and resolved tool version. The unregistered `shell_exec` request appears as `unresolved`: its
+denial is recorded even though the tool does not exist.
+
+![Sessions](docs/assets/screenshots/06-sessions.png)
+
+**Sessions** — agent execution sessions in the live runtime.
+
+#### Govern
+
+![Agent registry](docs/assets/screenshots/02-agent-registry.png)
+
+**Agent Registry** — `agent-1` is `SUSPENDED`. The runtime contained the agent after the
+high-risk requests in the demo sequence. Only an `ADMIN` reinstatement can return it to service.
+
+![Tool registry](docs/assets/screenshots/03-tool-registry.png)
+
+**Tool Registry** — the registered tools and their concrete versions.
+
+![Detection rules](docs/assets/screenshots/04-detection-rules.png)
+
+**Detection Rules** — the registered content rules and their OWASP LLM Top 10, MITRE ATLAS and
+MITRE ATT&CK mappings.
+
+![Scenario library](docs/assets/screenshots/08-scenario-library.png)
+
+**Scenario Library** — the 19 security scenarios, filterable by category, with expected
+detection and response.
+
+---
+
+## API surface
+
+| Plane | Roles | Routes |
+|---|---|---|
+| Public | — | `GET /health`, `GET /version` |
+| Runtime | `AGENT` (bound to own identity) | `POST /agents/{agent_id}/execute` (decision-only) |
+| Scenarios | `ANALYST`, `ADMIN` | `GET /api/scenarios`, `GET /api/scenarios/{scenario_id}`, `POST /api/scenarios/{scenario_id}/execute` |
+| Management | `ANALYST`, `ADMIN` | `GET /api/v1/agents`, `GET /api/v1/agents/{agent_id}/enforcement`, `GET /api/v1/tools`, `GET /api/v1/detection/rules`, `GET /api/v1/audit/events`, `GET /api/v1/sessions`, `GET /api/v1/findings`, `GET /api/v1/findings/{finding_id}`, `GET /api/v1/risk-assessments`, `GET /api/v1/risk-assessments/{session_id}`, `GET /api/v1/info` |
+| Management (admin) | `ADMIN` | `POST /api/v1/agents/{agent_id}/reinstate` |
+
+Interactive OpenAPI documentation is served by FastAPI at `/docs` while the backend runs. The
+design notes are in [`docs/api/openapi-design.md`](docs/api/openapi-design.md).
+
+---
+
+## Technology stack
+
+- **Backend:** Python 3.13, FastAPI, Pydantic, Uvicorn, PyJWT
+- **Persistence:** SQLAlchemy 2.0, Alembic, PostgreSQL via psycopg 3 (adapters and migrations)
+- **LLM providers:** Ollama, Google Gemini (`google-genai`)
+- **Frontend:** React 19, TypeScript, React Router, TanStack Query, Axios, Vite, Tailwind CSS
+- **Quality:** pytest, Ruff, ESLint, markdownlint, pip-audit, npm audit (GitHub Actions)
+
+---
+
+## Repository structure
+
+```text
+app/
+  api/            FastAPI routers (runtime, scenarios, management, health, version) and auth
+  auth/           JWT and authorization services
+  policy/         PolicyEngine and lifecycle authorization
+  detection/      Detection rules, registry and engine
+  services/       RuntimeService, risk, response, findings, audit, sessions, scenarios, ...
+  runtime/        ExecutionAuthority, tool executor, capability registry, process sandbox
+  repositories/   Repository interfaces, in-memory and SQL adapters, composition validation
+  registry/       Tool and scenario registries
+  providers/      LLM provider adapters (Ollama, Gemini)
+  scenarios/      YAML scenario definitions
+  telemetry/      Behavioural telemetry dispatcher
+  models/         Domain and API models
+alembic/          Database migrations (0001–0010)
+frontend/         Enterprise Security Console (React + TypeScript + Vite)
+tests/            pytest suites, including security invariant and regression suites
+scripts/          dev-start.sh, dev_credentials.py, compile-requirements.sh
+demo_workspace/   Confined workspace the default file tools operate on
+docs/             ADRs, architecture, security, API, development and release documentation
 ```
 
 ---
 
-## Implemented Platform Capabilities
+## Installation and local development
 
-### Core Runtime & Provider Layer
-- Enterprise Agent Runtime
-- Provider-agnostic LLM abstraction (Ollama, Gemini)
-- Deterministic `RuntimeService` as single security authority
-- Governed tool execution through Tool Registry
-- Scenario Execution Engine & Framework
-- Runtime Capability Discovery (`CapabilityService`, `PlatformCapabilities`)
+Requirements: Python 3.13, Node.js 20+ and npm. Ollama is optional; it is needed only for
+`PROMPT`-mode scenarios and the LLM-driven agent runtime.
 
-### Security & Governance
-- JWT authentication
-- Plane authorization: each API surface declares the roles it admits, and a route may narrow its plane but never widen it
-- Agent authorization service
-- Resource-aware Policy Engine
-- Session management (`SessionService`)
-- Immutable audit event logging (`AuditService`)
+```bash
+git clone https://github.com/mathurshubh/enterprise-agent-security-platform.git
+cd enterprise-agent-security-platform
 
-### Behavioral Intelligence, Findings & Dynamic Risk
-- Threat Detection Engine & Registry
-- Prompt Injection Detection (`PROMPT_INJECTION`)
-- Sensitive File Access Detection (`SENSITIVE_FILE_ACCESS`)
-- Data Exfiltration Detection (`DATA_EXFILTRATION`)
-- Excessive Denials Detection (`EXCESSIVE_DENIALS`)
-- Security Standards Mapping (OWASP LLM Top 10, MITRE ATLAS, MITRE ATT&CK)
-- **Findings & Alerts API (`GET /api/v1/findings`, `FindingsService`)**
-- **Dynamic Risk Assessment Engine (`RiskService`, `GET /api/v1/risk-assessments`)**
-- **Risk Assessment Scope Isolation:** Derived posture indexed by composite `(session_id, agent_id)` keys with `400 Bad Request` ambiguity protection.
-- Response Actions & Zero Trust Overrides (`MONITOR`, `ALERT`, `REQUIRE_APPROVAL`, `SUSPEND_AGENT`)
+python3.13 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt   # generated lock; see local-development.md
 
-### Durable SQL State & Control-Plane Resumption (Plane 3)
-- **Relational Persistence Architecture (ADR-030):** Modern SQLAlchemy 2.0+ and Alembic migration infrastructure with strict foreign-key referential integrity (`ON DELETE RESTRICT`).
-- **Dual Monotonic Sequencing:** Session-local monotonic sequence (`1..N`) and agent-scoped monotonic sequence across sessions.
-- **Behavioral Detection Horizon:** Sliding-window aggregation $[T_{\text{eval}} - W, T_{\text{eval}}]$ with watermark baseline isolation.
-- **Monotonic Enforcement Epochs & Atomic CAS:** Concurrent transitions advance epochs monotonically with state and transition ledger committed in a single atomic transaction.
-- **Parent-Row Serialization Anchors:** Pristine state and counter creation serialized via parent `agents` row locks (`FOR UPDATE`).
-- **Execution Grant & Approval Control Plane (ADR-031):** Durable `ExecutionGrant` state machine (`PENDING -> APPROVED / REJECTED / EXPIRED -> CONSUMED`) with atomic exactly-once claim resumption.
-- **Production PostgreSQL Concurrency Authority:** Validated against 7 multi-worker MVCC race conditions on PostgreSQL 16.
-- **SQL-Backed End-to-End Security Path:** Full pipeline authorization, horizon event recording, authority grant issuance, and executor verification.
+(cd frontend && npm install)
+```
 
-### Runtime Tool Execution Isolation (v0.17, ADR-032)
-- **Process-Level Isolation Sandbox (`ProcessToolExecutionSandbox`):** Dedicated worker subprocess execution across a clean, structured JSON-only IPC boundary.
-- **Zero In-Process Fallback Guarantee:** Gateway process completely eliminates `tool.execute()` calls; missing sandbox or execution failure fails closed (verified by AST analysis and runtime canaries).
-- **Cryptographic Capability Bindings:** Grants carry HMAC-signed `capability_profile_id` and SHA-256 `capability_digest` verified prior to grant consumption.
-- **Process-Level Filesystem Guard (`FilesystemSandboxGuard`):** Enforces CWD confinement, workspace path anchoring, symlink escape detection, and isolated scratch directories.
-- **Process-Level Network Guard (`NetworkSandboxGuard`):** Standard Python socket-level hooks restricting outbound egress to declared CIDRs/ports, with default denial of loopback, link-local, cloud metadata, and Unix domain sockets.
-- **Dedicated Process-Group Lifecycle:** Full process-tree cleanup (`SIGTERM` followed by `SIGKILL`) preventing orphaned daemon persistence.
-- **Granular Execution Receipts:** Differentiates `TIMEOUT`, `RESOURCE_EXHAUSTED`, `ISOLATION_FAILURE`, and `TOOL_EXECUTION_ERROR` in evidence store and telemetry.
+### Start the backend and console
 
-#### Process Sandbox Security Boundary
-The v0.17 process sandbox provides process-level capability enforcement for standard Python execution. It is not a kernel-level hostile-code sandbox. Native extensions, raw syscalls, privileged operations, and kernel-level escape techniques are outside this boundary. Strong isolation of hostile or arbitrary native code requires a future container or microVM backend.
+```bash
+scripts/dev-start.sh
+```
 
-### Management API & Enterprise Security Console
-- Read-only Management API endpoints (`/v1/agents`, `/v1/tools`, `/v1/sessions`, `/v1/audit/events`, `/v1/findings`, `/v1/risk-assessments`)
-- Enterprise Security Console UI (`/agents`, `/tools`, `/sessions`, `/rules`, `/findings`)
+The script runs preflight checks, generates an ephemeral JWT signing secret and a matching
+least-privilege `ANALYST` token, starts the backend at `http://127.0.0.1:8000` (OpenAPI docs at
+`/docs`) and the console at `http://localhost:3000`, and verifies the credential pair. The
+token stays inside the Vite development proxy and never reaches the browser. `Ctrl+C` stops both
+processes, and the credentials stop existing. `scripts/dev-start.sh --dry-run` runs the checks
+only.
 
----
+On a fresh start the platform contains only the bootstrap agent `agent-1` and two tools. Live
+sessions, findings and audit events appear once requests reach the runtime endpoint, which
+requires an `AGENT` token. Scenario runs from the console are sandboxed and do not populate live
+state.
 
-## Security Standards Mapping
-
-Detection rules are mapped to industry security frameworks:
-
-| Rule | Framework | Control ID | Title |
-|------|-----------|------------|-------|
-| `PromptInjectionRule` | OWASP LLM Top 10 | LLM01 | Prompt Injection |
-| `PromptInjectionRule` | MITRE ATLAS | AML.T0043 | User Prompt Injection |
-| `SensitiveFileAccessRule` | MITRE ATT&CK | T1083 | File and Directory Discovery |
-| `DataExfiltrationRule` | MITRE ATT&CK | T1048 | Exfiltration Over Alternative Protocol |
-
----
-
-## Tech Stack
-
-- **Backend:** Python 3.13+, FastAPI, Pydantic, SQLAlchemy 2.0+, Alembic, PostgreSQL / psycopg v3
-- **Frontend:** React, TypeScript, TanStack Query, Vite, Tailwind CSS
-- **AI & LLM Integration:** Ollama (Llama 3.2), Google Gemini
-- **Security & Authentication:** PyJWT
-- **Testing & Quality:** Pytest, Ruff, ESLint, Vite Build
-
----
-
-## Quick Start
-
-### 1. Ollama Setup
+### Optional: local LLM
 
 ```bash
 ollama pull llama3.2:3b
 ollama serve
 ```
 
-### 2. Backend Setup & Verification
-
-```bash
-git clone https://github.com/mathurshubh/enterprise-agent-security-platform.git
-cd enterprise-agent-security-platform
-
-python3 -m venv .venv
-source .venv/bin/activate
-# requirements.txt is generated from requirements.in; see docs/development/local-development.md
-pip install -r requirements.txt
-
-# Required: the platform fails closed without an explicit signing key.
-# There is no development fallback, and .env files are not loaded.
-export JWT_SECRET_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')"
-
-.venv/bin/python -m pytest
-```
-
-### Start the development environment
-
-One command starts the backend and the Enterprise Security Console together, generating
-an ephemeral signing secret and a matching development token so no credentials are
-created or copied by hand:
-
-```bash
-scripts/dev-start.sh
-```
-
-The console is served at `http://localhost:3000` and the backend at
-`http://127.0.0.1:8000`. `Ctrl+C` stops both, and the development credentials cease to
-exist. See [Local Development](docs/development/local-development.md) for options and the
-manual alternative.
-
-### 3. Frontend Setup
-
-```bash
-cd frontend
-npm install
-npm run build
-npm run lint
-```
+The provider is chosen with `DEFAULT_PROVIDER` (`ollama` or `gemini`). See
+[docs/development/local-development.md](docs/development/local-development.md) for every
+option, the manual two-terminal alternative and dependency-lock management.
 
 ---
 
-## Testing
-
-The platform maintains a comprehensive automated test suite executed with Pytest:
-
-- **851 passing automated tests (7 xfailed)** covering authorization, policies, detection rules, findings service, risk service, runtime execution, management APIs, scenario validation, and materialized risk projections.
-- **Ruff & ESLint** workflows enforce code quality.
+## Running tests and quality checks
 
 ```bash
-.venv/bin/python -m pytest
+.venv/bin/python -m pytest                                   # full backend suite
+.venv/bin/python -m pytest -m "security_invariant or security_regression"
+.venv/bin/ruff check
+(cd frontend && npm run lint && npm run build && npm run test:dev-proxy)
+npm install && npm run lint:md                               # markdownlint, from the repo root
 ```
+
+Results at commit `8bc5c74` (2026-11-14):
+
+| Check | Result |
+|---|---|
+| Backend tests | **1,788 passed**, 11 skipped, 5 xfailed |
+| Security-marked tests | 361 passed (`security_invariant`, `security_regression`) |
+| Ruff | Clean |
+| Frontend | `npm run lint`, `npm run build` passing; dev-proxy tests 26/26 |
+| Markdownlint | Clean |
+
+The test suite provisions its own signing key (`tests/conftest.py`). CI
+([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the lock check, Ruff, pytest,
+frontend lint/build/tests, markdownlint, pip-audit and npm audit.
 
 ---
 
-## Documentation
+## Security architecture and threat model
 
-- **DevSecOps & Quality Gates:** `docs/development/ci-cd-devsecops.md`
-- **System Architecture:** `docs/architecture/system-architecture.md`
-- **Data Model:** `docs/architecture/data-model.md`
-- **Threat Model:** `docs/security/threat-model.md`
-- **AI Security Architecture Review (Jan–Aug 2026):** `docs/security/ai-security-architecture-review-jan-aug-2026.md`
-- **Architecture Validation Log:** `docs/research/architecture-validation.md`
-- **OpenAPI Design:** `docs/api/openapi-design.md`
-- **Architecture Decision Records:** `docs/adr/` (ADR-000 through ADR-028)
-- **PR #87 Documentation Audit & Plan:** `docs/research/pr-87-documentation-audit.md` & `docs/research/pr-87-documentation-plan.md`
+- [Threat model](docs/security/threat-model.md)
+- [System architecture](docs/architecture/system-architecture.md) and
+  [data model](docs/architecture/data-model.md)
+- [Tool model](docs/architecture/tool-model.md)
+- [Architecture principles](docs/ai/ARCHITECTURE_PRINCIPLES.md)
+- [AI security architecture review, Jan–Aug 2026](docs/security/ai-security-architecture-review-jan-aug-2026.md)
+  and [September 2026](docs/security/ai-security-architecture-review-september-2026.md)
+- [Scenario capability matrix](docs/security/scenario-capability-matrix.md)
+- [Enterprise Security Console architecture](docs/architecture/enterprise-security-console/README.md)
+- [CI/CD and DevSecOps](docs/development/ci-cd-devsecops.md)
+- [Security policy](SECURITY.md)
+
+The threat model covers 14 threat domains identified in the Jan–Aug 2026 review: indirect prompt
+injection, tool abuse, MCP compromise and tool poisoning, agent identity and impersonation,
+delegated authorization abuse, credential theft, AI supply-chain compromise, runtime escape,
+memory/context poisoning, workflow manipulation, agent persistence, agent-to-agent abuse,
+autonomous exploitation, and evaluation/sandbox escape. Not all of these have implemented
+controls; the [roadmap](#roadmap) separates them.
+
+### Core architectural invariants
+
+- **Policy decides. Authorization limits. Runtime enforces.**
+- **Telemetry records. Human approval escalates. Containment limits the blast radius.**
+- The LLM proposes; it never decides.
 
 ---
 
-## AI Security Roadmap
+## Architecture Decision Records
 
-The platform roadmap is grounded in the **Jan–Aug 2026 AI Security Architecture Baseline Review** ([`docs/security/ai-security-architecture-review-jan-aug-2026.md`](docs/security/ai-security-architecture-review-jan-aug-2026.md), commit `4abf2b6134d894d15bad76a0ec45db6adecb6262`).
+Decisions are recorded in [`docs/adr/`](docs/adr/), **ADR-000 through ADR-035**. Key records:
 
-The architecture follows a strict three-tier progression separating operational capabilities from upcoming architectural phases and long-term research:
+| ADR | Decision |
+|---|---|
+| [001](docs/adr/ADR-001-zero-trust-security-model.md) / [002](docs/adr/ADR-002-llm-untrusted-intent-parser.md) | Zero Trust model; LLM as untrusted intent parser |
+| [004](docs/adr/ADR-004-deterministic-security-pipeline.md) / [006](docs/adr/ADR-006-resource-aware-authorization.md) | Deterministic pipeline; resource-aware authorization |
+| [022](docs/adr/ADR-022-enterprise-security-console-evolution.md) | Enterprise Security Console information architecture |
+| [023](docs/adr/ADR-023-execution-authorization-grants.md) / [031](docs/adr/ADR-031-execution-grant-approval-control-plane.md) | Execution grants; approval control plane |
+| [024](docs/adr/ADR-024-agent-enforcement-state.md) / [025](docs/adr/ADR-025-management-plane-authorization.md) | Agent enforcement state; plane authorization |
+| [030](docs/adr/ADR-030-durable-state-repository-architecture.md) | Durable state and repository architecture (status: Proposed, with amendments) |
+| [032](docs/adr/ADR-032-runtime-tool-execution-isolation.md) | Runtime tool execution isolation |
+| [033](docs/adr/ADR-033-tool-catalog-contract.md) / [034](docs/adr/ADR-034-audit-identity-contract.md) / [035](docs/adr/ADR-035-execution-evidence-and-capability-durability.md) | Tool catalog, audit identity, evidence durability contracts |
 
-```text
-Current / Implemented (Tier 1)
-        ↓
-Next Architectural Phase (Tier 2)
-        ↓
-Future / Research (Tier 3)
-```
+---
 
-### Tier 1: Current / Implemented
-- **Policy Decision Point & Deterministic Authorization:** `RuntimeService`, `AuthorizationService`, `PolicyEngine` (ADR-004, ADR-006).
-- **Tool Authorization & Registry Governance:** `ToolRegistry` controlling capability resolution and metadata access separation (ADR-005).
-- **Resource-Aware Authorization:** Parameter-level resource path verification independent of model reasoning.
-- **Threat Detection Engine:** Stateless content inspection (`PROMPT_INJECTION`, `SENSITIVE_FILE_ACCESS`, `DATA_EXFILTRATION`) and stateful behavioral tracking (`EXCESSIVE_DENIALS`) (ADR-017).
-- **Authoritative Security Findings:** Thread-safe `FindingsService` recording immutable security evidence (ADR-016, ADR-028).
-- **Dynamic Risk Engine & Materialized Posture:** Continuous risk calculation, composite `(session_id, agent_id)` isolation, and $\mathcal{O}(1)$ materialized risk projections (`RiskAggregator`, ADR-018, ADR-026).
-- **Agent Enforcement State & Atomic Baselines:** One-way runtime suspension, baseline epoch isolation, and administrative reinstatement (ADR-024, ADR-026).
-- **Execution Authorization Grants:** Single-use execution tokens matching requested operations (`DefaultToolExecutor`, ADR-023).
-- **Management Plane Authorization:** Router-level plane authorization separating operator roles from agent execution (ADR-025).
-- **Immutable Audit Logging & Behavioral Telemetry:** Non-blocking `TelemetryDispatcher`, canonical `BehavioralEvent`, and append-only audit trail (ADR-015, ADR-028).
-- **Governed LLM Tool Selection:** Provider abstraction (Ollama, Gemini) parsing natural language into structured `ToolInvocation` objects without granting models decision authority.
-- **Human Approval Escalation:** `ResponseService` mapping elevated risk to `REQUIRE_APPROVAL` (ADR-019, ADR-020).
+## Current implementation status
 
-### Tier 2: Next Architectural Phase
-- **Agent Identity Model:** Explicit agent identity lifecycles and cryptographic workload credentials.
-- **Delegated Authorization:** Formal representation of human-to-agent and service-account delegation chains (`Human → Delegation → Agent → Tool`).
-- **Secure Execution & Runtime Enforcement:** Host-level process sandboxing, egress network filtering, and filesystem restrictions below the tool layer.
-- **Tool / Skill / MCP Registry Security:** Verification of tool provenance, publisher identity, version integrity, and capability declarations for Model Context Protocol servers.
-- **Agent Security Observability:** Distributed tracing across agent reasoning and tool boundaries (OpenTelemetry, Prometheus, Jaeger).
-- **Enhanced Prompt & Indirect Injection Detection:** Context-aware detection for indirect injection in retrieved enterprise content.
-- **Automated Adversarial Security Evaluation:** Continuous automated red-teaming pipelines (Promptfoo, Garak, PyRIT).
+- **Latest published release:** [`v0.18.0`](docs/releases/v0.18.0.md) (tag commit `cab46d7`,
+  October 2026). Git tags are the release authority. `v0.16` and `v0.17.x` were
+  development-cycle labels, never releases.
+- **`main` after v0.18.0 (unreleased):** the F-09 agent lifecycle work — the two-plane
+  administrative/enforcement lifecycle, durable administrative state (migration `0010`), and the
+  configurable repository backend with L.6 startup validation.
+- **Architecture freeze:** the platform is deliberately frozen at this milestone. The remaining
+  durability gap is enforced at startup rather than hidden.
 
-### Tier 3: Future / Research
-- **Memory & Context Security:** Controlled validation, provenance tracking, and expiration boundaries for persistent agent memory.
-- **Workflow Integrity Verification:** Multi-step tool sequence validation detecting aggregate harm from individually permitted actions.
-- **Multi-Agent Governance (A2A):** Cross-agent delegation bounds, peer verification, and cascading compromise prevention.
-- **AI Supply-Chain Attestation:** Cryptographic signing and vulnerability scanning for model weights, plugins, skills, and dependencies.
-- **Runtime Attestation & Hardware Isolation:** MicroVM / confidential computing containment for hostile agent execution.
-- **Autonomous Cyber-Operation Evaluation:** Defenses against autonomous vulnerability discovery and lateral exploitation.
-- **Advanced Incident Response:** Automated forensic capture and distributed kill switches.
-- **Provider Trust & Integrity Verification:** Dynamic evaluation of model adapter integrity and provider-side tampering.
+---
 
-### Incremental Product Demonstration & UI Track
+## Known gaps and limitations
 
-The platform pairs its backend security controls with an incremental, visible product demonstration surface.
+Stated plainly so the platform is not read as claiming more than it delivers:
 
-> **Architectural Boundary:** *The frontend is an observability and control-plane client, never a security authority.* All authorization, policy evaluation, detection, risk assessment, and enforcement decisions remain 100% server-side and deterministic.
+- **Production persistence is in-memory.** The SQL adapters and migrations are complete and
+  contract-tested, but a durable deployment is refused at startup until findings (and their
+  `evidence_sequence` allocator) are durable. Security state therefore does not survive a
+  restart in a runnable configuration today.
+- **No approval API or UI.** `ApprovalContinuation` and its repositories exist, but no route
+  lists or decides pending approvals, and the console's Approval Queue is a placeholder.
+- **Console authentication** relies on the local development proxy. Production console
+  authentication (an identity provider) is not implemented.
+- **Not yet implemented:** the ADR-033 tool catalog API projection, ADR-034 §2.5 audit
+  reconciliation detection, and persistence for execution receipts and capability profiles.
+- **Process sandbox, not a kernel sandbox** (see the sandbox boundary note above).
+- **Observed while capturing screenshots** (recorded, not fixed in this documentation change):
+  - Findings from the content rules carry a fixed epoch `created_at`, which the management API
+    projects as `detected_at`, so the console shows `1970-01-01`.
+  - The console's 10-second API timeout can expire before a local `PROMPT`-mode scenario
+    finishes with `llama3.2:3b`, and the run is reported as a timeout.
+  - Some console placeholder text still refers to `v0.13.0` as the target release.
+  - Several scenarios do not currently match their declared expectations (for example
+    `AUTH-001` and `AUTH-003` expect `REQUIRE_APPROVAL` and observe `MONITOR`). `PROMPT`-mode
+    results also vary with the local model's output.
 
-```text
-Existing Baseline
-├── Stage E-A: Scenario Execution Evidence (Implemented)
-└── Stage E-B: Live Scenario Timeline UI (Implemented)
-      │
-      ▼
-v0.16 — Durable Security State & Control Plane Foundation (In Progress)
-Backend-first focus: AgentRepository, EnforcementStateRepository, AuditEvidenceRepository (#180–#182 merged); SessionRepository (in progress); ToolRepository (planned).
-      │
-      ▼
-v0.17 — Security Operations Dashboard (Planned)
-Operational security visibility: agent status, session activity, findings/risk overview.
-      │
-      ▼
-v0.18 — Investigation / Evidence Explorer (Planned)
-Execution-level forensic timeline generalizing Stage E across live runtime events.
-      │
-      ▼
-v0.19 — Governance Console (Planned)
-Administrative management client for agents, tools, sessions, and audit evidence.
-      │
-      ▼
-v0.20 — Approval / Control Plane UI (Planned)
-Operator workflow client for ExecutionGrant review and authorization releases.
-      │
-      ▼
-v1.3 — Enterprise Browser Management Console (Planned)
-Mature enterprise operations console consolidating and scaling operational workflows.
-```
+---
 
-For the complete architectural specification and component breakdown, see [`docs/architecture/enterprise-security-console/11-implementation-roadmap.md`](docs/architecture/enterprise-security-console/11-implementation-roadmap.md).
+## Roadmap
 
-### Newly Identified Threat Domains
-The platform threat model incorporates 14 critical threat domains identified in the Jan–Aug 2026 review:
-1. Indirect Prompt Injection
-2. Tool Abuse
-3. MCP Compromise & Tool Poisoning
-4. Agent Identity & Impersonation
-5. Delegated Authorization Abuse
-6. Credential Theft
-7. AI Supply-Chain Compromise
-8. Runtime Escape & Containment Failure
-9. Memory / Context Poisoning
-10. Workflow Manipulation
-11. Agent Persistence
-12. Agent-to-Agent Abuse
-13. Autonomous Exploitation
-14. Evaluation / Sandbox Escape
+These items are **not implemented**. They follow the Jan–Aug 2026 baseline review and the
+September 2026 review.
 
-### Core Architectural Invariants
+**Next architectural phase**
 
-> **The LLM is an untrusted intent parser. The LLM may propose a ToolInvocation. Security decisions remain deterministic and outside the LLM.**
+- Durable findings and `evidence_sequence`, which unblocks a valid fully durable topology.
+- Approval queue API and operator workflow over `ApprovalContinuation`.
+- Cryptographic agent workload credentials and delegated authorization chains
+  (`Human → Delegation → Agent → Tool`).
+- Tool / skill / MCP registry security: provenance, publisher identity, version integrity.
+- Agent security observability (distributed tracing across reasoning and tool boundaries).
+- Context-aware indirect prompt injection detection.
+- Automated adversarial evaluation (red-teaming pipelines).
 
-* **Policy decides.**
-* **Authorization limits.**
-* **Runtime enforces.**
-* **Telemetry records.**
-* **Human approval escalates.**
-* **Containment limits the blast radius.**
+**Future / research**
+
+- Memory and context security; workflow integrity verification across multi-step sequences.
+- Multi-agent (A2A) governance and cascading-compromise prevention.
+- AI supply-chain attestation; container/microVM or confidential-computing isolation.
+- Multi-instance authority (`authority_generation`, ADR-030 AG.1) and advanced incident
+  response.
+
+The console's planned evolution is described in
+[`docs/architecture/enterprise-security-console/11-implementation-roadmap.md`](docs/architecture/enterprise-security-console/11-implementation-roadmap.md).
 
 ---
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License. See [LICENSE](LICENSE).
